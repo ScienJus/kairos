@@ -91,8 +91,10 @@ Blackboard 通过共享信息帮助执行者理解选择空间，Task Graph 也�
 Workflow 的典型过程是：
 
 ```text
-定义计划 → 执行计划 → 完成
+绑定 Workflow Version → 按需产生 Task → 执行 → 继续推进 → 完成
 ```
+
+Workflow Definition 可以包含循环。每次再次经过同一个定义节点时，系统创建新的 Task 实例，运行时 Task Graph 因而保持为实际执行历史。Workflow 的推进选择决定继续循环或退出，Task 实例总数上限只作为失控保护；超过上限时 WorkItem 失败。
 
 Blackboard 形成持续反馈循环：
 
@@ -109,9 +111,10 @@ Blackboard 形成持续反馈循环：
 Workflow 的完成可以从正式结构中推导：
 
 ```text
-所有 Task 已完成或跳过
-          ↓
-WorkItem 完成
+所有已产生的 Task 均已完成或跳过
++ Workflow 已没有后续 Task 需要产生
+                  ↓
+          WorkItem 完成
 ```
 
 Blackboard 的 Task Graph 保持开放。当前 Task 全部完成时，系统仍需根据 WorkItem 的目标和验收标准判断整体工作是否完成。判断结果也可能促使协作者创建新的 Task。

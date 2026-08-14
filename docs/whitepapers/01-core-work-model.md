@@ -32,6 +32,8 @@ WorkItem 承载：
 
 WorkItem 可以在创建时包含完整计划，也可以只包含目标，由协作者在执行过程中逐渐形成计划。
 
+每个 WorkItem 创建时绑定一个固定版本的 Coordination Definition。Definition 决定它采用 Workflow 或 Blackboard，并提供该协作空间的名称、说明、Agent Instructions 与 Suggested Tags。Workflow Definition 另外定义正式执行结构；Blackboard Definition 不预先定义 Task Graph。
+
 > WorkItem 是目标与成果的边界。
 
 ### 1.2 Task
@@ -54,6 +56,10 @@ Task 是单一执行者的执行边界：
 
 Task 的粒度应当支持一个执行者在一次连贯的工作过程中对其负责并产生交付。Task 可以限定由 Agent、人或两者中的任意一方执行。
 
+执行者每次正式提交结果时，Kairos 在 Task 下创建不可变的 Task Submission，并关联产生该结果的 Claim。Task 可以经历多轮执行、提交和 Review，全部 Submission 都作为共享历史保留。
+
+执行者报告失败时，Kairos 在 Task 下创建不可变的 Task Failure。重新打开产生的提示会进入后续执行上下文；全局失败则结束当前 Task 与 WorkItem。Claim、Submission、Review、Failure 和推进决策同时形成按顺序追加的 WorkItem Event 历史。
+
 > WorkItem 回答“最终要完成什么”，Task 回答“接下来具体做什么”。
 
 ## 2. Task Graph
@@ -72,21 +78,25 @@ Task Graph 可以表达：
 - 多个 Task 连接同一个后续 Task；
 - 工作拆分与组合。
 
-Workflow 和 Blackboard 使用相同的 Task Graph。上层组织语义决定图如何产生、如何演化，以及关系是否构成执行约束。
+Workflow 和 Blackboard 使用相同的运行时 Task Graph。上层组织语义决定图如何产生、如何演化，以及关系是否构成执行约束；Workflow 另外通过带版本的正式定义决定运行图如何展开。
 
 ## 3. Workflow
 
-`Workflow` 使用正式的 Task Graph 组织 WorkItem 内部的工作。
+`Workflow` 使用带版本的正式定义组织 WorkItem 内部的工作。WorkItem 创建时绑定一个已发布的 Workflow Definition ID 与 Version，此后不会随 Workflow 的新版本变化。
 
 ```text
 设计 ──→ 实现 ──→ 测试
 ```
 
-图中的关系具有约束力。“设计 → 实现”表示设计完成后，实现才进入合法的选择空间。
+定义中的关系具有约束力。“设计 → 实现”表示设计完成后，系统才会为当前 WorkItem 产生“实现”Task。
+
+Workflow 执行时按推进需要实例化 Task。定义中的同一个节点被多次经过时，每次产生新的 Task 实例，使每一轮执行都保留独立的 Claim、进展和成果。由这些实例组成的运行时 Task Graph 记录实际执行历史。
 
 Workflow 的主要特征包括：
 
-- Task 及其关系通常预先定义；
+- WorkItem 绑定固定的 Workflow Definition ID 与 Version；
+- Task 及其关系来自该版本的正式定义；
+- Task 实例随 Workflow 推进按需产生；
 - 前置依赖由系统强制执行；
 - 运行期间的结构修改受到规则约束；
 - 系统根据结构计算当前合法的候选 Task；
@@ -99,6 +109,8 @@ Workflow 的主要特征包括：
 ## 4. Blackboard
 
 `Blackboard` 是 WorkItem 内由协作者共同维护的开放协作空间。WorkItem 提供目标、背景、约束和验收标准，Task Graph 则在执行过程中逐渐形成。
+
+WorkItem 绑定一个固定版本的 Blackboard Definition。Definition 确定 WorkItem 的协作空间归属，并为参与者提供全局说明、Agent Instructions 与 Suggested Tags，但不提供初始 Task Graph。
 
 初始状态可以只包含工作目标：
 

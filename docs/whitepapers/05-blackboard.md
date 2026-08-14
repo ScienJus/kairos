@@ -10,7 +10,7 @@ Task Relation 在 Blackboard 中表达推进建议。它帮助执行者理解工
 
 ## 1. Blackboard 结构
 
-一个 Blackboard 至少包含 WorkItem 的目标、背景、约束和验收标准：
+Blackboard Definition 定义一个共享协作空间，包括名称、说明、Agent Instructions 与 Suggested Tags。它不预先定义 Task Graph。每个 WorkItem 绑定一个固定的 Definition Version，并在这个空间内提供自己的目标、背景、约束和验收标准：
 
 ```text
 WorkItem：实现登录功能
@@ -36,6 +36,8 @@ Tasks：[]
 ```
 
 Blackboard 中的 Task Graph 是当前工作认知的共享表达。
+
+Suggested Tags 提供开放的标签词汇，例如 `module:*` 或 `kind:*`。Agent 在创建和推进 Task 时根据实际内容选择具体 tags；这些建议不构成权限或格式约束。
 
 ## 2. 规划与执行
 
@@ -111,7 +113,11 @@ Blackboard 将规划自主性持续开放给协作者：
 - 根据成果重新规划下一步；
 - 判断是否需要人工 Review。
 
-人工 Review 可以由执行者在提交成果时请求，也可以由人直接发起。Review 作用于当前 Task，不要求在 Blackboard 初始结构中预先配置。
+人工 Review 可以由执行者在提交成果时请求，也可以由人在 Task 正式结束前要求下一次提交进入 Review。Review 作用于当前 Task，不要求在 Blackboard 初始结构中预先配置。
+
+执行者提交成果并发起 Review 时，系统从当前 Claim 创建不可变的 Task Submission，Review 关联该 Submission，随后结束 Claim 并将 Task 置为 `InReview`。每次 Submission、Review 决定和反馈都按时间顺序保留，全部进入该 Task 的共享上下文。审核期间没有 Active Claim，Reviewer 处理审核记录，不领取一个新的 Task。Review 通过后 Task 正式结束；Review 驳回后 Task 回到 `Pending`，由原执行者或其他执行者重新 Claim。
+
+其他未结束且未被 Claim 的 Task 仍可继续执行。Blackboard 的 Task Relation 是推进建议，因此某个 Task 正在 Review 不会自动阻止其他 Task 成为候选。
 
 Blackboard 的自主性来自持续规划，因此无需通过预配置的 optional Task 标记来预留跳过位置。协作者只创建当前认为有价值的 Task，也可以在判断改变后将已有 Task 标记为 Skipped 并记录原因。
 

@@ -61,6 +61,17 @@ Task A → 执行者 2    不合法
 
 > Claim 表示 Task 的独占执行责任，与任务采用何种分发方式无关。
 
+Claim 只覆盖执行者正在处理 Task 的阶段。执行者提交 Task 进入人工 Review 时，当前 Claim 结束；等待 Review 期间 Task 不需要保活，也不能被新的执行者领取。Review 驳回后 Task 重新进入候选集合，由原执行者或其他执行者建立新的 Claim。
+
+执行者无法完成 Task 时也会结束当前 Claim，并创建不可变的 Task Failure：
+
+```text
+reopen         → Task 回到 Pending
+fail_work_item → Task 与 WorkItem 进入 Failed
+```
+
+`reopen` 可以携带 Retry Prompt。全部失败原因与 Retry Prompt 都保留在 Task 上下文中，新的执行者在后续 Claim 中继续处理。`fail_work_item` 停止产生和领取新 Task，其他 Active Claim 随 WorkItem 失败而结束。
+
 ## 3. 责任建立方式
 
 Claim 与任务获取方式相互独立。Task 的执行者可以通过多种方式产生：
@@ -111,6 +122,8 @@ WorkItem
 ```
 
 > Task 属于 WorkItem，Task 的进展和成果也应进入共享工作模型。
+
+每次正式提交形成一条不可变的 Task Submission。Submission 关联产生它的 Claim，并保存该轮交付结果；后续返工产生新的 Submission，不覆盖此前成果。Review 直接关联被审核的 Submission，Failure 关联失败的 Claim，使全部提交、反馈和失败原因都能够追溯。
 
 不同执行者通过各自 Task 的成果形成协作链条：
 
