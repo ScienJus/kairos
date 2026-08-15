@@ -1,68 +1,68 @@
-# Kairos Workflow
+# Kairos Workflow Mode
 
-> 预定义 Task Graph 中的约束与执行者自主性
+> Constraints and executor autonomy in a predefined Task Graph
 
-## 摘要
+## Abstract
 
-Workflow 使用带版本的正式定义组织一个 WorkItem。WorkItem 创建时绑定固定的 Workflow ID 与 Version，系统在执行过程中按需产生 Task，并根据正式关系决定如何继续推进。
+Workflow organizes a WorkItem with a versioned formal definition. The WorkItem is bound to a fixed Workflow ID and Version at creation. During execution, the system creates Tasks on demand and advances them according to formal relations.
 
-Workflow 也可以显式保留执行者的判断空间。每个 Task 可以配置执行者类型与 Role、是否允许跳过，以及是否需要人工 Review。执行者在完成当前 Task 时可以同时作出推进决策；执行者为 Agent 时，无需为判断 optional Task 额外启动一次 Agent。
+Workflow can also reserve explicit decision space for executors. Each Task can configure its executor type and roles, whether it may be skipped, and whether human Review is required. An executor makes progression decisions while completing the current Task. When the executor is an agent, deciding about optional Tasks does not require an extra agent invocation.
 
-## 1. Workflow 结构
+## 1. Workflow Structure
 
-WorkItem 创建时绑定一个已发布的 Workflow Definition ID 与 Version。这个绑定在 WorkItem 生命周期内保持不变，Workflow 后续发布的新版本不会改变已经开始的工作。
+A WorkItem is bound to a published Workflow Definition ID and Version when created. This binding remains unchanged throughout the WorkItem lifecycle; later Workflow versions do not alter work that has already started.
 
-Workflow Definition 还可以提供作用于全部运行时 Task 的 Agent Instructions 与 Suggested Tags。Suggested Tags 由执行者用于动态标注具体 Task，不参与 Workflow 前置关系和候选资格计算。
+A Workflow Definition can also provide Agent Instructions and Suggested Tags that apply to all runtime Tasks. Executors use Suggested Tags to label concrete Tasks dynamically. The tags do not participate in prerequisite or candidate eligibility calculations.
 
-Workflow Graph 由起点、Task Definition、单向 Relation 和 `MaxTaskExecutions` 组成。一个 Workflow 可以有多个起点；WorkItem 创建时同时产生全部起始 Task，因此起始 Task 必须是 required。Task Definition 可以配置 Default Tags，系统在产生运行时 Task 时复制这些标签，执行者仍可按实际情况调整。
+A Workflow Graph consists of start points, Task Definitions, directed Relations, and `MaxTaskExecutions`. A Workflow can have multiple start points. All start Tasks are created with the WorkItem and must therefore be required. A Task Definition can include Default Tags, which the system copies to runtime Tasks; executors can still adjust them as needed.
 
-Workflow Definition 描述可以重复到达的任务节点和推进关系，运行时则从定义的起点开始，在到达相应节点时产生具体 Task：
-
-```text
-Workflow Definition：设计 → 实现 → 测试
-
-WorkItem Runtime：设计 #1 → 实现 #1 → 测试 #1
-```
-
-每个 Task 实例具有独立的 Claim、进展和成果。系统在前一批 Task 正式结束后产生后续 Task；运行时的一个 Task 实例具有多个前置 Task 时，默认等待这些具体实例全部结束。
-
-Kairos 使用内部的 Workflow Task Activation 汇聚同一次展开产生的前置结果。Activation 通过 correlation 区分并行分支和不同循环轮次；输入全部确定后才产生可执行的 Task，它本身不会被执行者看到或 Claim。
-
-Workflow Definition 可以包含循环：
+The Workflow Definition describes revisitable task nodes and progression relations. Runtime execution starts from the definition’s start points and creates concrete Tasks as nodes are reached:
 
 ```text
-实现 → 测试
- ↑      │
- └──────┘
+Workflow Definition: Design → Implement → Test
+
+WorkItem Runtime: Design #1 → Implement #1 → Test #1
 ```
 
-再次经过同一个定义节点时，系统创建新的 Task 实例：
+Every Task instance has independent Claims, progress, and results. The system creates downstream Tasks after the previous set of Tasks formally ends. When one runtime Task instance has multiple predecessor instances, it waits for all of those concrete instances to end by default.
+
+Kairos uses an internal Workflow Task Activation to aggregate predecessor results from one unfolding. Activations use correlation to distinguish parallel branches and different cycle iterations. An Activation creates an executable Task only after every input is resolved; it is never exposed to or claimed by an executor.
+
+A Workflow Definition can contain cycles:
 
 ```text
-实现 #1 → 测试 #1 → 实现 #2 → 测试 #2
+Implement → Test
+    ↑        │
+    └────────┘
 ```
 
-Workflow 发布时，系统根据图结构为每个 Task 推导推进选择：每条留在当前循环中的出边分别形成一个 Continue Group，离开循环的出边合并为一个 Exit Group。多个 Continue Group 与 Exit Group 互斥；执行者选择其中一个组。循环内出边不表达并行或前置关系。普通无环节点只有一个 Exit Group。
-
-选择 Continue Group 即表示保留并产生其目标 Task，该次激活不再应用目标 Task 的 optional 配置。未选择的 Continue Group 不产生 Task。
-
-选择 Exit Group 后，其中的 required Task 自动产生，optional Task 仍由执行者判断是否保留。循环必须存在出口；`MaxTaskExecutions` 限制一个 WorkItem 最多产生的 Task 实例总数，只作为失控保护。配置为零时使用系统默认值，不表示无限。运行时 Task Graph 只连接具体实例，因此始终记录为无环的执行历史。
-
-执行者提交 Task 时，Kairos 保存一条 Transition Decision，记录选择的 Group、触发或跳过的 Relation、执行者和理由。需要 Review 时，Decision 暂不应用；Review 通过后再应用并产生下游 Task。被驳回的 Decision 作为未应用历史保留，同一个运行时 Task 最多应用一条 Decision。Decision、Activation、下游 Task 与 Task Relation 在同一事务中更新。
-
-并行前置关系仍按实例聚合：
+Revisiting the same definition node creates a new Task instance:
 
 ```text
-前端实现 ─┐
-后端实现 ─┼→ 集成测试
-编写文档 ─┘
+Implement #1 → Test #1 → Implement #2 → Test #2
 ```
 
-Task 的前置关系只有一种统一含义：全部前置 Task 均已完成或跳过，当前 Task 才能继续推进。
+When a Workflow is published, the system derives progression choices for each Task from the graph structure. Every outgoing edge that remains inside the current cycle forms its own Continue Group. Edges leaving the cycle are combined into one Exit Group. Multiple Continue Groups and the Exit Group are mutually exclusive, and the executor selects one group. Cycle-internal edges do not express parallelism or prerequisites. A regular acyclic node has only one Exit Group.
 
-## 2. Task 配置
+Selecting a Continue Group retains and creates its target Task. The target Task’s optional configuration does not apply to that Activation. Unselected Continue Groups do not create Tasks.
 
-Workflow 为每个 Task 配置四项设置：
+After selecting the Exit Group, its required Tasks are created automatically, while the executor still decides whether to retain optional Tasks. Every cycle must have an exit. `MaxTaskExecutions` limits the total Task instances a WorkItem may create and serves only as runaway protection. Zero selects the system default; it does not mean unlimited. The runtime Task Graph connects only concrete instances and therefore remains an acyclic execution history.
+
+When an executor submits a Task, Kairos stores a Transition Decision containing the chosen Group, triggered or skipped Relations, executor, and reason. If Review is required, the Decision remains unapplied until Review approves it and downstream Tasks are created. A rejected Decision remains as unapplied history. At most one Decision can be applied for a runtime Task. The Decision, Activation, downstream Tasks, and Task Relations are updated in one transaction.
+
+Parallel prerequisites are still aggregated by concrete instance:
+
+```text
+Frontend implementation ─┐
+Backend implementation  ─┼→ Integration test
+Documentation           ─┘
+```
+
+A Task prerequisite has one consistent meaning: the current Task can advance only after all predecessor Tasks are completed or skipped.
+
+## 2. Task Configuration
+
+Workflow configures four settings for each Task:
 
 ```text
 executor:
@@ -83,148 +83,148 @@ review:
   required
 ```
 
-`executor` 定义 Task 可以由 Agent、人或两者中的任意一方执行。
+`executor` defines whether a Task can be executed by an agent, a person, or either.
 
-`roles` 限定可以发现和领取该 Task 的 Agent Role。人工 Task 不受 Agent Role 影响。
+`roles` limits the agent roles that can discover and claim the Task. Human Tasks are unaffected by agent roles.
 
-`execution` 定义 Task 是否允许跳过：
+`execution` determines whether a Task may be skipped:
 
-| 配置 | 语义 |
+| Value | Semantics |
 | --- | --- |
-| `required` | Task 必须执行 |
-| `optional` | 执行者可以保留或跳过 Task |
+| `required` | The Task must execute |
+| `optional` | An executor can retain or skip the Task |
 
-optional 配置应用于 Exit Group 中的 Task。Task 通过 Continue Group 被选择时，该选择本身构成 keep 判断，Task 直接产生。
+Optional configuration applies to Tasks in an Exit Group. When a Task is selected through a Continue Group, the selection itself is the keep decision and the Task is created directly.
 
-没有前置 Task 的起始 Task 必须配置为 `required`。每个 optional Task 至少具有一个前置 Task，其是否执行由前置执行者判断。
+A start Task without predecessors must be `required`. Every optional Task has at least one predecessor, whose executor decides whether it should execute.
 
-`review` 定义 Task 结束前的人工 Review 要求：
+`review` defines the human Review requirement before the Task ends:
 
-| 配置 | 语义 |
+| Value | Semantics |
 | --- | --- |
-| `none` | 无需人工 Review |
-| `executor_decides` | 执行者判断是否请求人工 Review |
-| `required` | 必须通过人工 Review |
+| `none` | No human Review |
+| `executor_decides` | The executor decides whether to request human Review |
+| `required` | Human Review must approve |
 
-这些配置定义执行者可以作出判断的位置，同时保持 Workflow 的整体结构稳定。
+These settings define where executors may exercise judgment while keeping the overall Workflow structure stable.
 
-## 3. 候选 Task
+## 3. Candidate Tasks
 
-一个 required Task 在满足以下条件后进入候选集合：
-
-```text
-所有前置 Task 已完成或跳过
-+ 当前 Task 尚未结束
-+ 当前没有 Claim
-+ 执行者类型匹配
-+ 执行者为 Agent 时 Role 匹配
-```
-
-多个 Task 同时满足条件时，系统返回多个候选。人或 Agent 可以主动选择，Bridge 也可以派发。
+A required Task enters the candidate set when:
 
 ```text
-[前端实现, 后端实现, 编写文档]
+all predecessor Tasks are completed or skipped
++ the current Task has not ended
++ the current Task has no Claim
++ executor type matches
++ role matches when the executor is an agent
 ```
 
-未被选择的 required Task 继续保留在候选集合中，直到被执行。optional Task 也可以由执行者决定跳过。
-
-## 4. Optional Task 的推进
-
-每个前置 Task 结束时，都附带对其所连接 optional Task 的判断。该判断由完成前置 Task 或决定跳过它的执行者给出；执行者为 Agent 时不会增加 Agent 调用。
-
-当 optional Task 的所有前置 Task 都已结束后，系统聚合各个执行者的判断：
-
-- 任意执行者选择保留：Task 进入候选集合；
-- 所有执行者都选择跳过：形成跳过决定；
-- 某个执行者未给出判断：默认保留 Task。
+When multiple Tasks meet these conditions, the system returns multiple candidates. A person or agent can choose proactively, or a Bridge can dispatch one.
 
 ```text
-前端执行者：跳过 ─┐
-后端执行者：保留 ─┼→ 编写文档进入候选集合
-设计执行者：跳过 ─┘
+[Frontend implementation, Backend implementation, Documentation]
 ```
 
-跳过采用一致同意原则：
+Unselected required Tasks remain in the candidate set until executed. An executor can also decide to skip an optional Task.
+
+## 4. Optional Task Progression
+
+Whenever a predecessor Task ends, it carries a decision for each connected optional Task. The executor that completed or skipped the predecessor supplies the decision. An agent executor does so without an additional agent invocation.
+
+After every predecessor of an optional Task has ended, the system aggregates their decisions:
+
+- if any executor chooses to retain it, the Task enters the candidate set;
+- if every executor chooses to skip it, a skip decision is formed;
+- if an executor provides no decision, the Task is retained by default.
+
+```text
+Frontend executor: skip ─┐
+Backend executor: keep  ─┼→ Documentation enters the candidate set
+Design executor: skip   ─┘
+```
+
+Skipping requires unanimous agreement:
 
 ```text
 keep = OR(keep₁, keep₂, ..., keepₙ)
 skip = AND(skip₁, skip₂, ..., skipₙ)
 ```
 
-一个 optional Task 只有一个前置 Task 时，无需等待其他执行者的判断，相关 Review 要求满足后即可生效。连续出现多个 optional Task 时，同一个执行者可以在一次推进中依次判断：
+An optional Task with one predecessor does not wait for other executors. Its decision takes effect as soon as any associated Review requirement is satisfied. When multiple optional Tasks occur consecutively, the same executor can decide all of them in one progression:
 
 ```text
-后端实现
-    ↓
-编写文档（optional） → 跳过
-    ↓
-更新示例（optional） → 跳过
-    ↓
-集成测试（required） → 进入候选集合
+Backend implementation
+        ↓
+Documentation (optional) → skip
+        ↓
+Update examples (optional) → skip
+        ↓
+Integration test (required) → enters candidate set
 ```
 
-执行者将这些判断作为 Skip Intent 随当前提交保存，只需列出本次允许跳过的 optional Task。Kairos 根据 Workflow Definition 将其应用到当前可达路径；遇到需要执行的 Task 即停止继续应用。并行路径独立推进，多条路径汇合时采用一致同意原则。任一路径需要 Review 时，该路径等待 Review 通过后继续推进。
+The executor stores these decisions as Skip Intent with the current submission and lists only the optional Tasks that this progression may skip. Kairos applies the intent to the currently reachable path according to the Workflow Definition and stops when it reaches a Task that must execute. Parallel paths advance independently; when paths join, the unanimous-agreement rule applies. If any path requires Review, that path waits for approval before advancing.
 
 ## 5. Review
 
-执行者提交当前 Task 时，根据 Review 配置决定后续过程：
+When submitting the current Task, the executor follows its Review configuration:
 
 ```text
-提交 Task
+Submit Task
     ↓
 Review Policy
- ├── none ───────────→ 结束
- ├── executor_decides → 结束 / Review
+ ├── none ───────────→ end
+ ├── executor_decides → end / Review
  └── required ───────→ Review
 
-Review 通过 ─────────→ 结束
-Review 驳回 ─────────→ Pending → 重新 Claim
+Review approved ─────→ end
+Review rejected ─────→ Pending → claim again
 ```
 
-Review 是同一个 Task 的状态。执行者提交 Review 时，系统从当前 Claim 创建不可变的 Task Submission，Review 关联该 Submission，随后结束 Claim 并将 Task 置为 `InReview`。等待 Review 期间没有 Active Claim，Reviewer 处理审核记录，不领取该 Task。
+Review is a state of the same Task. When the executor submits for Review, the system creates an immutable Task Submission from the current Claim, links the Review to that Submission, ends the Claim, and moves the Task to `InReview`. There is no Active Claim while waiting. The Reviewer acts on the Review record and does not claim the Task.
 
-每次 Review 请求、决定和反馈都记录在当前 Task 下，并按时间顺序保留为完整审核历史。Task 上下文向执行者提供全部 Review 记录。Review 通过后 Task 正式结束；Review 驳回后 Task 回到 `Pending`，由原执行者或其他执行者重新 Claim，并在完整审核历史上继续处理。
+Every Review request, decision, and feedback record remains on the Task in chronological order as complete Review history. Task context supplies the entire history to executors. Approval formally ends the Task. Rejection returns it to `Pending`, allowing either the original or another executor to create a new Claim and continue with the complete Review history.
 
-optional Task 的跳过也是一种结束决定，其 Review 配置以相同方式生效：
+Skipping an optional Task is also an ending decision, and the same Review configuration applies:
 
-- `none`：直接跳过；
-- `executor_decides`：任意前置执行者请求人工确认时进入 Review；
-- `required`：人工确认后跳过。
+- `none`: skip directly;
+- `executor_decides`: enter Review when any predecessor executor requests human confirmation;
+- `required`: skip only after human confirmation.
 
-跳过决定 Review 通过后，optional Task 标记为 Skipped；Review 驳回后，该 Task 被保留并进入候选集合。Review 检查的是前置执行者作出的跳过决定，不会为 optional Task 建立 Claim。
+After approval of the skip decision, the optional Task becomes Skipped. Rejection retains the Task and places it in the candidate set. The Review evaluates the predecessor executor’s skip decision and does not create a Claim for the optional Task.
 
-每个执行者对 optional Task 的判断随当前 Task 一并提交，并在当前 Task 所需的 Review 通过后参与聚合。跳过决定所需的 Review 通过后，Workflow 继续推进；执行者为 Agent 时无需再次启动 Agent。
+Each executor submits its decision about an optional Task with the current Task. That decision joins aggregation after the current Task’s own Review requirements are satisfied. Once any Review required by the skip decision approves, Workflow continues. An agent executor is not started a second time.
 
-## 6. 执行者自主性
+## 6. Executor Autonomy
 
-Workflow 通过配置明确执行者的判断空间：
+Workflow uses configuration to define explicit spaces for executor judgment:
 
 ```text
-人类定义 Task Graph 和策略
-            ↓
-系统保证前置关系
-            ↓
-执行者判断 optional Task 与 Review
+People define Task Graph and policies
+                ↓
+System enforces prerequisites
+                ↓
+Executor decides optional Tasks and Review
 ```
 
-执行者的自主性体现在：
+Executor autonomy includes:
 
-- 从多个候选 Task 中选择工作；
-- 判断当前 Task 所连接的 optional Task 是否值得执行；
-- 在 `executor_decides` 模式下判断是否需要人工 Review。
+- choosing work from multiple candidate Tasks;
+- deciding whether optional Tasks connected to the current Task are worthwhile;
+- deciding whether to request human Review under `executor_decides`.
 
-前置依赖、required Task 和 required Review 仍然由 Workflow 强制保证。执行者为 Agent 时，这些决策体现 Agent 自主性。
+Workflow continues enforcing prerequisites, required Tasks, and required Review. When the executor is an agent, these decisions express agent autonomy.
 
-## 7. WorkItem 完成
+## 7. WorkItem Completion
 
-Task 有两种结束结果：
+A Task has two ending outcomes:
 
 ```text
 Completed
 Skipped
 ```
 
-需要 Review 的结果在 Review 通过后才正式生效。所有已经产生的 Task 均已完成或跳过，并且 Workflow 已没有后续 Task 需要产生时，WorkItem 完成：
+A result requiring Review does not take effect until approval. A WorkItem completes when every produced Task is completed or skipped and Workflow has no downstream Task left to create:
 
 ```text
 ∀ Runtime Task: Completed or Skipped
@@ -233,6 +233,6 @@ Skipped
     WorkItem Completed
 ```
 
-Task 实例总数达到 `MaxTaskExecutions` 时，WorkItem 进入 Failed。
+When the Task instance count reaches `MaxTaskExecutions`, the WorkItem becomes Failed.
 
 > Workflow defines the constraints; executor autonomy operates at explicitly configured decision points.

@@ -1,16 +1,16 @@
 # Kairos Agent Identity Model
 
-> 可信身份、Role 与 Agent 可参与的工作范围
+> Trusted identity, roles, and the work an agent may participate in
 
-## 摘要
+## Abstract
 
-Kairos 为 Agent 提供原生身份。一个 Agent Identity 包含稳定标识、名称和一个或多个 Role，并通过 Token 进行认证。Agent 只需携带 Token，Kairos 即可识别其身份，并返回它可以看见和领取的 Task。
+Kairos provides agents with native identity. An Agent Identity contains a stable identifier, name, and one or more roles, and is authenticated with a Token. An agent only needs to carry its Token; Kairos resolves its identity and returns the Tasks it can see and claim.
 
-Kairos 也支持 Trusted Mode。在受信环境中，Agent 可以直接声明 name 和 roles，无需 Token。两种模式使用相同的任务发现和执行模型，但提供不同程度的身份可信性。
+Kairos also supports Trusted Mode. In a trusted environment, an agent can declare its own name and roles without a Token. Both modes use the same Task discovery and execution model but provide different levels of identity assurance.
 
 ## 1. Agent Identity
 
-Agent Identity 表达一个 Agent 在 Kairos 中的稳定身份：
+Agent Identity represents a stable agent identity inside Kairos:
 
 ```text
 Agent Identity
@@ -20,23 +20,23 @@ Agent Identity
 └── credentials
 ```
 
-- `id` 是稳定标识；
-- `name` 用于展示和协作记录；
-- `roles` 表达 Agent 可以承担的工作类型；
-- `credentials` 用于证明该身份。
+- `id` is the stable identifier;
+- `name` is used in presentation and collaboration records;
+- `roles` express the kinds of work the agent can perform;
+- `credentials` prove the identity.
 
-一个 Agent 可以具有多个 Role：
+An agent can have multiple roles:
 
 ```text
 name: codex-backend
 roles: [backend, database]
 ```
 
-Role 保持简单、显式，并由项目或团队按照自身工作划分定义。Kairos 不需要为 Role 引入能力评分或自动匹配模型。
+Roles remain simple and explicit and are defined by each project or team according to its own division of work. Kairos does not require capability scoring or automatic matching for roles.
 
 ## 2. Token
 
-Token 是 Agent Identity 的认证凭证：
+A Token authenticates an Agent Identity:
 
 ```text
 Token
@@ -46,97 +46,97 @@ Agent Identity
 name + roles
 ```
 
-Agent 调用 Kairos 时只需要携带 Token，不必重复声明 name 和 roles。Token 可以被轮换或撤销，Agent Identity 以及它产生的协作记录保持不变。
+An agent calling Kairos carries only the Token and does not repeatedly declare its name and roles. A Token can be rotated or revoked without changing the Agent Identity or its collaboration history.
 
-Token 应保存在 Agent 的运行环境中，不进入 WorkItem、Task 或项目文档。
+Tokens belong in the agent execution environment, not in WorkItems, Tasks, or project documentation.
 
 ## 3. Authenticated Mode
 
-Authenticated Mode 由 Kairos 管理 Agent Identity 并签发 Token：
+In Authenticated Mode, Kairos manages Agent Identities and issues Tokens:
 
 ```text
-Agent 携带 Token
-      ↓
-Kairos 验证身份
-      ↓
-使用已配置的 name 和 roles
+Agent supplies Token
+        ↓
+Kairos authenticates identity
+        ↓
+Use configured name and roles
 ```
 
-Agent 不能通过请求临时扩大自己的 Role。Task 发现和领取均使用 Kairos 中已授予的身份信息。
+An agent cannot temporarily expand its roles through a request. Task discovery and claiming both use the identity information granted in Kairos.
 
-这种模式适合需要明确身份归属和访问控制的共享环境。
+This mode is suited to shared environments requiring explicit identity attribution and access control.
 
 ## 4. Trusted Mode
 
-Trusted Mode 适合本地开发、受信网络和其他身份已由运行环境保证的场景：
+Trusted Mode is suited to local development, trusted networks, and other environments where identity is already guaranteed by the runtime:
 
 ```text
 name: local-codex
 roles: [backend]
 ```
 
-Agent 无需 Token，直接声明 name 和 roles。Kairos 信任这些信息，并以此进行任务发现和协作记录。
+The agent declares its name and roles without a Token. Kairos trusts the declaration and uses it for Task discovery and collaboration records.
 
-Trusted Mode 的信任边界是运行环境。它提供身份标识和 Role 语义，但不提供 Authenticated Mode 的认证保证。
+The trust boundary of Trusted Mode is the runtime environment. It provides identity labels and role semantics but not the authentication guarantees of Authenticated Mode.
 
-## 5. Role 与 Workflow
+## 5. Roles and Workflow
 
-Workflow 中的 Role 是正式约束。Task 可以配置允许执行它的 Role：
+In Workflow, a role is a formal constraint. A Task can configure the roles allowed to execute it:
 
 ```text
-Task: 实现登录接口
+Task: Implement login API
 executor: agent
 roles: [backend]
 ```
 
-一个 Task 对 Agent 可见，需要同时满足：
+For a Task to be visible to an agent, all of the following must hold:
 
 ```text
-Workflow 前置关系满足
-+ Task 允许 Agent 执行
-+ Agent Role 匹配
-+ Task 当前没有 Claim
+Workflow prerequisites satisfied
++ Task permits agent execution
++ Agent role matches
++ Task has no current Claim
 ```
 
-Role 也参与领取校验。拥有 `backend` Role 的 Agent 可以领取上述 Task，其他 Agent 无法通过改变查询条件绕过限制。
+Role is also validated when claiming. An agent with the `backend` role can claim the Task above; another agent cannot bypass the restriction by changing its query.
 
-因此，Workflow 使用 Role 定义 Agent 的合法工作范围。
+Workflow therefore uses roles to define the agent’s legal work space.
 
-## 6. Role 与 Blackboard
+## 6. Roles and Blackboard
 
-Blackboard 中的 Role 主要帮助 Agent 发现相关工作：
+In Blackboard, roles primarily help agents discover relevant work:
 
 ```text
 Agent roles: [backend]
 Task tags: [backend, auth]
 ```
 
-Kairos 可以根据 Agent Role 提供默认 tags 或查询范围，Agent 再结合 Task 描述和当前上下文作出选择。
+Kairos can derive default tags or query scope from agent roles, after which the agent chooses using the Task description and current context.
 
-Blackboard 的 tags 表达工作分类和发现线索，不自动成为访问权限。需要限制某个 Task 时，应显式配置允许的 Role。
+Blackboard tags describe work categories and discovery hints; they do not automatically become access permissions. A Task that needs restriction should explicitly configure its allowed roles.
 
-Workflow Definition 和 Blackboard Definition 都可以提供 Suggested Tags，例如 `module:*`。Agent 根据实际工作为 Task 添加具体 tags；Definition 只提供推荐词汇，不要求人持续维护每个 Task 的标签。
+Both Workflow Definition and Blackboard Definition can provide Suggested Tags such as `module:*`. Agents add concrete tags to Tasks from the actual work. A Definition supplies only the recommended vocabulary and does not require people to maintain every Task label continuously.
 
-因此，Blackboard 默认使用 Role 改善任务发现，也允许在需要时施加明确约束。
+Blackboard therefore uses roles for discovery by default while allowing explicit constraints when needed.
 
 ## 7. AGENTS.md
 
-`AGENTS.md` 描述 Agent 在当前代码库或目录中应当遵循的工作规则。它与 Agent Identity 解决不同问题：
+`AGENTS.md` describes the work rules an agent must follow in a repository or directory. It solves a different problem from Agent Identity:
 
 ```text
-Agent Identity → Agent 是谁、具有什么 Role
-AGENTS.md       → 在当前项目中如何工作
+Agent Identity → who the agent is and which roles it has
+AGENTS.md       → how work should be performed in this project
 ```
 
-AGENTS.md 适合保留在项目仓库中：
+AGENTS.md belongs in the project repository:
 
-- 与代码版本同步变化；
-- 可以按照目录继承和覆盖；
-- 对应当前 checkout 或 worktree；
-- 由 Agent Harness 在执行时读取。
+- it changes with the code version;
+- it can inherit and override rules by directory;
+- it corresponds to the current checkout or worktree;
+- the Agent Harness reads it during execution.
 
-Kairos 可以在 Task 上提供仓库和工作目录信息，使 Agent 找到对应的 AGENTS.md。平台不需要复制或取代仓库中的规则文件。
+Kairos can provide repository and working-directory information on a Task so an agent can locate the applicable AGENTS.md. The platform does not need to copy or replace repository rules.
 
-Kairos 可以托管轻量的 Agent Profile，例如 name、roles 和描述；项目级执行规则仍由仓库维护。
+Kairos can host a lightweight Agent Profile with fields such as name, roles, and description, while project execution rules remain in the repository.
 
 > Agent identity establishes who is acting; roles define which work the agent may participate in.

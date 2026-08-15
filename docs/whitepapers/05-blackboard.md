@@ -1,107 +1,107 @@
-# Kairos Blackboard
+# Kairos Blackboard Mode
 
-> 执行过程中持续形成的共享 Task Graph
+> A shared Task Graph formed continuously during execution
 
-## 摘要
+## Abstract
 
-Blackboard 从明确的 WorkItem 目标开始，Task Graph 可以为空或不完整。人和 Agent 在执行过程中共同创建、选择和调整 Task，使计划随着工作认知持续演化。
+Blackboard begins with an explicit WorkItem objective while allowing the Task Graph to be empty or incomplete. People and agents jointly create, select, and adjust Tasks during execution, allowing the plan to evolve with their understanding of the work.
 
-Task Relation 在 Blackboard 中表达推进建议。它帮助执行者理解工作结构，同时保留对执行顺序和下一步工作的判断权。
+In Blackboard, Task Relation expresses progression guidance. It helps executors understand the work structure while preserving their judgment over execution order and next steps.
 
-## 1. Blackboard 结构
+## 1. Blackboard Structure
 
-Blackboard Definition 定义一个共享协作空间，包括名称、说明、Agent Instructions 与 Suggested Tags。它不预先定义 Task Graph。每个 WorkItem 绑定一个固定的 Definition Version，并在这个空间内提供自己的目标、背景、约束和验收标准：
-
-```text
-WorkItem：实现登录功能
-Tasks：[]
-```
-
-协作者根据当前理解建立初始 Task：
+A Blackboard Definition defines a shared collaboration space with a name, description, Agent Instructions, and Suggested Tags. It does not predefine a Task Graph. Every WorkItem is bound to a fixed Definition Version and supplies its own objective, background, constraints, and acceptance criteria within that space:
 
 ```text
-[ ] 设计登录方案
-[ ] 实现登录功能
-[ ] 测试登录功能
+WorkItem: Implement login
+Tasks: []
 ```
 
-执行过程中发现的新信息会继续改变结构：
+Collaborators create initial Tasks from their current understanding:
 
 ```text
-[x] 设计登录方案
-[ ] 实现密码登录
-[ ] 实现会话管理
-[ ] 增加暴力破解防护
-[ ] 测试登录功能
+[ ] Design the login approach
+[ ] Implement login
+[ ] Test login
 ```
 
-Blackboard 中的 Task Graph 是当前工作认知的共享表达。
-
-Blackboard 的结构追加基于服务端最新状态提交。多个协作者同时创建不同 Task 或 Relation 时，操作依次写入并可以全部成功；WorkItem Version 作为服务端维护的结构修订号。Operation ID 负责识别请求重试，Task Version 负责保护单个 Task 的状态变化。
-
-Task Graph 为空时，WorkItem 本身作为候选工作被发现。协作者读取整体目标和 Blackboard Instructions 后创建首个 Task；WorkItem Tags 用于这种初始发现。
-
-Suggested Tags 提供开放的标签词汇，例如 `module:*` 或 `kind:*`。Agent 在创建和推进 Task 时根据实际内容选择具体 tags；这些建议不构成权限或格式约束。
-
-## 2. 规划与执行
-
-Blackboard 将规划放在整个执行过程中：
+New information continues changing the structure during execution:
 
 ```text
-观察当前工作
-      ↓
-创建或调整 Task
-      ↓
-选择并执行 Task
-      ↓
-记录进展与成果
-      ↓
-重新观察 WorkItem
-      ↺
+[x] Design the login approach
+[ ] Implement password login
+[ ] Implement session management
+[ ] Add brute-force protection
+[ ] Test login
 ```
 
-协作者可以：
+The Task Graph in Blackboard is a shared representation of the current understanding of the work.
 
-- 创建新的 Task；
-- 将较大的 Task 拆分为更清晰的交付单元；
-- 向尚未完成的聚合 Task 追加子 Task；
-- 调整 Task 之间的关系；
-- 根据新信息将已经失去价值的 Task 标记为 Skipped；
-- 使用已有成果规划后续工作。
+Blackboard structural appends are committed against the latest server state. When multiple collaborators concurrently create different Tasks or Relations, their operations are serialized and can all succeed. WorkItem Version is a server-maintained structural revision. Operation ID identifies request retries, while Task Version protects state changes to one Task.
 
-已完成 Task 及其成果继续保留，为后续判断提供上下文。
+When the Task Graph is empty, the WorkItem itself is exposed as candidate work. A collaborator reads the overall objective and Blackboard Instructions, then creates the first Task. WorkItem Tags support this initial discovery.
 
-Task 可以形成层级。执行者 Claim 一个尚未产生成果的 Task 后，可以将它拆分为初始子 Task。父 Task 随即结束 Claim 并进入 `WaitingChildren`，不再产生自己的 Submission；成果由后代 Task 汇总。
+Suggested Tags provide an open vocabulary such as `module:*` or `kind:*`. Agents choose concrete tags from actual Task content while creating and advancing work. Suggestions are neither permissions nor format constraints.
 
-`WaitingChildren` 表示一个开放的聚合范围。WorkItem 未完成期间，协作者可以继续向其中追加子 Task。所有直接子 Task 完成或跳过后，父 Task 递归完成并封闭。普通执行 Task、聚合 Task 与 Task Relation 分别表达执行、工作拆分和建议顺序。
+## 2. Planning and Execution
+
+Blackboard keeps planning active throughout execution:
+
+```text
+Observe current work
+        ↓
+Create or adjust Tasks
+        ↓
+Choose and execute a Task
+        ↓
+Record progress and results
+        ↓
+Observe WorkItem again
+        ↺
+```
+
+Collaborators can:
+
+- create new Tasks;
+- decompose a larger Task into clearer deliverable units;
+- append child Tasks to an unfinished aggregate Task;
+- adjust relations between Tasks;
+- mark a Task that no longer provides value as Skipped when new information appears;
+- plan follow-up work from existing results.
+
+Completed Tasks and their results remain available as context for later decisions.
+
+Tasks can form a hierarchy. After claiming a Task that has not produced a result, the executor can decompose it into an initial set of child Tasks. The parent immediately ends its Claim, enters `WaitingChildren`, and no longer produces its own Submission. Its result is aggregated from descendants.
+
+`WaitingChildren` represents an open aggregation scope. While the WorkItem remains open, collaborators can append child Tasks to it. After every direct child is completed or skipped, the parent recursively completes and closes. Regular execution Tasks, aggregate Tasks, and Task Relations separately represent execution, work decomposition, and suggested order.
 
 ## 3. Task Relation
 
-Blackboard 使用 Task Relation 表达当前建议的推进顺序：
+Blackboard uses Task Relation to express the currently suggested progression order:
 
 ```text
-设计 ⇢ 实现 ⇢ 测试
+Design ⇢ Implement ⇢ Test
 ```
 
-前置 Task 尚未完成时，后续 Task 仍然可以成为候选。执行者会同时看到建议关系和相关前置成果，并根据实际情况决定是否开始工作。
+A downstream Task can remain a candidate while its predecessor is unfinished. The executor sees the suggested relation and relevant predecessor results, then decides whether work should begin.
 
-例如，实现 Task 可以在设计尚未完全结束时提前开始；后续协作者也可以调整原有关系，反映新的工作认知。
+For example, implementation can start before design is fully complete. Later collaborators can also adjust an existing relation to reflect a new understanding of the work.
 
 > Task Relation records shared judgment about how work should proceed.
 
-## 4. Task 发现与执行
+## 4. Task Discovery and Execution
 
-Blackboard 的候选 Task 来自当前共享空间：
+Blackboard candidate Tasks come from the current shared space:
 
 ```text
-Pending 的执行叶子 Task
-+ 当前没有 Claim
-+ 符合查询上下文
+Pending executable leaf Task
++ no current Claim
++ matches query context
 ```
 
-查询上下文可以包含 tags、执行者类型以及 WorkItem 范围。例如，一个 Agent 可以寻找带有 `backend` 和 `auth` tags 的 Task，人也可以通过界面查看适合人工处理的 Task。
+Query context can include tags, executor type, and WorkItem scope. For example, an agent can search for Tasks tagged `backend` and `auth`, while a person can use the interface to view Tasks suitable for human execution.
 
-Task 可以配置执行者类型：
+A Task can configure its executor type:
 
 ```text
 executor:
@@ -110,40 +110,40 @@ executor:
   either
 ```
 
-人或 Agent 可以主动选择候选 Task，Bridge 也可以派发。Claim 为选中的 Task 建立唯一的执行责任。
+A person or agent can choose a candidate proactively, or a Bridge can dispatch it. A Claim establishes unique execution responsibility for the selected Task.
 
-## 5. 自主性
+## 5. Autonomy
 
-Blackboard 将规划自主性持续开放给协作者：
+Blackboard continuously exposes planning autonomy to collaborators:
 
-- 判断当前哪些工作值得执行；
-- 创建遗漏的 Task；
-- 调整工作拆分和建议关系；
-- 根据成果重新规划下一步；
-- 判断是否需要人工 Review。
+- decide which current work is worthwhile;
+- create missing Tasks;
+- adjust decomposition and suggested relations;
+- replan next steps from results;
+- decide whether human Review is needed.
 
-人工 Review 可以由执行者在提交成果时请求，也可以由人在 Task 正式结束前要求下一次提交进入 Review。Review 作用于当前 Task，不要求在 Blackboard 初始结构中预先配置。
+An executor can request human Review while submitting a result. A person can also require the next submission to enter Review before the Task formally ends. Review acts on the current Task and does not need preconfiguration in the initial Blackboard structure.
 
-执行者提交成果并发起 Review 时，系统从当前 Claim 创建不可变的 Task Submission，Review 关联该 Submission，随后结束 Claim 并将 Task 置为 `InReview`。每次 Submission、Review 决定和反馈都按时间顺序保留，全部进入该 Task 的共享上下文。审核期间没有 Active Claim，Reviewer 处理审核记录，不领取一个新的 Task。Review 通过后 Task 正式结束；Review 驳回后 Task 回到 `Pending`，由原执行者或其他执行者重新 Claim。
+When an executor submits a result for Review, the system creates an immutable Task Submission from the current Claim, links the Review to that Submission, ends the Claim, and moves the Task to `InReview`. Every Submission, Review decision, and feedback record is retained chronologically in shared Task context. There is no Active Claim during Review. The Reviewer acts on the Review record and does not claim another Task. Approval formally ends the Task; rejection returns it to `Pending`, where the original or another executor can claim it again.
 
-其他未结束且未被 Claim 的 Task 仍可继续执行。Blackboard 的 Task Relation 是推进建议，因此某个 Task 正在 Review 不会自动阻止其他 Task 成为候选。
+Other unfinished, unclaimed Tasks can continue executing. Since Blackboard Task Relations are progression guidance, one Task being in Review does not automatically prevent other Tasks from becoming candidates.
 
-Blackboard 的自主性来自持续规划，因此无需通过预配置的 optional Task 标记来预留跳过位置。协作者只创建当前认为有价值的 Task，也可以在判断改变后将已有 Task 标记为 Skipped 并记录原因。
+Blackboard autonomy comes from continuous planning and therefore does not need preconfigured optional Task placeholders. Collaborators create only the Tasks that currently provide value, and can later mark a Task as Skipped with a reason if their judgment changes.
 
-## 6. WorkItem 完成
+## 6. WorkItem Completion
 
-执行者在结束当前 Task 前，根据 WorkItem 的目标和验收标准判断是否需要继续扩展工作：
+Before ending the current Task, the executor evaluates whether the WorkItem objective and acceptance criteria require more work:
 
 ```text
-结束当前 Task 前检查 WorkItem 目标
- ├── 仍需推进 → 先创建后续 Task
- └── 已经满足 → 结束当前 Task
-                       ↓
-             所有 Task 均已结束
-                       ↓
-               WorkItem 完成
+Check WorkItem objective before ending current Task
+ ├── more work needed → create follow-up Tasks first
+ └── objective met    → end current Task
+                              ↓
+                    every Task has ended
+                              ↓
+                    WorkItem Completed
 ```
 
-新的发现可以随时扩展 Task Graph，目标已经满足时则可以将剩余的低价值 Task 标记为 Skipped。最后一个 Task 完成或跳过后，WorkItem 自动完成。空 Blackboard 也可以由协作者直接确认完成。
+New findings can expand the Task Graph at any point. When the objective is already satisfied, remaining low-value Tasks can be marked Skipped. The WorkItem completes automatically when its final Task completes or is skipped. A collaborator can also explicitly complete an empty Blackboard.
 
 > Blackboard grows a shared plan while people and agents execute the work.

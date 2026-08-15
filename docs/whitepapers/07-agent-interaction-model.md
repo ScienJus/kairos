@@ -1,24 +1,24 @@
 # Kairos Agent Interaction Model
 
-> Agent 参与 Workflow 与 Blackboard 的统一交互方式
+> One interaction model for agents participating in Workflow and Blackboard
 
-## 摘要
+## Abstract
 
-Kairos 为 Agent 提供统一的 Task 交互过程。Agent 可以主动发现和选择工作，也可以由 Bridge 启动并接收已经分配的 Task。两种方式最终都围绕同一个 Task 建立执行责任、读取工作上下文、记录进展并提交成果。
+Kairos provides agents with one Task interaction process. An agent can proactively discover and choose work, or a Bridge can start it with an already assigned Task. Both paths ultimately establish responsibility around one Task, load work context, record progress, and submit results.
 
-Workflow 与 Blackboard 共享执行过程，同时向 Agent 开放不同的规划能力。Workflow 允许 Agent 在预先配置的位置作出判断，Blackboard 允许 Agent 持续调整 Task Graph。
+Workflow and Blackboard share the execution process while exposing different planning capabilities to agents. Workflow lets an agent make decisions at configured points; Blackboard lets an agent continuously adjust the Task Graph.
 
-## 1. 交互过程
+## 1. Interaction Process
 
-Agent 通过两种方式进入执行过程：
+An agent enters execution in one of two ways:
 
 ```text
-主动参与：发现候选 → 选择 Task ─┐
-                                  ├→ 建立 Claim → 执行 Task
-Bridge 派发：接收 Task ───────────┘
+Proactive: discover candidates → choose Task ─┐
+                                              ├→ create Claim → execute Task
+Bridge dispatch: receive Task ────────────────┘
 ```
 
-完整过程可以概括为：
+The complete process is:
 
 ```text
 discover / receive
@@ -34,67 +34,67 @@ record progress
 submit result
 ```
 
-Agent 在执行前读取必要上下文并确认 Task。Claim 由 Agent 或 Bridge 建立，并在执行开始前形成唯一的执行责任。执行期间的进展和最终成果都记录在 Task 中。
+Before execution, the agent reads necessary context and confirms the Task. The agent or Bridge creates a Claim before work begins, establishing unique execution responsibility. Progress and final results produced during execution are recorded on the Task.
 
-## 2. 发现工作
+## 2. Discovering Work
 
-Agent 只发现允许 Agent 执行的 Task：
+An agent discovers only Tasks that permit agent execution:
 
 ```text
 executor = agent | either
 + role matched
 ```
 
-候选 Task 的来源由协调模式决定：
+The coordination mode determines where candidate Tasks come from:
 
-| 模式 | 候选 Task |
+| Mode | Candidate Tasks |
 | --- | --- |
-| Workflow | 前置关系已满足的 required Task，以及决定保留的 optional Task |
-| Blackboard | 符合 tags 和查询上下文的 Task |
+| Workflow | Required Tasks whose prerequisites are satisfied, plus optional Tasks that were retained |
+| Blackboard | Tasks matching tags and query context |
 
-候选结果提供足够的信息帮助 Agent 比较工作，包括 WorkItem 摘要、Task 目标、协调模式、tags 和当前可执行原因。Agent 可以进一步读取完整上下文后再建立 Claim。
+Candidate results provide enough information to compare work, including the WorkItem summary, Task objective, coordination mode, tags, and current eligibility reason. An agent can load full context before creating a Claim.
 
-空 Blackboard 直接以 WorkItem 作为候选。Agent 读取其目标与全局说明后创建首个 Task，后续发现回到通常的 Task 候选。
+An empty Blackboard exposes its WorkItem directly as a candidate. The agent reads the objective and global instructions, creates the first Task, and then returns to regular Task discovery.
 
-## 3. Task 上下文
+## 3. Task Context
 
-Agent 执行 Task 时获得五类信息：
+An agent receives five categories of information while executing a Task:
 
 ```text
 Definition Context
-    Description、Agent Instructions 与 Suggested Tags
+    Description, Agent Instructions, Suggested Tags
 
 WorkItem Context
-    目标、背景、约束与验收标准
+    Objective, background, constraints, acceptance criteria
 
 Task Context
-    Task 描述、交付要求与当前进展
+    Task description, delivery requirements, current progress
 
 Related Results
-    相关 Task 的成果与 Artifact
+    Results and Artifacts from related Tasks
 
 Coordination Context
-    当前模式、Task Relation 与可用决策
+    Current mode, Task Relations, available decisions
 ```
 
-Definition Context 对同一协作空间中的全部 WorkItem 生效。Workflow 的 Coordination Context 包含正式前置关系、optional 判断和 Review 配置。Blackboard 则包含建议关系、tags 和当前共享工作态势。
+Definition Context applies to every WorkItem in the same collaboration space. Workflow Coordination Context contains formal prerequisites, optional decisions, and Review configuration. Blackboard context contains suggested relations, tags, and the current shared work state.
 
-Agent 可以按需读取更多历史和成果。默认上下文应优先提供与当前 Task 直接相关的信息。
+An agent can load more history and results on demand. Default context should prioritize information directly relevant to the current Task.
 
-Workflow Context 提供按距离排列的上游运行时 Task、当前合法的 Choice Group、直接目标和本次可判断的 optional Task。Agent 提交需要跳过的 Task ID，Kairos 根据 Workflow Definition 负责关系分区和路径展开。Blackboard Context 提供当前共享的 Task 与建议关系。
+Workflow Context supplies upstream runtime Tasks ordered by distance, currently legal Choice Groups, direct targets, and optional Tasks that can be decided in this progression. The agent submits the Task IDs it wants to skip, and Kairos partitions relations and unfolds paths according to the Workflow Definition. Blackboard Context supplies the current shared Tasks and suggested relations.
 
-## 4. 执行与提交
+## 4. Execution and Submission
 
-Agent 在执行过程中可以持续记录：
+During execution, an agent can continuously record:
 
-- 当前进展；
-- 已完成的工作；
-- 发现的问题；
-- 产生的成果和 Artifact。
+- current progress;
+- completed work;
+- discovered issues;
+- produced results and Artifacts.
 
-提交 Task 时，Agent 提供本次交付的结果摘要和相关成果。Kairos 在 Task 下创建不可变的 Submission，并使其成为 WorkItem 的共享上下文。返工后的再次提交形成新的 Submission，不覆盖此前结果。
+When submitting a Task, the agent provides a result summary and related deliverables. Kairos creates an immutable Submission under the Task and makes it part of shared WorkItem context. A later submission after rework creates a new Submission instead of overwriting the previous result.
 
-提交需要人工 Review 时，当前 Claim 随提交结束，Task 在 `InReview` 期间不再要求 Agent 保活。Review 驳回后 Task 回到候选集合，并在新的 Claim 下继续执行。
+If a submission requires human Review, the current Claim ends with the submission, and the Task does not require agent liveness while `InReview`. Rejection returns the Task to the candidate set for continuation under a new Claim.
 
 ```text
 Task
@@ -107,41 +107,41 @@ Task
     └── Artifacts
 ```
 
-提交还可以携带当前协调模式允许的推进决策。Kairos 根据这些决策和模式规则更新 Task Graph。
+A submission can also carry progression decisions allowed by the current coordination mode. Kairos updates the Task Graph according to those decisions and mode rules.
 
-每个变更请求可以携带由调用方生成的 Operation ID。相同身份重试同一请求时，Kairos 返回首次提交的结果；同一 Operation ID 被用于不同请求时返回冲突。
+Every mutation request can include a caller-generated Operation ID. When the same identity retries the same request, Kairos returns the original result. Reusing an Operation ID for a different request returns a conflict.
 
-Agent 无法完成 Task 时，可以提交失败原因并选择重新打开 Task 或使整个 WorkItem 失败。重新打开时可以附加 Retry Prompt；失败记录和提示会进入后续执行者读取的完整 Task 上下文。
+When an agent cannot complete a Task, it can submit a failure reason and either reopen the Task or fail the entire WorkItem. Reopening can add a Retry Prompt. Failure history and prompts enter the full Task context read by future executors.
 
-## 5. Workflow 能力
+## 5. Workflow Capabilities
 
-Workflow 中的 Agent 执行已经定义好的 Task，并在配置允许的位置作出判断：
+In Workflow, an agent executes predefined Tasks and makes decisions where configuration allows:
 
-- 从多个候选 Task 中选择工作；
-- 判断当前 Task 所连接的 optional Task 应当保留还是跳过；
-- 在 `executor_decides` 模式下判断是否请求人工 Review。
+- choose work from multiple candidate Tasks;
+- decide whether optional Tasks connected to the current Task should be retained or skipped;
+- decide whether to request human Review under `executor_decides`.
 
-Agent 对 optional Task 的判断随当前 Task 一并提交。多个前置 Task 的判断由 Kairos 聚合，任意执行者选择保留时，该 Task 进入候选集合。
+The agent submits optional Task decisions with the current Task. Kairos aggregates decisions from multiple predecessors; if any executor retains the Task, it enters the candidate set.
 
-正式 Task Graph、required Task 和 required Review 继续由 Workflow 保证。
+Workflow continues guaranteeing the formal Task Graph, required Tasks, and required Review.
 
-## 6. Blackboard 能力
+## 6. Blackboard Capabilities
 
-Blackboard 中的 Agent 同时参与执行与规划，可以：
+In Blackboard, an agent participates in both execution and planning. It can:
 
-- 创建新的 Task；
-- 拆分已有 Task；
-- 添加或调整 tags；
-- 维护建议性的 Task Relation；
-- 将失去价值的 Task 标记为 Skipped；
-- 根据当前成果请求人工 Review；
-- 判断 WorkItem 是否已经满足目标。
+- create new Tasks;
+- decompose existing Tasks;
+- add or adjust tags;
+- maintain suggested Task Relations;
+- mark Tasks that no longer provide value as Skipped;
+- request human Review based on current results;
+- decide whether the WorkItem objective has been satisfied.
 
-这些变化进入共享 Task Graph，后续的人和 Agent 都能看到最新的工作结构与成果。
+These changes enter the shared Task Graph. Later people and agents see the latest work structure and results.
 
 ## 7. Bridge
 
-Bridge 连接 Kairos 与特定 Agent Harness：
+A Bridge connects Kairos to a particular Agent Harness:
 
 ```text
 Kairos Candidate Task
@@ -151,8 +151,8 @@ Kairos Candidate Task
 Codex / Claude Code / Other Harness
 ```
 
-Bridge 可以选择 Task、启动 Agent、提供上下文并回传进展与成果。Agent 主动参与和 Bridge 派发使用相同的 Task、Claim 与提交语义。
+A Bridge can choose a Task, start an agent, provide context, and return progress and results. Proactive agent participation and Bridge dispatch use the same Task, Claim, and submission semantics.
 
-因此，Kairos 的 Agent 交互模型独立于具体 Harness，也独立于 Agent 如何开始执行。
+The Kairos agent interaction model is therefore independent of a specific Harness and of how an agent begins execution.
 
 > One execution protocol, two coordination modes.
