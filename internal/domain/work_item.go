@@ -64,10 +64,15 @@ type WorkItem struct {
 	// AcceptanceCriteria define how completion should be evaluated. [Both]
 	AcceptanceCriteria string
 
+	// Tags provide discovery metadata, including before a Blackboard has Tasks. [Both]
+	Tags []string
+
 	// Result records the final outcome and important deliverables. [Both]
 	Result string
 
-	// Version is used for optimistic concurrency control. [Both]
+	// Version is used for WorkItem-level optimistic concurrency control.
+	// Blackboard planning mutations increment it, while Task execution uses the
+	// individual Task version. [Both]
 	Version int64
 
 	CreatedAt   time.Time
@@ -94,6 +99,9 @@ func (w WorkItem) Validate() error {
 	}
 	if w.Version < 0 {
 		return invalid("version", "must not be negative")
+	}
+	if err := validateStringSet("tags", w.Tags); err != nil {
+		return err
 	}
 	if err := validateTimestamps(w.CreatedAt, w.UpdatedAt); err != nil {
 		return err

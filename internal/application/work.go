@@ -17,7 +17,7 @@ type FindWorkQuery struct {
 	Limit    int
 }
 
-// FindWork returns currently pending Tasks visible to the actor.
+// FindWork returns visible Tasks and empty Blackboards that need planning.
 func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCandidate, error) {
 	if err := query.Identity.Validate(); err != nil {
 		return nil, err
@@ -38,6 +38,9 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 			return fmt.Errorf("list open tasks: %w", err)
 		}
 		for _, candidate := range candidates {
+			if candidate.Kind != WorkCandidateTask {
+				continue
+			}
 			if candidate.WorkItem.Status != domain.WorkItemStatusOpen || candidate.Task.Status != domain.TaskStatusPending {
 				continue
 			}
@@ -60,6 +63,27 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 				continue
 			}
 			result = append(result, candidate)
+			if query.Limit > 0 && len(result) == query.Limit {
+				return nil
+			}
+		}
+		emptyBlackboards, err := store.ListEmptyBlackboards()
+		if err != nil {
+			return fmt.Errorf("list empty blackboards: %w", err)
+		}
+		for _, workItem := range emptyBlackboards {
+			if !containsAll(workItem.Tags, query.Tags) {
+				continue
+			}
+			definition, err := store.GetBlackboardDefinition(workItem.Definition.ID, workItem.Definition.Version)
+			if err != nil {
+				return fmt.Errorf("get empty blackboard definition: %w", err)
+			}
+			result = append(result, WorkCandidate{
+				Kind:       WorkCandidateEmptyBlackboard,
+				WorkItem:   workItem,
+				Definition: definitionExecutionContext(definition.DefinitionMetadata),
+			})
 			if query.Limit > 0 && len(result) == query.Limit {
 				break
 			}
@@ -87,8 +111,9 @@ func errorsIsForbidden(err error) bool {
 
 // ClaimTaskCommand establishes execution responsibility for one pending Task.
 type ClaimTaskCommand struct {
-	TaskID   domain.TaskID
-	Identity Identity
+	TaskID      domain.TaskID
+	Identity    Identity
+	OperationID string
 }
 
 // ClaimTask atomically claims one pending Task.
@@ -101,7 +126,7 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 	}
 
 	var created domain.Claim
-	err := s.repository.Update(ctx, func(store WriteStore) error {
+	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "claim_task", command, &created, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)

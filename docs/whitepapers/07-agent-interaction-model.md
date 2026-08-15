@@ -54,6 +54,8 @@ executor = agent | either
 
 候选结果提供足够的信息帮助 Agent 比较工作，包括 WorkItem 摘要、Task 目标、协调模式、tags 和当前可执行原因。Agent 可以进一步读取完整上下文后再建立 Claim。
 
+空 Blackboard 直接以 WorkItem 作为候选。Agent 读取其目标与全局说明后创建首个 Task，后续发现回到通常的 Task 候选。
+
 ## 3. Task 上下文
 
 Agent 执行 Task 时获得五类信息：
@@ -106,6 +108,8 @@ Task
 ```
 
 提交还可以携带当前协调模式允许的推进决策。Kairos 根据这些决策和模式规则更新 Task Graph。
+
+每个变更请求可以携带由调用方生成的 Operation ID。相同身份重试同一请求时，Kairos 返回首次提交的结果；同一 Operation ID 被用于不同请求时返回冲突。
 
 Agent 无法完成 Task 时，可以提交失败原因并选择重新打开 Task 或使整个 WorkItem 失败。重新打开时可以附加 Retry Prompt；失败记录和提示会进入后续执行者读取的完整 Task 上下文。
 

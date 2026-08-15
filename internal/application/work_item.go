@@ -11,14 +11,16 @@ import (
 
 // CreateWorkItemCommand creates one concrete unit of work in a published Definition.
 type CreateWorkItemCommand struct {
-	Definition domain.DefinitionBinding
-	Identity   Identity
+	Definition  domain.DefinitionBinding
+	Identity    Identity
+	OperationID string
 
 	Title              string
 	Goal               string
 	Context            string
 	Constraints        string
 	AcceptanceCriteria string
+	Tags               []string
 }
 
 // CreateWorkItem binds a WorkItem to an immutable Definition version.
@@ -32,7 +34,7 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 	}
 
 	var created domain.WorkItem
-	err := s.repository.Update(ctx, func(store WriteStore) error {
+	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_work_item", command, &created, func(store WriteStore) error {
 		var workflow *domain.WorkflowDefinition
 		switch command.Definition.Mode {
 		case domain.CoordinationModeWorkflow:
@@ -82,6 +84,7 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 			Context:            strings.TrimSpace(command.Context),
 			Constraints:        strings.TrimSpace(command.Constraints),
 			AcceptanceCriteria: strings.TrimSpace(command.AcceptanceCriteria),
+			Tags:               append([]string(nil), command.Tags...),
 			CreatedAt:          now,
 			UpdatedAt:          now,
 		}
@@ -195,9 +198,10 @@ func (s *Service) newWorkflowTask(
 
 // CompleteBlackboardWorkItemCommand records the explicit completion judgment.
 type CompleteBlackboardWorkItemCommand struct {
-	WorkItemID domain.WorkItemID
-	Identity   Identity
-	Result     string
+	WorkItemID  domain.WorkItemID
+	Identity    Identity
+	OperationID string
+	Result      string
 }
 
 // CompleteBlackboardWorkItem completes an open Blackboard after all current Tasks end.
@@ -213,7 +217,7 @@ func (s *Service) CompleteBlackboardWorkItem(ctx context.Context, command Comple
 	}
 
 	var completed domain.WorkItem
-	err := s.repository.Update(ctx, func(store WriteStore) error {
+	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "complete_blackboard_work_item", command, &completed, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)

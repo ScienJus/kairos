@@ -96,19 +96,10 @@ func testRandomBlackboardCollaboration(t *testing.T) {
 		Identity:   planner.identity,
 		Title:      "Implement login",
 		Goal:       "Plan and deliver login collaboratively",
-	})
-	if err != nil {
-		t.Fatalf("create blackboard work item: %v", err)
-	}
-	planningTask, err := simulation.service.CreateBlackboardTask(simulation.ctx, application.CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID,
-		Identity:   planner.identity,
-		Title:      "Plan the implementation",
-		Executor:   domain.ExecutorAgent,
 		Tags:       []string{"planning"},
 	})
 	if err != nil {
-		t.Fatalf("create planning task: %v", err)
+		t.Fatalf("create blackboard work item: %v", err)
 	}
 	simulation.record(
 		"kanban for work item %q, blackboard %q (version=%d), goal=%q",
@@ -122,11 +113,7 @@ func testRandomBlackboardCollaboration(t *testing.T) {
 		definition.SuggestedTags,
 		definition.AgentInstructions,
 	)
-	simulation.record(
-		"kanban initial task: [pending] %q, tags=%v",
-		planningTask.Title,
-		planningTask.Tags,
-	)
+	simulation.record("kanban initial state: no tasks, work item tags=%v", workItem.Tags)
 
 	backend := simulationAgent("backend-agent", "backend", "module:auth")
 	backend.requestReview = true
@@ -261,7 +248,21 @@ func (s *collaborationSimulation) executeRandomTask(
 	}
 	ready := candidates[:0]
 	for _, candidate := range candidates {
-		if candidate.WorkItem.ID != workItemID || !s.agentAccepts(candidate.Task, agent) {
+		if candidate.WorkItem.ID != workItemID {
+			continue
+		}
+		if candidate.Kind == application.WorkCandidateEmptyBlackboard {
+			if _, err := s.service.CreateBlackboardTask(s.ctx, application.CreateBlackboardTaskCommand{
+				WorkItemID: candidate.WorkItem.ID, ExpectedWorkItemVersion: candidate.WorkItem.Version,
+				Identity: agent.identity, Title: "Plan the implementation",
+				Executor: domain.ExecutorAgent, Tags: []string{"planning"},
+			}); err != nil {
+				s.fail("create first blackboard task: %v", err)
+			}
+			s.record("%s discovered empty blackboard and added task %q", agent.identity.Actor.ID, "Plan the implementation")
+			return true
+		}
+		if !s.agentAccepts(candidate.Task, agent) {
 			continue
 		}
 		ready = append(ready, candidate)
@@ -270,6 +271,12 @@ func (s *collaborationSimulation) executeRandomTask(
 		return false
 	}
 	candidate := ready[s.random.Intn(len(ready))]
+	s.record(
+		"%s found %d candidate(s), selected task %q",
+		agent.identity.Actor.ID,
+		len(ready),
+		candidate.Task.Title,
+	)
 	if agent.maySkip && s.random.Intn(2) == 0 {
 		if _, err := s.service.SkipBlackboardTask(s.ctx, application.SkipBlackboardTaskCommand{
 			TaskID: candidate.Task.ID, Identity: agent.identity, Reason: "Agent judged this task unnecessary",
@@ -286,6 +293,7 @@ func (s *collaborationSimulation) executeRandomTask(
 	if err != nil {
 		s.fail("claim task %s: %v", candidate.Task.ID, err)
 	}
+	s.record("%s claimed task %q", agent.identity.Actor.ID, candidate.Task.Title)
 	executionContext, err := s.service.GetTaskExecutionContext(s.ctx, application.GetTaskExecutionContextQuery{
 		TaskID: candidate.Task.ID, Identity: agent.identity,
 	})
@@ -294,11 +302,23 @@ func (s *collaborationSimulation) executeRandomTask(
 	}
 	transition := s.randomWorkflowTransition(executionContext)
 	if transition != nil {
+		var skippedTitles []string
+		for _, group := range executionContext.Workflow.ChoiceGroups {
+			if group.ID != transition.ChoiceGroupID {
+				continue
+			}
+			for _, optional := range group.SkippableOptionalTasks {
+				if slices.Contains(transition.SkipOptionalTaskIDs, optional.ID) {
+					skippedTitles = append(skippedTitles, optional.Title)
+				}
+			}
+			break
+		}
 		s.record(
-			"%s selected %s, optional skips=%v",
+			"%s chose workflow group %q, optional skips=%q",
 			agent.identity.Actor.ID,
 			transition.ChoiceGroupID,
-			transition.SkipOptionalTaskIDs,
+			skippedTitles,
 		)
 	}
 	if _, err := s.service.SubmitTask(s.ctx, application.SubmitTaskCommand{
@@ -419,20 +439,24 @@ func (s *collaborationSimulation) expandBlackboardPlan(
 		{title: "Update documentation", tag: "docs"},
 		{title: "Run integration tests", tag: "test"},
 	}
+	workItem, _, _ := s.snapshot(workItemID)
+	version := workItem.Version
 	created := make(map[string]domain.Task, len(plans))
 	for _, index := range s.random.Perm(len(plans)) {
 		plan := plans[index]
 		task, err := s.service.CreateBlackboardTask(s.ctx, application.CreateBlackboardTaskCommand{
-			WorkItemID: workItemID,
-			Identity:   planner,
-			Title:      plan.title,
-			Executor:   domain.ExecutorAgent,
-			Tags:       []string{plan.tag},
+			WorkItemID:              workItemID,
+			ExpectedWorkItemVersion: version,
+			Identity:                planner,
+			Title:                   plan.title,
+			Executor:                domain.ExecutorAgent,
+			Tags:                    []string{plan.tag},
 		})
 		if err != nil {
 			s.fail("expand blackboard task %q: %v", plan.title, err)
 		}
 		created[plan.tag] = task
+		version++
 	}
 	relations := [][2]domain.TaskID{
 		{planningTaskID, created["module:auth"].ID},
@@ -441,13 +465,15 @@ func (s *collaborationSimulation) expandBlackboardPlan(
 	}
 	for _, relation := range relations {
 		if _, err := s.service.AddBlackboardRelation(s.ctx, application.AddBlackboardRelationCommand{
-			WorkItemID: workItemID,
-			FromTaskID: relation[0],
-			ToTaskID:   relation[1],
-			Identity:   planner,
+			WorkItemID:              workItemID,
+			ExpectedWorkItemVersion: version,
+			FromTaskID:              relation[0],
+			ToTaskID:                relation[1],
+			Identity:                planner,
 		}); err != nil {
 			s.fail("add blackboard relation: %v", err)
 		}
+		version++
 	}
 	s.planExpanded = true
 	s.record(`planner added "Implement authentication", "Update documentation", and "Run integration tests"`)

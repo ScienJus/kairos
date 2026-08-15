@@ -24,19 +24,19 @@ const (
 	dialectSQLite   dialect = "sqlite"
 	dialectPostgres dialect = "postgres"
 
-	postgresWriteLockID int64 = 0x4b4149524f53
+	postgresMigrationLockID int64 = 0x4b4149524f53
 )
 
 // SQLRepository persists Kairos aggregates through database/sql.
 type SQLRepository struct {
 	db      *sql.DB
 	dialect dialect
-	writeMu sync.Mutex
 }
 
 var _ application.Repository = (*SQLRepository)(nil)
 
 var sqliteMemorySequence atomic.Uint64
+var migrationMu sync.Mutex
 
 // OpenSQLite opens and migrates one SQLite database file.
 func OpenSQLite(ctx context.Context, path string) (*SQLRepository, error) {
@@ -78,13 +78,14 @@ func OpenPostgres(ctx context.Context, dsn string) (*SQLRepository, error) {
 func sqliteDSN(path string) string {
 	if path == ":memory:" {
 		name := fmt.Sprintf("kairos-memory-%d", sqliteMemorySequence.Add(1))
-		return "file:" + name + "?mode=memory&cache=shared&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+		return "file:" + name + "?mode=memory&cache=shared&_txlock=immediate&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
 	}
 	uri := url.URL{Scheme: "file", Path: path}
 	query := uri.Query()
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", "busy_timeout(5000)")
 	query.Add("_pragma", "journal_mode(WAL)")
+	query.Add("_txlock", "immediate")
 	uri.RawQuery = query.Encode()
 	return uri.String()
 }
@@ -118,7 +119,7 @@ func (r *SQLRepository) View(ctx context.Context, operation func(application.Rea
 	return normalizeError(tx.Commit())
 }
 
-// Update serializes and atomically commits one application operation.
+// Update atomically commits one application operation.
 func (r *SQLRepository) Update(ctx context.Context, operation func(application.WriteStore) error) error {
 	return r.withWriteTransaction(ctx, func(store *sqlStore) error {
 		return operation(store)
@@ -126,20 +127,15 @@ func (r *SQLRepository) Update(ctx context.Context, operation func(application.W
 }
 
 func (r *SQLRepository) withWriteTransaction(ctx context.Context, operation func(*sqlStore) error) error {
-	r.writeMu.Lock()
-	defer r.writeMu.Unlock()
-
-	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	isolation := sql.LevelReadCommitted
+	if r.dialect == dialectSQLite {
+		isolation = sql.LevelSerializable
+	}
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: isolation})
 	if err != nil {
 		return normalizeError(err)
 	}
-	if r.dialect == dialectPostgres {
-		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", postgresWriteLockID); err != nil {
-			_ = tx.Rollback()
-			return normalizeError(err)
-		}
-	}
-	store := &sqlStore{ctx: ctx, tx: tx, dialect: r.dialect}
+	store := &sqlStore{ctx: ctx, tx: tx, dialect: r.dialect, writable: true}
 	if err := operation(store); err != nil {
 		_ = tx.Rollback()
 		return err

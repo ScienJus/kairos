@@ -17,8 +17,8 @@ var migrationFiles embed.FS
 const migrationSeparator = "-- +kairos StatementBreak"
 
 func (r *SQLRepository) migrate(ctx context.Context) error {
-	r.writeMu.Lock()
-	defer r.writeMu.Unlock()
+	migrationMu.Lock()
+	defer migrationMu.Unlock()
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -26,7 +26,7 @@ func (r *SQLRepository) migrate(ctx context.Context) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	if r.dialect == dialectPostgres {
-		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", postgresWriteLockID); err != nil {
+		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", postgresMigrationLockID); err != nil {
 			return err
 		}
 	}

@@ -17,10 +17,30 @@ type IDGenerator interface {
 	NewID() string
 }
 
-// WorkCandidate combines a Task with the WorkItem that defines its coordination mode.
+// WorkCandidateKind distinguishes executable Tasks from empty Blackboards that need planning.
+type WorkCandidateKind string
+
+const (
+	WorkCandidateTask            WorkCandidateKind = "task"
+	WorkCandidateEmptyBlackboard WorkCandidateKind = "empty_blackboard"
+)
+
+// WorkCandidate combines a discoverable opportunity with its WorkItem.
 type WorkCandidate struct {
-	WorkItem domain.WorkItem
-	Task     domain.Task
+	Kind       WorkCandidateKind
+	WorkItem   domain.WorkItem
+	Task       domain.Task
+	Definition DefinitionExecutionContext
+}
+
+// IdempotencyRecord stores the durable result of one actor mutation.
+type IdempotencyRecord struct {
+	Actor       domain.ActorRef
+	OperationID string
+	Operation   string
+	RequestHash string
+	Response    string
+	CreatedAt   time.Time
 }
 
 // ReadStore exposes the state required by application operations.
@@ -33,11 +53,13 @@ type ReadStore interface {
 	GetWorkflowTaskActivation(domain.WorkflowTaskActivationID) (domain.WorkflowTaskActivation, error)
 	ListWorkflowTaskActivations(domain.WorkItemID) ([]domain.WorkflowTaskActivation, error)
 	ListOpenTasks() ([]WorkCandidate, error)
+	ListEmptyBlackboards() ([]domain.WorkItem, error)
 
 	GetWorkflowDefinition(domain.DefinitionID, int64) (domain.WorkflowDefinition, error)
 	GetBlackboardDefinition(domain.DefinitionID, int64) (domain.BlackboardDefinition, error)
 
 	LastWorkItemEventSequence(domain.WorkItemID) (int64, error)
+	GetIdempotencyRecord(domain.ActorRef, string) (IdempotencyRecord, error)
 }
 
 // WriteStore exposes mutations performed inside one repository transaction.
@@ -57,6 +79,8 @@ type WriteStore interface {
 	SaveClaim(domain.Claim) error
 
 	AppendWorkItemEvent(domain.WorkItemEvent) error
+	LockIdempotencyKey(domain.ActorRef, string) error
+	CreateIdempotencyRecord(IdempotencyRecord) error
 }
 
 // Repository provides consistent reads and atomic updates. Update implementations

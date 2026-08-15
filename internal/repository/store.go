@@ -5,15 +5,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/ScienJus/kairos/internal/application"
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
 type sqlStore struct {
-	ctx     context.Context
-	tx      *sql.Tx
-	dialect dialect
+	ctx      context.Context
+	tx       *sql.Tx
+	dialect  dialect
+	writable bool
 }
 
 func (s *sqlStore) exec(query string, args ...any) (sql.Result, error) {
@@ -48,13 +50,27 @@ func decodeJSON[T any](payload string) (T, error) {
 
 func (s *sqlStore) GetWorkItem(id domain.WorkItemID) (domain.WorkItem, error) {
 	var payload string
-	if err := s.queryRow("SELECT payload FROM work_items WHERE id = ?", id).Scan(&payload); err != nil {
+	query := "SELECT payload FROM work_items WHERE id = ?"
+	if s.writable && s.dialect == dialectPostgres {
+		query += " FOR UPDATE"
+	}
+	if err := s.queryRow(query, id).Scan(&payload); err != nil {
 		return domain.WorkItem{}, normalizeError(err)
 	}
 	return decodeJSON[domain.WorkItem](payload)
 }
 
 func (s *sqlStore) GetTask(id domain.TaskID) (domain.Task, error) {
+	if s.writable && s.dialect == dialectPostgres {
+		var workItemID domain.WorkItemID
+		if err := s.queryRow("SELECT work_item_id FROM tasks WHERE id = ?", id).Scan(&workItemID); err != nil {
+			return domain.Task{}, normalizeError(err)
+		}
+		var lockedID domain.WorkItemID
+		if err := s.queryRow("SELECT id FROM work_items WHERE id = ? FOR UPDATE", workItemID).Scan(&lockedID); err != nil {
+			return domain.Task{}, normalizeError(err)
+		}
+	}
 	var payload string
 	if err := s.queryRow("SELECT payload FROM tasks WHERE id = ?", id).Scan(&payload); err != nil {
 		return domain.Task{}, normalizeError(err)
@@ -195,7 +211,35 @@ func (s *sqlStore) ListOpenTasks() ([]application.WorkCandidate, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, application.WorkCandidate{WorkItem: workItem, Task: task})
+		result = append(result, application.WorkCandidate{
+			Kind: application.WorkCandidateTask, WorkItem: workItem, Task: task,
+		})
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) ListEmptyBlackboards() ([]domain.WorkItem, error) {
+	rows, err := s.query(`
+		SELECT w.payload
+		FROM work_items w
+		WHERE w.status = ? AND w.mode = ?
+		  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)
+		ORDER BY w.id`, domain.WorkItemStatusOpen, domain.CoordinationModeBlackboard)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.WorkItem
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, normalizeError(err)
+		}
+		workItem, err := decodeJSON[domain.WorkItem](payload)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, workItem)
 	}
 	return result, normalizeError(rows.Err())
 }
@@ -237,6 +281,35 @@ func (s *sqlStore) LastWorkItemEventSequence(workItemID domain.WorkItemID) (int6
 		return 0, normalizeError(err)
 	}
 	return sequence, nil
+}
+
+func (s *sqlStore) GetIdempotencyRecord(
+	actor domain.ActorRef,
+	operationID string,
+) (application.IdempotencyRecord, error) {
+	var record application.IdempotencyRecord
+	var actorKind, actorID string
+	var createdAtNS int64
+	err := s.queryRow(`
+		SELECT actor_kind, actor_id, operation_id, operation, request_hash, response, created_at_ns
+		FROM idempotency_records
+		WHERE actor_kind = ? AND actor_id = ? AND operation_id = ?`,
+		actor.Kind, actor.ID, operationID,
+	).Scan(
+		&actorKind,
+		&actorID,
+		&record.OperationID,
+		&record.Operation,
+		&record.RequestHash,
+		&record.Response,
+		&createdAtNS,
+	)
+	if err != nil {
+		return application.IdempotencyRecord{}, normalizeError(err)
+	}
+	record.Actor = domain.ActorRef{Kind: domain.ActorKind(actorKind), ID: domain.ActorID(actorID)}
+	record.CreatedAt = time.Unix(0, createdAtNS).UTC()
+	return record, nil
 }
 
 func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
@@ -452,6 +525,31 @@ func (s *sqlStore) AppendWorkItemEvent(value domain.WorkItemEvent) error {
 		INSERT INTO work_item_events (id, work_item_id, sequence, occurred_at_ns, payload)
 		VALUES (?, ?, ?, ?, ?)`,
 		value.ID, value.WorkItemID, value.Sequence, value.OccurredAt.UnixNano(), payload,
+	)
+	return err
+}
+
+func (s *sqlStore) LockIdempotencyKey(actor domain.ActorRef, operationID string) error {
+	if s.dialect != dialectPostgres {
+		return nil
+	}
+	key := string(actor.Kind) + ":" + string(actor.ID) + ":" + operationID
+	_, err := s.exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", key)
+	return err
+}
+
+func (s *sqlStore) CreateIdempotencyRecord(value application.IdempotencyRecord) error {
+	_, err := s.exec(`
+		INSERT INTO idempotency_records
+			(actor_kind, actor_id, operation_id, operation, request_hash, response, created_at_ns)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		value.Actor.Kind,
+		value.Actor.ID,
+		value.OperationID,
+		value.Operation,
+		value.RequestHash,
+		value.Response,
+		value.CreatedAt.UnixNano(),
 	)
 	return err
 }

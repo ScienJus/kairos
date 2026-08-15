@@ -11,7 +11,10 @@ import (
 // CreateBlackboardTaskCommand adds one planned Task to an open Blackboard.
 type CreateBlackboardTaskCommand struct {
 	WorkItemID domain.WorkItemID
-	Identity   Identity
+	// ExpectedWorkItemVersion identifies the Blackboard snapshot used to plan the Task.
+	ExpectedWorkItemVersion int64
+	Identity                Identity
+	OperationID             string
 
 	Title              string
 	Description        string
@@ -26,12 +29,15 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 	if strings.TrimSpace(string(command.WorkItemID)) == "" {
 		return domain.Task{}, invalidCommand("work item id is required")
 	}
+	if command.ExpectedWorkItemVersion < 0 {
+		return domain.Task{}, invalidCommand("expected work item version must not be negative")
+	}
 	if err := command.Identity.Validate(); err != nil {
 		return domain.Task{}, err
 	}
 
 	var created domain.Task
-	err := s.repository.Update(ctx, func(store WriteStore) error {
+	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_blackboard_task", command, &created, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
@@ -41,6 +47,9 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 		}
 		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
+		}
+		if err := requireWorkItemVersion(workItem, command.ExpectedWorkItemVersion); err != nil {
+			return err
 		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
@@ -71,6 +80,14 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 		if err := store.CreateTask(task); err != nil {
 			return fmt.Errorf("create blackboard task: %w", err)
 		}
+		workItem.Version++
+		workItem.UpdatedAt = now
+		if err := workItem.Validate(); err != nil {
+			return err
+		}
+		if err := store.SaveWorkItem(workItem); err != nil {
+			return fmt.Errorf("save blackboard plan version: %w", err)
+		}
 		actor := command.Identity.Actor
 		if err := s.appendEvent(store, workItem.ID, &task.ID, domain.WorkItemEventTaskCreated, string(task.ID), &actor, ""); err != nil {
 			return err
@@ -97,9 +114,12 @@ func nextTaskPosition(tasks []domain.Task) int64 {
 // AddBlackboardRelationCommand records one suggested ordering relation.
 type AddBlackboardRelationCommand struct {
 	WorkItemID domain.WorkItemID
-	FromTaskID domain.TaskID
-	ToTaskID   domain.TaskID
-	Identity   Identity
+	// ExpectedWorkItemVersion identifies the Blackboard snapshot used to plan the Relation.
+	ExpectedWorkItemVersion int64
+	FromTaskID              domain.TaskID
+	ToTaskID                domain.TaskID
+	Identity                Identity
+	OperationID             string
 }
 
 // AddBlackboardRelation adds one relation while preserving the runtime DAG.
@@ -109,12 +129,15 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		strings.TrimSpace(string(command.ToTaskID)) == "" {
 		return domain.TaskRelation{}, invalidCommand("work item id, from task id and to task id are required")
 	}
+	if command.ExpectedWorkItemVersion < 0 {
+		return domain.TaskRelation{}, invalidCommand("expected work item version must not be negative")
+	}
 	if err := command.Identity.Validate(); err != nil {
 		return domain.TaskRelation{}, err
 	}
 
 	var created domain.TaskRelation
-	err := s.repository.Update(ctx, func(store WriteStore) error {
+	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "add_blackboard_relation", command, &created, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
@@ -125,6 +148,9 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
 		}
+		if err := requireWorkItemVersion(workItem, command.ExpectedWorkItemVersion); err != nil {
+			return err
+		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return fmt.Errorf("list blackboard tasks: %w", err)
@@ -133,11 +159,12 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		if err != nil {
 			return fmt.Errorf("list blackboard relations: %w", err)
 		}
+		now := s.clock.Now()
 		relation := domain.TaskRelation{
 			WorkItemID: workItem.ID,
 			FromTaskID: command.FromTaskID,
 			ToTaskID:   command.ToTaskID,
-			CreatedAt:  s.clock.Now(),
+			CreatedAt:  now,
 		}
 		if err := relation.Validate(); err != nil {
 			return err
@@ -147,6 +174,14 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		}
 		if err := store.CreateTaskRelation(relation); err != nil {
 			return fmt.Errorf("create blackboard relation: %w", err)
+		}
+		workItem.Version++
+		workItem.UpdatedAt = now
+		if err := workItem.Validate(); err != nil {
+			return err
+		}
+		if err := store.SaveWorkItem(workItem); err != nil {
+			return fmt.Errorf("save blackboard plan version: %w", err)
 		}
 		actor := command.Identity.Actor
 		message := fmt.Sprintf("%s -> %s", relation.FromTaskID, relation.ToTaskID)
@@ -162,11 +197,24 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 	return created, nil
 }
 
+func requireWorkItemVersion(workItem domain.WorkItem, expected int64) error {
+	if workItem.Version == expected {
+		return nil
+	}
+	return conflict(
+		"work item %q changed: expected version %d, got %d",
+		workItem.ID,
+		expected,
+		workItem.Version,
+	)
+}
+
 // SkipBlackboardTaskCommand removes a no-longer-useful Task from the active plan.
 type SkipBlackboardTaskCommand struct {
-	TaskID   domain.TaskID
-	Identity Identity
-	Reason   string
+	TaskID      domain.TaskID
+	Identity    Identity
+	OperationID string
+	Reason      string
 }
 
 // SkipBlackboardTask ends an unclaimed pending Task without a Submission.
@@ -182,7 +230,7 @@ func (s *Service) SkipBlackboardTask(ctx context.Context, command SkipBlackboard
 	}
 
 	var skipped domain.Task
-	err := s.repository.Update(ctx, func(store WriteStore) error {
+	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "skip_blackboard_task", command, &skipped, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)

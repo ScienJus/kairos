@@ -43,6 +43,17 @@ func TestSQLRepositoryContract(t *testing.T) {
 		t.Run("concurrent claim", func(t *testing.T) {
 			testConcurrentClaim(t, repository, openPeer(t), blackboard)
 		})
+		t.Run("concurrent blackboard planning", func(t *testing.T) {
+			testConcurrentBlackboardPlanning(t, repository, openPeer(t), blackboard)
+		})
+		t.Run("concurrent idempotent planning", func(t *testing.T) {
+			testConcurrentIdempotentPlanning(t, repository, openPeer(t), blackboard)
+		})
+		if repository.dialect == dialectPostgres {
+			t.Run("independent work items do not block", func(t *testing.T) {
+				testIndependentWorkItemsDoNotBlock(t, repository, openPeer(t), blackboard)
+			})
+		}
 	})
 }
 
@@ -82,6 +93,7 @@ func forEachSQLRepository(
 		repository := open(t)
 		if _, err := repository.db.ExecContext(context.Background(), `
 			TRUNCATE TABLE
+				idempotency_records,
 				work_item_events,
 				claims,
 				task_relations,
@@ -222,7 +234,8 @@ func testConcurrentClaim(
 		t.Fatalf("create blackboard: %v", err)
 	}
 	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, Identity: creator, Title: "Claim once", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: workItem.Version,
+		Identity: creator, Title: "Claim once", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)
@@ -263,6 +276,228 @@ func testConcurrentClaim(
 	}
 	if succeeded != 1 || conflicted != 1 {
 		t.Fatalf("claim results: success=%d conflict=%d", succeeded, conflicted)
+	}
+}
+
+func testIndependentWorkItemsDoNotBlock(
+	t *testing.T,
+	repository *SQLRepository,
+	peer *SQLRepository,
+	definition domain.BlackboardDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	service := repositoryTestService(t, repository)
+	identity := application.Identity{
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "parallel-work-creator"},
+		Role:  "generalist",
+	}
+	first, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: identity, Title: "First parallel work", Goal: "Hold one row lock",
+	})
+	if err != nil {
+		t.Fatalf("create first work item: %v", err)
+	}
+	second, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: identity, Title: "Second parallel work", Goal: "Acquire another row lock",
+	})
+	if err != nil {
+		t.Fatalf("create second work item: %v", err)
+	}
+
+	firstLocked := make(chan error, 1)
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- repository.Update(ctx, func(store application.WriteStore) error {
+			_, err := store.GetWorkItem(first.ID)
+			firstLocked <- err
+			if err != nil {
+				return err
+			}
+			<-releaseFirst
+			return nil
+		})
+	}()
+	if err := <-firstLocked; err != nil {
+		close(releaseFirst)
+		<-firstDone
+		t.Fatalf("lock first work item: %v", err)
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- peer.Update(ctx, func(store application.WriteStore) error {
+			_, err := store.GetWorkItem(second.ID)
+			return err
+		})
+	}()
+
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			close(releaseFirst)
+			<-firstDone
+			t.Fatalf("lock independent work item: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		close(releaseFirst)
+		<-firstDone
+		t.Fatal("an independent work item was blocked by another work item's transaction")
+	}
+	close(releaseFirst)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("finish first work item transaction: %v", err)
+	}
+}
+
+func testConcurrentBlackboardPlanning(
+	t *testing.T,
+	repository *SQLRepository,
+	peer *SQLRepository,
+	definition domain.BlackboardDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	services := []*application.Service{
+		repositoryTestService(t, repository),
+		repositoryTestService(t, peer),
+	}
+	planners := []application.Identity{
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner-a"}, Role: "generalist"},
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner-b"}, Role: "generalist"},
+	}
+	workItem, err := services[0].CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: planners[0],
+		Title: "Concurrent planning", Goal: "Create one coherent first task",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+
+	start := make(chan struct{})
+	errorsByPlanner := make([]error, len(services))
+	var wait sync.WaitGroup
+	for index, service := range services {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			_, errorsByPlanner[index] = service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+				WorkItemID: workItem.ID, ExpectedWorkItemVersion: workItem.Version,
+				Identity: planners[index], Title: "Implement login", Executor: domain.ExecutorAgent,
+			})
+		}()
+	}
+	close(start)
+	wait.Wait()
+
+	succeeded := 0
+	conflicted := 0
+	for _, err := range errorsByPlanner {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, application.ErrConflict):
+			conflicted++
+		default:
+			t.Fatalf("planning result: %v", err)
+		}
+	}
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("planning results: success=%d conflict=%d", succeeded, conflicted)
+	}
+	err = repository.View(ctx, func(store application.ReadStore) error {
+		persisted, err := store.GetWorkItem(workItem.ID)
+		if err != nil {
+			return err
+		}
+		if persisted.Version != 1 {
+			return fmt.Errorf("work item version is %d, want 1", persisted.Version)
+		}
+		tasks, err := store.ListTasks(workItem.ID)
+		if err != nil {
+			return err
+		}
+		if len(tasks) != 1 {
+			return fmt.Errorf("task count is %d, want 1", len(tasks))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify concurrent planning: %v", err)
+	}
+}
+
+func testConcurrentIdempotentPlanning(
+	t *testing.T,
+	repository *SQLRepository,
+	peer *SQLRepository,
+	definition domain.BlackboardDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	services := []*application.Service{
+		repositoryTestService(t, repository),
+		repositoryTestService(t, peer),
+	}
+	planner := application.Identity{
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "idempotent-planner"}, Role: "generalist",
+	}
+	workItem, err := services[0].CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: planner,
+		Title: "Idempotent planning", Goal: "Retry one task creation safely",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	command := application.CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: workItem.Version,
+		Identity: planner, OperationID: "add-login-task",
+		Title: "Implement login", Executor: domain.ExecutorAgent,
+	}
+
+	start := make(chan struct{})
+	results := make([]domain.Task, len(services))
+	errorsByRequest := make([]error, len(services))
+	var wait sync.WaitGroup
+	for index, service := range services {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			results[index], errorsByRequest[index] = service.CreateBlackboardTask(ctx, command)
+		}()
+	}
+	close(start)
+	wait.Wait()
+	for _, err := range errorsByRequest {
+		if err != nil {
+			t.Fatalf("idempotent planning result: %v", err)
+		}
+	}
+	if results[0].ID != results[1].ID {
+		t.Fatalf("idempotent task ids differ: %q and %q", results[0].ID, results[1].ID)
+	}
+	err = repository.View(ctx, func(store application.ReadStore) error {
+		tasks, err := store.ListTasks(workItem.ID)
+		if err != nil {
+			return err
+		}
+		if len(tasks) != 1 {
+			return fmt.Errorf("task count is %d, want 1", len(tasks))
+		}
+		persisted, err := store.GetWorkItem(workItem.ID)
+		if err != nil {
+			return err
+		}
+		if persisted.Version != 1 {
+			return fmt.Errorf("work item version is %d, want 1", persisted.Version)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify idempotent planning: %v", err)
 	}
 }
 

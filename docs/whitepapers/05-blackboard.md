@@ -37,6 +37,10 @@ Tasks：[]
 
 Blackboard 中的 Task Graph 是当前工作认知的共享表达。
 
+Task 与 Relation 的结构修改基于 WorkItem Version 进行乐观并发控制。多个协作者从同一版本同时修改 Blackboard 时，只有一个修改成功；其他协作者重新读取最新共享状态后再作判断。不同 Task 的执行状态由各自的版本控制，不因此失去并行能力。
+
+Task Graph 为空时，WorkItem 本身作为候选工作被发现。协作者读取整体目标和 Blackboard Instructions 后创建首个 Task；WorkItem Tags 用于这种初始发现。
+
 Suggested Tags 提供开放的标签词汇，例如 `module:*` 或 `kind:*`。Agent 在创建和推进 Task 时根据实际内容选择具体 tags；这些建议不构成权限或格式约束。
 
 ## 2. 规划与执行

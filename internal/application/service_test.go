@@ -102,19 +102,22 @@ func TestGetBlackboardTaskExecutionContext(t *testing.T) {
 		t.Fatalf("create blackboard: %v", err)
 	}
 	first, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, Identity: agent, Title: "Investigate", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
+		Identity: agent, Title: "Investigate", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create first task: %v", err)
 	}
 	second, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, Identity: agent, Title: "Summarize", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 1,
+		Identity: agent, Title: "Summarize", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create second task: %v", err)
 	}
 	if _, err := service.AddBlackboardRelation(context.Background(), AddBlackboardRelationCommand{
-		WorkItemID: workItem.ID, FromTaskID: first.ID, ToTaskID: second.ID, Identity: agent,
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 2,
+		FromTaskID: first.ID, ToTaskID: second.ID, Identity: agent,
 	}); err != nil {
 		t.Fatalf("add relation: %v", err)
 	}
@@ -198,6 +201,42 @@ func TestCreateWorkflowWorkItemAndClaimByRole(t *testing.T) {
 	}
 }
 
+func TestFindWorkDiscoversEmptyBlackboard(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := blackboardDefinition()
+	definition.AgentInstructions = "Create the smallest useful plan."
+	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent,
+		Title: "Empty board", Goal: "Create a plan", Tags: []string{"module:auth"},
+	})
+	if err != nil {
+		t.Fatalf("create blackboard: %v", err)
+	}
+	candidates, err := service.FindWork(context.Background(), FindWorkQuery{
+		Identity: agent, Tags: []string{"module:auth"},
+	})
+	if err != nil {
+		t.Fatalf("find empty blackboard: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Kind != WorkCandidateEmptyBlackboard || candidates[0].WorkItem.ID != workItem.ID {
+		t.Fatalf("empty blackboard candidate: %#v", candidates)
+	}
+	if candidates[0].Definition.AgentInstructions != definition.AgentInstructions {
+		t.Fatalf("definition context: %#v", candidates[0].Definition)
+	}
+	other, err := service.FindWork(context.Background(), FindWorkQuery{
+		Identity: agent, Tags: []string{"module:billing"},
+	})
+	if err != nil || len(other) != 0 {
+		t.Fatalf("unmatched empty blackboard: candidates=%#v err=%v", other, err)
+	}
+}
+
 func TestBlackboardPlanningAndExplicitCompletion(t *testing.T) {
 	t.Parallel()
 
@@ -216,38 +255,51 @@ func TestBlackboardPlanningAndExplicitCompletion(t *testing.T) {
 		t.Fatalf("create blackboard: %v", err)
 	}
 	first, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID,
-		Identity:   identity,
-		Title:      "Collect failures",
-		Executor:   domain.ExecutorEither,
-		Tags:       []string{"investigation"},
+		WorkItemID:              workItem.ID,
+		ExpectedWorkItemVersion: 0,
+		Identity:                identity,
+		Title:                   "Collect failures",
+		Executor:                domain.ExecutorEither,
+		Tags:                    []string{"investigation"},
 	})
 	if err != nil {
 		t.Fatalf("create first task: %v", err)
 	}
 	second, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID,
-		Identity:   identity,
-		Title:      "Remove obsolete hypothesis",
-		Executor:   domain.ExecutorAgent,
-		Tags:       []string{"cleanup"},
+		WorkItemID:              workItem.ID,
+		ExpectedWorkItemVersion: 1,
+		Identity:                identity,
+		Title:                   "Remove obsolete hypothesis",
+		Executor:                domain.ExecutorAgent,
+		Tags:                    []string{"cleanup"},
 	})
 	if err != nil {
 		t.Fatalf("create second task: %v", err)
 	}
 	if _, err := service.AddBlackboardRelation(context.Background(), AddBlackboardRelationCommand{
-		WorkItemID: workItem.ID,
-		FromTaskID: first.ID,
-		ToTaskID:   second.ID,
-		Identity:   identity,
+		WorkItemID:              workItem.ID,
+		ExpectedWorkItemVersion: 2,
+		FromTaskID:              first.ID,
+		ToTaskID:                second.ID,
+		Identity:                identity,
 	}); err != nil {
 		t.Fatalf("add relation: %v", err)
 	}
 	if _, err := service.AddBlackboardRelation(context.Background(), AddBlackboardRelationCommand{
-		WorkItemID: workItem.ID,
-		FromTaskID: second.ID,
-		ToTaskID:   first.ID,
-		Identity:   identity,
+		WorkItemID:              workItem.ID,
+		ExpectedWorkItemVersion: 2,
+		FromTaskID:              second.ID,
+		ToTaskID:                first.ID,
+		Identity:                identity,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("add relation from stale plan: got %v", err)
+	}
+	if _, err := service.AddBlackboardRelation(context.Background(), AddBlackboardRelationCommand{
+		WorkItemID:              workItem.ID,
+		ExpectedWorkItemVersion: 3,
+		FromTaskID:              second.ID,
+		ToTaskID:                first.ID,
+		Identity:                identity,
 	}); err == nil {
 		t.Fatal("add cyclic relation: got nil error")
 	}
@@ -275,6 +327,78 @@ func TestBlackboardPlanningAndExplicitCompletion(t *testing.T) {
 	}
 }
 
+func TestBlackboardPlanningRejectsStaleWorkItemVersion(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+	service := newTestService(t, repository)
+	identity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: domain.DefinitionBinding{ID: "blackboard", Version: 1, Mode: domain.CoordinationModeBlackboard},
+		Identity:   identity,
+		Title:      "Plan login",
+		Goal:       "Produce one coherent plan",
+	})
+	if err != nil {
+		t.Fatalf("create blackboard: %v", err)
+	}
+	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
+		Identity: identity, Title: "Implement login", Executor: domain.ExecutorAgent,
+	}); err != nil {
+		t.Fatalf("create first task: %v", err)
+	}
+	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
+		Identity: identity, Title: "Implement login", Executor: domain.ExecutorAgent,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale task creation: got %v", err)
+	}
+	if got := repository.workItems[workItem.ID].Version; got != 1 {
+		t.Fatalf("work item version: got %d, want 1", got)
+	}
+	if got := len(repository.tasksFor(workItem.ID)); got != 1 {
+		t.Fatalf("task count: got %d, want 1", got)
+	}
+}
+
+func TestOperationIDReturnsOriginalResultAndRejectsReuse(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+	service := newTestService(t, repository)
+	identity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: domain.DefinitionBinding{ID: "blackboard", Version: 1, Mode: domain.CoordinationModeBlackboard},
+		Identity:   identity, Title: "Idempotency", Goal: "Avoid duplicate tasks",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	command := CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
+		Identity: identity, OperationID: "create-login-task",
+		Title: "Implement login", Executor: domain.ExecutorAgent,
+	}
+	first, err := service.CreateBlackboardTask(context.Background(), command)
+	if err != nil {
+		t.Fatalf("first request: %v", err)
+	}
+	second, err := service.CreateBlackboardTask(context.Background(), command)
+	if err != nil {
+		t.Fatalf("repeated request: %v", err)
+	}
+	if first.ID != second.ID || len(repository.tasksFor(workItem.ID)) != 1 {
+		t.Fatalf("repeated result: first=%q second=%q tasks=%d", first.ID, second.ID, len(repository.tasksFor(workItem.ID)))
+	}
+	command.Title = "Implement another login"
+	if _, err := service.CreateBlackboardTask(context.Background(), command); !errors.Is(err, ErrConflict) {
+		t.Fatalf("reused operation id: got %v", err)
+	}
+}
+
 func TestFailTaskReopensAndPreservesFailure(t *testing.T) {
 	t.Parallel()
 
@@ -292,7 +416,8 @@ func TestFailTaskReopensAndPreservesFailure(t *testing.T) {
 		t.Fatalf("create work item: %v", err)
 	}
 	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, Identity: identity, Title: "Inspect logs", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
+		Identity: identity, Title: "Inspect logs", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)
@@ -392,7 +517,8 @@ func TestBlackboardReviewReopensTaskWithCompleteHistory(t *testing.T) {
 		t.Fatalf("create blackboard: %v", err)
 	}
 	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, Identity: firstAgent, Title: "Analyze traces", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
+		Identity: firstAgent, Title: "Analyze traces", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)
@@ -1055,6 +1181,7 @@ type testRepository struct {
 	events      []domain.WorkItemEvent
 	workflows   map[string]domain.WorkflowDefinition
 	blackboards map[string]domain.BlackboardDefinition
+	idempotency map[string]IdempotencyRecord
 }
 
 func newTestRepository() *testRepository {
@@ -1065,6 +1192,7 @@ func newTestRepository() *testRepository {
 		activations: make(map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation),
 		workflows:   make(map[string]domain.WorkflowDefinition),
 		blackboards: make(map[string]domain.BlackboardDefinition),
+		idempotency: make(map[string]IdempotencyRecord),
 	}
 }
 
@@ -1151,7 +1279,19 @@ func (r *testRepository) ListOpenTasks() ([]WorkCandidate, error) {
 	for _, task := range r.tasks {
 		workItem := r.workItems[task.WorkItemID]
 		if workItem.Status == domain.WorkItemStatusOpen {
-			result = append(result, WorkCandidate{WorkItem: workItem, Task: task})
+			result = append(result, WorkCandidate{Kind: WorkCandidateTask, WorkItem: workItem, Task: task})
+		}
+	}
+	return result, nil
+}
+
+func (r *testRepository) ListEmptyBlackboards() ([]domain.WorkItem, error) {
+	var result []domain.WorkItem
+	for _, workItem := range r.workItems {
+		if workItem.Status == domain.WorkItemStatusOpen &&
+			workItem.CoordinationMode() == domain.CoordinationModeBlackboard &&
+			len(r.tasksFor(workItem.ID)) == 0 {
+			result = append(result, workItem)
 		}
 	}
 	return result, nil
@@ -1181,6 +1321,14 @@ func (r *testRepository) LastWorkItemEventSequence(workItemID domain.WorkItemID)
 		}
 	}
 	return sequence, nil
+}
+
+func (r *testRepository) GetIdempotencyRecord(actor domain.ActorRef, operationID string) (IdempotencyRecord, error) {
+	value, ok := r.idempotency[idempotencyTestKey(actor, operationID)]
+	if !ok {
+		return IdempotencyRecord{}, ErrNotFound
+	}
+	return value, nil
 }
 
 func (r *testRepository) CreateWorkItem(value domain.WorkItem) error {
@@ -1255,4 +1403,19 @@ func (r *testRepository) SaveClaim(value domain.Claim) error {
 func (r *testRepository) AppendWorkItemEvent(value domain.WorkItemEvent) error {
 	r.events = append(r.events, value)
 	return nil
+}
+
+func (r *testRepository) LockIdempotencyKey(domain.ActorRef, string) error { return nil }
+
+func (r *testRepository) CreateIdempotencyRecord(value IdempotencyRecord) error {
+	key := idempotencyTestKey(value.Actor, value.OperationID)
+	if _, exists := r.idempotency[key]; exists {
+		return ErrConflict
+	}
+	r.idempotency[key] = value
+	return nil
+}
+
+func idempotencyTestKey(actor domain.ActorRef, operationID string) string {
+	return string(actor.Kind) + ":" + string(actor.ID) + ":" + operationID
 }
