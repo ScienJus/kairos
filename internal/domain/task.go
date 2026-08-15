@@ -9,18 +9,19 @@ import (
 type TaskStatus string
 
 const (
-	TaskStatusPending   TaskStatus = "pending"
-	TaskStatusWorking   TaskStatus = "working"
-	TaskStatusInReview  TaskStatus = "in_review"
-	TaskStatusCompleted TaskStatus = "completed"
-	TaskStatusSkipped   TaskStatus = "skipped"
-	TaskStatusFailed    TaskStatus = "failed"
+	TaskStatusPending         TaskStatus = "pending"
+	TaskStatusWorking         TaskStatus = "working"
+	TaskStatusWaitingChildren TaskStatus = "waiting_children"
+	TaskStatusInReview        TaskStatus = "in_review"
+	TaskStatusCompleted       TaskStatus = "completed"
+	TaskStatusSkipped         TaskStatus = "skipped"
+	TaskStatusFailed          TaskStatus = "failed"
 )
 
 // Valid reports whether the task status is recognized.
 func (s TaskStatus) Valid() bool {
 	switch s {
-	case TaskStatusPending, TaskStatusWorking, TaskStatusInReview, TaskStatusCompleted, TaskStatusSkipped, TaskStatusFailed:
+	case TaskStatusPending, TaskStatusWorking, TaskStatusWaitingChildren, TaskStatusInReview, TaskStatusCompleted, TaskStatusSkipped, TaskStatusFailed:
 		return true
 	default:
 		return false
@@ -68,7 +69,7 @@ func (p ReviewPolicy) Valid() bool {
 	return p == ReviewNone || p == ReviewExecutorDecides || p == ReviewRequired
 }
 
-// Task represents one executable and deliverable unit of work.
+// Task represents one executable unit or decomposed aggregation boundary.
 type Task struct {
 	// ID uniquely identifies this concrete task execution. [Both]
 	ID TaskID
@@ -90,6 +91,14 @@ type Task struct {
 	// ActiveClaimID identifies the current execution responsibility.
 	// It is non-nil exactly while Status is Working. [Both]
 	ActiveClaimID *ClaimID
+
+	// ParentTaskID identifies the aggregate Task that contains this Task.
+	// It must be nil in Workflow mode and cannot change after creation. [Blackboard]
+	ParentTaskID *TaskID
+
+	// DecomposedAt records when execution responsibility moved to child Tasks.
+	// A decomposed Task never produces its own execution result. [Blackboard]
+	DecomposedAt *time.Time
 
 	// Title is the short human-readable label. [Both]
 	Title string
@@ -188,6 +197,12 @@ func (t Task) Validate(mode CoordinationMode) error {
 
 	switch mode {
 	case CoordinationModeWorkflow:
+		if t.ParentTaskID != nil {
+			return invalid("parent_task_id", "must be nil in workflow mode")
+		}
+		if t.DecomposedAt != nil {
+			return invalid("decomposed_at", "must be nil in workflow mode")
+		}
 		if t.WorkflowTaskID == nil || strings.TrimSpace(string(*t.WorkflowTaskID)) == "" {
 			return invalid("workflow_task_id", "is required in workflow mode")
 		}
@@ -201,6 +216,14 @@ func (t Task) Validate(mode CoordinationMode) error {
 			return invalid("review_policy", "a valid policy is required in workflow mode")
 		}
 	case CoordinationModeBlackboard:
+		if t.ParentTaskID != nil {
+			if strings.TrimSpace(string(*t.ParentTaskID)) == "" {
+				return invalid("parent_task_id", "must not be empty")
+			}
+			if *t.ParentTaskID == t.ID {
+				return invalid("parent_task_id", "must not reference the task itself")
+			}
+		}
 		if t.WorkflowTaskID != nil {
 			return invalid("workflow_task_id", "must be nil in blackboard mode")
 		}
@@ -261,12 +284,26 @@ func (t Task) Validate(mode CoordinationMode) error {
 	if t.Status != TaskStatusInReview && hasPendingReview {
 		return invalid("status", "must be in_review while a review is pending")
 	}
+	if t.Status == TaskStatusWaitingChildren && t.DecomposedAt == nil {
+		return invalid("decomposed_at", "is required while waiting for child tasks")
+	}
+	if t.DecomposedAt != nil {
+		if t.DecomposedAt.IsZero() || t.DecomposedAt.Before(t.CreatedAt) || t.DecomposedAt.After(t.UpdatedAt) {
+			return invalid("decomposed_at", "must fall within the task lifetime")
+		}
+		if t.Status != TaskStatusWaitingChildren && t.Status != TaskStatusCompleted {
+			return invalid("status", "a decomposed task must be waiting_children or completed")
+		}
+		if len(t.Submissions) > 0 || len(t.Reviews) > 0 || len(t.Failures) > 0 || len(t.TransitionDecisions) > 0 {
+			return invalid("decomposed_at", "a decomposed task must not contain execution results")
+		}
+	}
 
 	if t.Status == TaskStatusCompleted || t.Status == TaskStatusSkipped {
 		if t.CompletedAt == nil {
 			return invalid("completed_at", "is required for ended tasks")
 		}
-		if t.Status == TaskStatusCompleted && len(t.Submissions) == 0 {
+		if t.Status == TaskStatusCompleted && len(t.Submissions) == 0 && t.DecomposedAt == nil {
 			return invalid("submissions", "a completed task requires a submission")
 		}
 	} else if t.CompletedAt != nil {

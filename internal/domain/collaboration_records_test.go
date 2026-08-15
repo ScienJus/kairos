@@ -102,6 +102,39 @@ func TestTaskFailureRejectsRetryPromptForGlobalFailure(t *testing.T) {
 	}
 }
 
+func TestBlackboardTaskHierarchyValidatesAggregateCompletion(t *testing.T) {
+	t.Parallel()
+
+	decomposedAt := testTime.Add(time.Minute)
+	parentID := TaskID("parent")
+	parent := Task{
+		ID: parentID, WorkItemID: "work-1", Status: TaskStatusWaitingChildren,
+		Title: "Implement login", Executor: ExecutorAgent,
+		DecomposedAt: &decomposedAt, CreatedAt: testTime, UpdatedAt: decomposedAt,
+	}
+	child := Task{
+		ID: "child", WorkItemID: "work-1", ParentTaskID: &parentID,
+		Status: TaskStatusPending, Title: "Implement session management", Executor: ExecutorAgent,
+		CreatedAt: decomposedAt, UpdatedAt: decomposedAt,
+	}
+	claim := Claim{
+		ID: "claim-1", TaskID: parent.ID, Executor: ActorRef{Kind: ActorAgent, ID: "agent-1"},
+		ClaimedAt: testTime, EndedAt: &decomposedAt, EndReason: ClaimEndTaskDecomposed,
+	}
+	if err := ValidateTaskContext(CoordinationModeBlackboard, parent, []Claim{claim}); err != nil {
+		t.Fatalf("aggregate task context: %v", err)
+	}
+	if err := ValidateBlackboardTaskHierarchy("work-1", []Task{parent, child}); err != nil {
+		t.Fatalf("open task hierarchy: %v", err)
+	}
+
+	parent.Status = TaskStatusCompleted
+	parent.CompletedAt = &decomposedAt
+	if err := ValidateBlackboardTaskHierarchy("work-1", []Task{parent, child}); !errors.Is(err, ErrInvalidModel) {
+		t.Fatalf("aggregate completed before child: got %v", err)
+	}
+}
+
 func TestWorkflowGraphValidatesContinueAndExitDecisions(t *testing.T) {
 	t.Parallel()
 

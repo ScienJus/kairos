@@ -4,17 +4,16 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
 // CreateBlackboardTaskCommand adds one planned Task to an open Blackboard.
 type CreateBlackboardTaskCommand struct {
-	WorkItemID domain.WorkItemID
-	// ExpectedWorkItemVersion identifies the Blackboard snapshot used to plan the Task.
-	ExpectedWorkItemVersion int64
-	Identity                Identity
-	OperationID             string
+	WorkItemID  domain.WorkItemID
+	Identity    Identity
+	OperationID string
 
 	Title              string
 	Description        string
@@ -28,9 +27,6 @@ type CreateBlackboardTaskCommand struct {
 func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackboardTaskCommand) (domain.Task, error) {
 	if strings.TrimSpace(string(command.WorkItemID)) == "" {
 		return domain.Task{}, invalidCommand("work item id is required")
-	}
-	if command.ExpectedWorkItemVersion < 0 {
-		return domain.Task{}, invalidCommand("expected work item version must not be negative")
 	}
 	if err := command.Identity.Validate(); err != nil {
 		return domain.Task{}, err
@@ -48,9 +44,6 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
 		}
-		if err := requireWorkItemVersion(workItem, command.ExpectedWorkItemVersion); err != nil {
-			return err
-		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return fmt.Errorf("list blackboard tasks: %w", err)
@@ -60,33 +53,26 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 			return err
 		}
 		now := s.clock.Now()
-		task := domain.Task{
-			ID:                 domain.TaskID(id),
-			WorkItemID:         workItem.ID,
-			Status:             domain.TaskStatusPending,
-			Title:              strings.TrimSpace(command.Title),
-			Description:        strings.TrimSpace(command.Description),
-			AcceptanceCriteria: strings.TrimSpace(command.AcceptanceCriteria),
-			Executor:           command.Executor,
-			AllowedRoles:       append([]string(nil), command.AllowedRoles...),
-			Tags:               append([]string(nil), command.Tags...),
-			Position:           nextTaskPosition(tasks),
-			CreatedAt:          now,
-			UpdatedAt:          now,
-		}
+		task := newBlackboardTask(
+			domain.TaskID(id),
+			workItem.ID,
+			nil,
+			BlackboardTaskSpec{
+				Title: command.Title, Description: command.Description,
+				AcceptanceCriteria: command.AcceptanceCriteria, Executor: command.Executor,
+				AllowedRoles: command.AllowedRoles, Tags: command.Tags,
+			},
+			nextTaskPosition(tasks),
+			now,
+		)
 		if err := task.Validate(domain.CoordinationModeBlackboard); err != nil {
 			return err
 		}
 		if err := store.CreateTask(task); err != nil {
 			return fmt.Errorf("create blackboard task: %w", err)
 		}
-		workItem.Version++
-		workItem.UpdatedAt = now
-		if err := workItem.Validate(); err != nil {
+		if err := advanceBlackboardRevision(store, &workItem, now); err != nil {
 			return err
-		}
-		if err := store.SaveWorkItem(workItem); err != nil {
-			return fmt.Errorf("save blackboard plan version: %w", err)
 		}
 		actor := command.Identity.Actor
 		if err := s.appendEvent(store, workItem.ID, &task.ID, domain.WorkItemEventTaskCreated, string(task.ID), &actor, ""); err != nil {
@@ -101,6 +87,46 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 	return created, nil
 }
 
+// BlackboardTaskSpec describes one new executable Task.
+type BlackboardTaskSpec struct {
+	Title              string
+	Description        string
+	AcceptanceCriteria string
+	Executor           domain.ExecutorRequirement
+	AllowedRoles       []string
+	Tags               []string
+}
+
+func newBlackboardTask(
+	id domain.TaskID,
+	workItemID domain.WorkItemID,
+	parentTaskID *domain.TaskID,
+	spec BlackboardTaskSpec,
+	position int64,
+	now time.Time,
+) domain.Task {
+	var parent *domain.TaskID
+	if parentTaskID != nil {
+		value := *parentTaskID
+		parent = &value
+	}
+	return domain.Task{
+		ID:                 id,
+		WorkItemID:         workItemID,
+		ParentTaskID:       parent,
+		Status:             domain.TaskStatusPending,
+		Title:              strings.TrimSpace(spec.Title),
+		Description:        strings.TrimSpace(spec.Description),
+		AcceptanceCriteria: strings.TrimSpace(spec.AcceptanceCriteria),
+		Executor:           spec.Executor,
+		AllowedRoles:       append([]string(nil), spec.AllowedRoles...),
+		Tags:               append([]string(nil), spec.Tags...),
+		Position:           position,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+}
+
 func nextTaskPosition(tasks []domain.Task) int64 {
 	var next int64
 	for _, task := range tasks {
@@ -113,13 +139,11 @@ func nextTaskPosition(tasks []domain.Task) int64 {
 
 // AddBlackboardRelationCommand records one suggested ordering relation.
 type AddBlackboardRelationCommand struct {
-	WorkItemID domain.WorkItemID
-	// ExpectedWorkItemVersion identifies the Blackboard snapshot used to plan the Relation.
-	ExpectedWorkItemVersion int64
-	FromTaskID              domain.TaskID
-	ToTaskID                domain.TaskID
-	Identity                Identity
-	OperationID             string
+	WorkItemID  domain.WorkItemID
+	FromTaskID  domain.TaskID
+	ToTaskID    domain.TaskID
+	Identity    Identity
+	OperationID string
 }
 
 // AddBlackboardRelation adds one relation while preserving the runtime DAG.
@@ -128,9 +152,6 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		strings.TrimSpace(string(command.FromTaskID)) == "" ||
 		strings.TrimSpace(string(command.ToTaskID)) == "" {
 		return domain.TaskRelation{}, invalidCommand("work item id, from task id and to task id are required")
-	}
-	if command.ExpectedWorkItemVersion < 0 {
-		return domain.TaskRelation{}, invalidCommand("expected work item version must not be negative")
 	}
 	if err := command.Identity.Validate(); err != nil {
 		return domain.TaskRelation{}, err
@@ -147,9 +168,6 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		}
 		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
-		}
-		if err := requireWorkItemVersion(workItem, command.ExpectedWorkItemVersion); err != nil {
-			return err
 		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
@@ -175,13 +193,8 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		if err := store.CreateTaskRelation(relation); err != nil {
 			return fmt.Errorf("create blackboard relation: %w", err)
 		}
-		workItem.Version++
-		workItem.UpdatedAt = now
-		if err := workItem.Validate(); err != nil {
+		if err := advanceBlackboardRevision(store, &workItem, now); err != nil {
 			return err
-		}
-		if err := store.SaveWorkItem(workItem); err != nil {
-			return fmt.Errorf("save blackboard plan version: %w", err)
 		}
 		actor := command.Identity.Actor
 		message := fmt.Sprintf("%s -> %s", relation.FromTaskID, relation.ToTaskID)
@@ -195,18 +208,6 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		return domain.TaskRelation{}, err
 	}
 	return created, nil
-}
-
-func requireWorkItemVersion(workItem domain.WorkItem, expected int64) error {
-	if workItem.Version == expected {
-		return nil
-	}
-	return conflict(
-		"work item %q changed: expected version %d, got %d",
-		workItem.ID,
-		expected,
-		workItem.Version,
-	)
 }
 
 // SkipBlackboardTaskCommand removes a no-longer-useful Task from the active plan.
@@ -262,6 +263,9 @@ func (s *Service) SkipBlackboardTask(ctx context.Context, command SkipBlackboard
 		}
 		actor := command.Identity.Actor
 		if err := s.appendEvent(store, workItem.ID, &task.ID, domain.WorkItemEventTaskSkipped, string(task.ID), &actor, strings.TrimSpace(command.Reason)); err != nil {
+			return err
+		}
+		if err := s.completeBlackboardAncestors(store, workItem, task, &actor, now); err != nil {
 			return err
 		}
 		skipped = task

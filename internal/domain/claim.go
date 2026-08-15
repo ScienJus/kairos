@@ -44,12 +44,13 @@ const (
 	ClaimEndReleased           ClaimEndReason = "released"
 	ClaimEndRevoked            ClaimEndReason = "revoked"
 	ClaimEndTaskFailed         ClaimEndReason = "task_failed"
+	ClaimEndTaskDecomposed     ClaimEndReason = "task_decomposed"
 )
 
 // Valid reports whether the claim end reason is recognized.
 func (r ClaimEndReason) Valid() bool {
 	switch r {
-	case ClaimEndTaskCompleted, ClaimEndSubmittedForReview, ClaimEndReleased, ClaimEndRevoked, ClaimEndTaskFailed:
+	case ClaimEndTaskCompleted, ClaimEndSubmittedForReview, ClaimEndReleased, ClaimEndRevoked, ClaimEndTaskFailed, ClaimEndTaskDecomposed:
 		return true
 	default:
 		return false
@@ -213,7 +214,7 @@ func ValidateTaskContext(mode CoordinationMode, task Task, claims []Claim) error
 			if count != 1 {
 				return invalid("submissions", "claim %q requires exactly one submission", claim.ID)
 			}
-		case ClaimEndReleased, ClaimEndRevoked, "":
+		case ClaimEndReleased, ClaimEndRevoked, ClaimEndTaskDecomposed, "":
 			if count != 0 {
 				return invalid("submissions", "claim %q must not have a submission", claim.ID)
 			}
@@ -230,6 +231,27 @@ func ValidateTaskContext(mode CoordinationMode, task Task, claims []Claim) error
 			}
 		} else if failureCount != 0 {
 			return invalid("failures", "claim %q did not end with a failure", claim.ID)
+		}
+	}
+	if task.DecomposedAt != nil {
+		decomposedClaims := 0
+		for _, claim := range claims {
+			if claim.EndReason != ClaimEndTaskDecomposed {
+				continue
+			}
+			decomposedClaims++
+			if claim.EndedAt == nil || !claim.EndedAt.Equal(*task.DecomposedAt) {
+				return invalid("decomposed_at", "must match the decomposition claim end time")
+			}
+		}
+		if decomposedClaims != 1 {
+			return invalid("claims", "a decomposed task requires exactly one decomposition claim")
+		}
+	} else {
+		for _, claim := range claims {
+			if claim.EndReason == ClaimEndTaskDecomposed {
+				return invalid("claims", "decomposition claim %q requires a decomposed task", claim.ID)
+			}
 		}
 	}
 	reviewsBySubmission := make(map[SubmissionID]int, len(task.Reviews))

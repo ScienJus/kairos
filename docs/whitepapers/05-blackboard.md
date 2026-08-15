@@ -37,7 +37,7 @@ Tasks：[]
 
 Blackboard 中的 Task Graph 是当前工作认知的共享表达。
 
-Task 与 Relation 的结构修改基于 WorkItem Version 进行乐观并发控制。多个协作者从同一版本同时修改 Blackboard 时，只有一个修改成功；其他协作者重新读取最新共享状态后再作判断。不同 Task 的执行状态由各自的版本控制，不因此失去并行能力。
+Blackboard 的结构追加基于服务端最新状态提交。多个协作者同时创建不同 Task 或 Relation 时，操作依次写入并可以全部成功；WorkItem Version 作为服务端维护的结构修订号。Operation ID 负责识别请求重试，Task Version 负责保护单个 Task 的状态变化。
 
 Task Graph 为空时，WorkItem 本身作为候选工作被发现。协作者读取整体目标和 Blackboard Instructions 后创建首个 Task；WorkItem Tags 用于这种初始发现。
 
@@ -64,11 +64,16 @@ Blackboard 将规划放在整个执行过程中：
 
 - 创建新的 Task；
 - 将较大的 Task 拆分为更清晰的交付单元；
+- 向尚未完成的聚合 Task 追加子 Task；
 - 调整 Task 之间的关系；
 - 根据新信息将已经失去价值的 Task 标记为 Skipped；
 - 使用已有成果规划后续工作。
 
 已完成 Task 及其成果继续保留，为后续判断提供上下文。
+
+Task 可以形成层级。执行者 Claim 一个尚未产生成果的 Task 后，可以将它拆分为初始子 Task。父 Task 随即结束 Claim 并进入 `WaitingChildren`，不再产生自己的 Submission；成果由后代 Task 汇总。
+
+`WaitingChildren` 表示一个开放的聚合范围。WorkItem 未完成期间，协作者可以继续向其中追加子 Task。所有直接子 Task 完成或跳过后，父 Task 递归完成并封闭。普通执行 Task、聚合 Task 与 Task Relation 分别表达执行、工作拆分和建议顺序。
 
 ## 3. Task Relation
 
@@ -89,7 +94,7 @@ Blackboard 使用 Task Relation 表达当前建议的推进顺序：
 Blackboard 的候选 Task 来自当前共享空间：
 
 ```text
-尚未结束
+Pending 的执行叶子 Task
 + 当前没有 Claim
 + 符合查询上下文
 ```

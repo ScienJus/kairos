@@ -110,9 +110,10 @@ Blackboard WorkItem 使用 Checklist 展示动态形成的 Task：
 
 ```text
 [x] 设计登录方案
-[ ] 实现密码登录          backend, auth
-[ ] 实现会话管理          backend, auth
-[ ] 增加暴力破解防护      security
+[ ] 实现登录功能
+    [ ] 实现密码登录      backend, auth
+    [ ] 实现会话管理      backend, auth
+    [ ] 增加暴力破解防护  security
 [ ] 测试登录功能          test
 ```
 

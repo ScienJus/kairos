@@ -28,4 +28,4 @@ Kairos 在统一的 `WorkItem` 与 `Task` 模型上支持两种独立的组织�
 
 ## 项目状态
 
-Kairos 目前处于设计阶段，本仓库用于沉淀核心概念与后续实现基础。
+Kairos 已完成核心领域模型、Application Service，以及 PostgreSQL / SQLite 持久化基础。Agent 接口、服务入口和人类 UI 尚待实现。

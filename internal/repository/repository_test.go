@@ -43,11 +43,20 @@ func TestSQLRepositoryContract(t *testing.T) {
 		t.Run("concurrent claim", func(t *testing.T) {
 			testConcurrentClaim(t, repository, openPeer(t), blackboard)
 		})
-		t.Run("concurrent blackboard planning", func(t *testing.T) {
+		t.Run("concurrent blackboard appends", func(t *testing.T) {
 			testConcurrentBlackboardPlanning(t, repository, openPeer(t), blackboard)
 		})
 		t.Run("concurrent idempotent planning", func(t *testing.T) {
 			testConcurrentIdempotentPlanning(t, repository, openPeer(t), blackboard)
+		})
+		t.Run("hierarchy closure race", func(t *testing.T) {
+			testHierarchyClosureRace(t, repository, openPeer(t), blackboard)
+		})
+		t.Run("concurrent child appends", func(t *testing.T) {
+			testConcurrentChildAppends(t, repository, openPeer(t), blackboard)
+		})
+		t.Run("concurrent reciprocal relations", func(t *testing.T) {
+			testConcurrentReciprocalRelations(t, repository, openPeer(t), blackboard)
 		})
 		if repository.dialect == dialectPostgres {
 			t.Run("independent work items do not block", func(t *testing.T) {
@@ -234,8 +243,8 @@ func testConcurrentClaim(
 		t.Fatalf("create blackboard: %v", err)
 	}
 	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: workItem.Version,
-		Identity: creator, Title: "Claim once", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID,
+		Identity:   creator, Title: "Claim once", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)
@@ -384,8 +393,8 @@ func testConcurrentBlackboardPlanning(
 			defer wait.Done()
 			<-start
 			_, errorsByPlanner[index] = service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
-				WorkItemID: workItem.ID, ExpectedWorkItemVersion: workItem.Version,
-				Identity: planners[index], Title: "Implement login", Executor: domain.ExecutorAgent,
+				WorkItemID: workItem.ID,
+				Identity:   planners[index], Title: fmt.Sprintf("Plan part %d", index+1), Executor: domain.ExecutorAgent,
 			})
 		}()
 	}
@@ -393,34 +402,31 @@ func testConcurrentBlackboardPlanning(
 	wait.Wait()
 
 	succeeded := 0
-	conflicted := 0
 	for _, err := range errorsByPlanner {
 		switch {
 		case err == nil:
 			succeeded++
-		case errors.Is(err, application.ErrConflict):
-			conflicted++
 		default:
 			t.Fatalf("planning result: %v", err)
 		}
 	}
-	if succeeded != 1 || conflicted != 1 {
-		t.Fatalf("planning results: success=%d conflict=%d", succeeded, conflicted)
+	if succeeded != 2 {
+		t.Fatalf("planning results: success=%d", succeeded)
 	}
 	err = repository.View(ctx, func(store application.ReadStore) error {
 		persisted, err := store.GetWorkItem(workItem.ID)
 		if err != nil {
 			return err
 		}
-		if persisted.Version != 1 {
-			return fmt.Errorf("work item version is %d, want 1", persisted.Version)
+		if persisted.Version != 2 {
+			return fmt.Errorf("work item version is %d, want 2", persisted.Version)
 		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return err
 		}
-		if len(tasks) != 1 {
-			return fmt.Errorf("task count is %d, want 1", len(tasks))
+		if len(tasks) != 2 {
+			return fmt.Errorf("task count is %d, want 2", len(tasks))
 		}
 		return nil
 	})
@@ -452,8 +458,8 @@ func testConcurrentIdempotentPlanning(
 		t.Fatalf("create work item: %v", err)
 	}
 	command := application.CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: workItem.Version,
-		Identity: planner, OperationID: "add-login-task",
+		WorkItemID: workItem.ID,
+		Identity:   planner, OperationID: "add-login-task",
 		Title: "Implement login", Executor: domain.ExecutorAgent,
 	}
 
@@ -498,6 +504,285 @@ func testConcurrentIdempotentPlanning(
 	})
 	if err != nil {
 		t.Fatalf("verify idempotent planning: %v", err)
+	}
+}
+
+func testHierarchyClosureRace(
+	t *testing.T,
+	repository *SQLRepository,
+	peer *SQLRepository,
+	definition domain.BlackboardDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	services := []*application.Service{
+		repositoryTestService(t, repository),
+		repositoryTestService(t, peer),
+	}
+	identities := []application.Identity{
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "hierarchy-owner"}, Role: "generalist"},
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "hierarchy-planner"}, Role: "generalist"},
+	}
+	workItem, err := services[0].CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: identities[0],
+		Title: "Hierarchy race", Goal: "Resolve append and closure atomically",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	root, err := services[0].CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: identities[0], Title: "Deliver feature", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create root task: %v", err)
+	}
+	rootClaim, err := services[0].ClaimTask(ctx, application.ClaimTaskCommand{TaskID: root.ID, Identity: identities[0]})
+	if err != nil {
+		t.Fatalf("claim root task: %v", err)
+	}
+	decomposition, err := services[0].DecomposeBlackboardTask(ctx, application.DecomposeBlackboardTaskCommand{
+		TaskID: root.ID, ClaimID: rootClaim.ID, Identity: identities[0],
+		Children: []application.BlackboardTaskSpec{{Title: "Implement feature", Executor: domain.ExecutorAgent}},
+	})
+	if err != nil {
+		t.Fatalf("decompose root task: %v", err)
+	}
+	child := decomposition.Children[0]
+	childClaim, err := services[0].ClaimTask(ctx, application.ClaimTaskCommand{TaskID: child.ID, Identity: identities[0]})
+	if err != nil {
+		t.Fatalf("claim child task: %v", err)
+	}
+
+	start := make(chan struct{})
+	submitDone := make(chan error, 1)
+	addDone := make(chan struct {
+		task domain.Task
+		err  error
+	}, 1)
+	go func() {
+		<-start
+		_, err := services[0].SubmitTask(ctx, application.SubmitTaskCommand{
+			TaskID: child.ID, ClaimID: childClaim.ID, Identity: identities[0], Result: "Feature implemented",
+		})
+		submitDone <- err
+	}()
+	go func() {
+		<-start
+		task, err := services[1].AddBlackboardChildTask(ctx, application.AddBlackboardChildTaskCommand{
+			ParentTaskID: root.ID, Identity: identities[1],
+			Task: application.BlackboardTaskSpec{Title: "Late integration check", Executor: domain.ExecutorAgent},
+		})
+		addDone <- struct {
+			task domain.Task
+			err  error
+		}{task: task, err: err}
+	}()
+	close(start)
+	if err := <-submitDone; err != nil {
+		t.Fatalf("submit child: %v", err)
+	}
+	addResult := <-addDone
+	if addResult.err != nil && !errors.Is(addResult.err, application.ErrConflict) {
+		t.Fatalf("append child: %v", addResult.err)
+	}
+
+	err = repository.View(ctx, func(store application.ReadStore) error {
+		parent, err := store.GetTask(root.ID)
+		if err != nil {
+			return err
+		}
+		tasks, err := store.ListTasks(workItem.ID)
+		if err != nil {
+			return err
+		}
+		if addResult.err == nil {
+			if parent.Status != domain.TaskStatusWaitingChildren {
+				return fmt.Errorf("parent status is %s after successful append", parent.Status)
+			}
+			if addResult.task.ParentTaskID == nil || *addResult.task.ParentTaskID != root.ID {
+				return fmt.Errorf("appended task has parent %v", addResult.task.ParentTaskID)
+			}
+		} else if parent.Status != domain.TaskStatusCompleted {
+			return fmt.Errorf("parent status is %s after closure won", parent.Status)
+		}
+		return domain.ValidateBlackboardTaskHierarchy(workItem.ID, tasks)
+	})
+	if err != nil {
+		t.Fatalf("verify hierarchy closure race: %v", err)
+	}
+}
+
+func testConcurrentChildAppends(
+	t *testing.T,
+	repository *SQLRepository,
+	peer *SQLRepository,
+	definition domain.BlackboardDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	services := []*application.Service{
+		repositoryTestService(t, repository),
+		repositoryTestService(t, peer),
+	}
+	identities := []application.Identity{
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "child-planner-a"}, Role: "generalist"},
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "child-planner-b"}, Role: "generalist"},
+	}
+	workItem, err := services[0].CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: identities[0],
+		Title: "Concurrent child planning", Goal: "Keep both useful child tasks",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	root, err := services[0].CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: identities[0], Title: "Implement login", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create root task: %v", err)
+	}
+	claim, err := services[0].ClaimTask(ctx, application.ClaimTaskCommand{TaskID: root.ID, Identity: identities[0]})
+	if err != nil {
+		t.Fatalf("claim root task: %v", err)
+	}
+	if _, err := services[0].DecomposeBlackboardTask(ctx, application.DecomposeBlackboardTaskCommand{
+		TaskID: root.ID, ClaimID: claim.ID, Identity: identities[0],
+		Children: []application.BlackboardTaskSpec{{Title: "Initial implementation", Executor: domain.ExecutorAgent}},
+	}); err != nil {
+		t.Fatalf("decompose root task: %v", err)
+	}
+
+	start := make(chan struct{})
+	errorsByPlanner := make([]error, len(services))
+	var wait sync.WaitGroup
+	for index, service := range services {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			_, errorsByPlanner[index] = service.AddBlackboardChildTask(ctx, application.AddBlackboardChildTaskCommand{
+				ParentTaskID: root.ID, Identity: identities[index],
+				Task: application.BlackboardTaskSpec{
+					Title: fmt.Sprintf("Concurrent child %d", index+1), Executor: domain.ExecutorAgent,
+				},
+			})
+		}()
+	}
+	close(start)
+	wait.Wait()
+	for _, err := range errorsByPlanner {
+		if err != nil {
+			t.Fatalf("concurrent child append: %v", err)
+		}
+	}
+	err = repository.View(ctx, func(store application.ReadStore) error {
+		parent, err := store.GetTask(root.ID)
+		if err != nil {
+			return err
+		}
+		if parent.Status != domain.TaskStatusWaitingChildren {
+			return fmt.Errorf("parent status is %s", parent.Status)
+		}
+		tasks, err := store.ListTasks(workItem.ID)
+		if err != nil {
+			return err
+		}
+		children := 0
+		for _, task := range tasks {
+			if task.ParentTaskID != nil && *task.ParentTaskID == root.ID {
+				children++
+			}
+		}
+		if children != 3 {
+			return fmt.Errorf("child count is %d, want 3", children)
+		}
+		return domain.ValidateBlackboardTaskHierarchy(workItem.ID, tasks)
+	})
+	if err != nil {
+		t.Fatalf("verify concurrent child appends: %v", err)
+	}
+}
+
+func testConcurrentReciprocalRelations(
+	t *testing.T,
+	repository *SQLRepository,
+	peer *SQLRepository,
+	definition domain.BlackboardDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	services := []*application.Service{
+		repositoryTestService(t, repository),
+		repositoryTestService(t, peer),
+	}
+	identities := []application.Identity{
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "relation-planner-a"}, Role: "generalist"},
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "relation-planner-b"}, Role: "generalist"},
+	}
+	workItem, err := services[0].CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: identities[0],
+		Title: "Concurrent relations", Goal: "Keep the suggested graph acyclic",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	first, err := services[0].CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: identities[0], Title: "First task", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create first task: %v", err)
+	}
+	second, err := services[0].CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: identities[0], Title: "Second task", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create second task: %v", err)
+	}
+
+	commands := []application.AddBlackboardRelationCommand{
+		{WorkItemID: workItem.ID, FromTaskID: first.ID, ToTaskID: second.ID, Identity: identities[0]},
+		{WorkItemID: workItem.ID, FromTaskID: second.ID, ToTaskID: first.ID, Identity: identities[1]},
+	}
+	start := make(chan struct{})
+	errorsByPlanner := make([]error, len(services))
+	var wait sync.WaitGroup
+	for index, service := range services {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			_, errorsByPlanner[index] = service.AddBlackboardRelation(ctx, commands[index])
+		}()
+	}
+	close(start)
+	wait.Wait()
+	succeeded := 0
+	rejected := 0
+	for _, err := range errorsByPlanner {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, domain.ErrInvalidModel):
+			rejected++
+		default:
+			t.Fatalf("concurrent relation result: %v", err)
+		}
+	}
+	if succeeded != 1 || rejected != 1 {
+		t.Fatalf("relation results: success=%d rejected=%d", succeeded, rejected)
+	}
+	err = repository.View(ctx, func(store application.ReadStore) error {
+		relations, err := store.ListTaskRelations(workItem.ID)
+		if err != nil {
+			return err
+		}
+		if len(relations) != 1 {
+			return fmt.Errorf("relation count is %d, want 1", len(relations))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify reciprocal relations: %v", err)
 	}
 }
 

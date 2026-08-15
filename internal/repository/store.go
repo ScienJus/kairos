@@ -366,16 +366,26 @@ func (s *sqlStore) CreateTask(value domain.Task) error {
 	if err := value.Validate(mode); err != nil {
 		return err
 	}
+	if value.ParentTaskID != nil {
+		var parentWorkItemID domain.WorkItemID
+		if err := s.queryRow("SELECT work_item_id FROM tasks WHERE id = ?", *value.ParentTaskID).Scan(&parentWorkItemID); err != nil {
+			return normalizeError(err)
+		}
+		if parentWorkItemID != value.WorkItemID {
+			return fmt.Errorf("%w: parent task %q belongs to another work item", application.ErrConflict, *value.ParentTaskID)
+		}
+	}
 	payload, err := encodeJSON(value)
 	if err != nil {
 		return err
 	}
 	_, err = s.exec(`
 		INSERT INTO tasks
-			(id, work_item_id, status, active_claim_id, position, version, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			(id, work_item_id, parent_task_id, status, active_claim_id, position, version, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID,
 		value.WorkItemID,
+		nullString(value.ParentTaskID),
 		value.Status,
 		nullString(value.ActiveClaimID),
 		value.Position,
@@ -395,6 +405,14 @@ func (s *sqlStore) SaveTask(value domain.Task) error {
 	}
 	if value.Version <= 0 {
 		return fmt.Errorf("%w: task %q has no previous version", application.ErrConflict, value.ID)
+	}
+	var storedParent sql.NullString
+	if err := s.queryRow("SELECT parent_task_id FROM tasks WHERE id = ?", value.ID).Scan(&storedParent); err != nil {
+		return normalizeError(err)
+	}
+	if storedParent.Valid != (value.ParentTaskID != nil) ||
+		(storedParent.Valid && storedParent.String != string(*value.ParentTaskID)) {
+		return fmt.Errorf("%w: task %q parent is immutable", application.ErrConflict, value.ID)
 	}
 	payload, err := encodeJSON(value)
 	if err != nil {

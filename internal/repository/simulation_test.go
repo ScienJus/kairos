@@ -131,8 +131,15 @@ func testRandomBlackboardCollaboration(t *testing.T) {
 	if workItem.Status != domain.WorkItemStatusCompleted {
 		t.Fatalf("blackboard status: got %s", workItem.Status)
 	}
-	if len(tasks) != 4 || len(relations) != 3 {
+	if len(tasks) != 4 || len(relations) != 1 {
 		t.Fatalf("dynamic plan: tasks=%d relations=%d", len(tasks), len(relations))
+	}
+	if err := domain.ValidateBlackboardTaskHierarchy(workItem.ID, tasks); err != nil {
+		t.Fatalf("dynamic hierarchy: %v", err)
+	}
+	planning := taskWithTag(t, tasks, "planning")
+	if planning.Status != domain.TaskStatusCompleted || planning.DecomposedAt == nil || len(planning.Submissions) != 0 {
+		t.Fatalf("planning aggregate: %#v", planning)
 	}
 	implementation := taskWithTag(t, tasks, "module:auth")
 	if len(implementation.Reviews) == 0 {
@@ -253,8 +260,8 @@ func (s *collaborationSimulation) executeRandomTask(
 		}
 		if candidate.Kind == application.WorkCandidateEmptyBlackboard {
 			if _, err := s.service.CreateBlackboardTask(s.ctx, application.CreateBlackboardTaskCommand{
-				WorkItemID: candidate.WorkItem.ID, ExpectedWorkItemVersion: candidate.WorkItem.Version,
-				Identity: agent.identity, Title: "Plan the implementation",
+				WorkItemID: candidate.WorkItem.ID,
+				Identity:   agent.identity, Title: "Plan the implementation",
 				Executor: domain.ExecutorAgent, Tags: []string{"planning"},
 			}); err != nil {
 				s.fail("create first blackboard task: %v", err)
@@ -300,6 +307,10 @@ func (s *collaborationSimulation) executeRandomTask(
 	if err != nil {
 		s.fail("get context for %s: %v", candidate.Task.ID, err)
 	}
+	if slices.Contains(candidate.Task.Tags, "planning") && !s.planExpanded {
+		s.expandBlackboardPlan(candidate.WorkItem.ID, agent.identity, candidate.Task, claim.ID)
+		return true
+	}
 	transition := s.randomWorkflowTransition(executionContext)
 	if transition != nil {
 		var skippedTitles []string
@@ -337,9 +348,6 @@ func (s *collaborationSimulation) executeRandomTask(
 		verb = "submitted for review"
 	}
 	s.record("%s %s %q", agent.identity.Actor.ID, verb, candidate.Task.Title)
-	if slices.Contains(candidate.Task.Tags, "planning") && !s.planExpanded {
-		s.expandBlackboardPlan(candidate.WorkItem.ID, agent.identity, candidate.Task.ID)
-	}
 	return true
 }
 
@@ -428,7 +436,8 @@ func (s *collaborationSimulation) decideRandomReview(tasks []domain.Task) bool {
 func (s *collaborationSimulation) expandBlackboardPlan(
 	workItemID domain.WorkItemID,
 	planner application.Identity,
-	planningTaskID domain.TaskID,
+	planningTask domain.Task,
+	claimID domain.ClaimID,
 ) {
 	type plannedTask struct {
 		title string
@@ -439,44 +448,39 @@ func (s *collaborationSimulation) expandBlackboardPlan(
 		{title: "Update documentation", tag: "docs"},
 		{title: "Run integration tests", tag: "test"},
 	}
-	workItem, _, _ := s.snapshot(workItemID)
-	version := workItem.Version
-	created := make(map[string]domain.Task, len(plans))
-	for _, index := range s.random.Perm(len(plans)) {
+	permutation := s.random.Perm(len(plans))
+	specs := make([]application.BlackboardTaskSpec, 0, len(plans))
+	for _, index := range permutation {
 		plan := plans[index]
-		task, err := s.service.CreateBlackboardTask(s.ctx, application.CreateBlackboardTaskCommand{
-			WorkItemID:              workItemID,
-			ExpectedWorkItemVersion: version,
-			Identity:                planner,
-			Title:                   plan.title,
-			Executor:                domain.ExecutorAgent,
-			Tags:                    []string{plan.tag},
+		specs = append(specs, application.BlackboardTaskSpec{
+			Title: plan.title, Executor: domain.ExecutorAgent, Tags: []string{plan.tag},
 		})
-		if err != nil {
-			s.fail("expand blackboard task %q: %v", plan.title, err)
-		}
-		created[plan.tag] = task
-		version++
+	}
+	decomposition, err := s.service.DecomposeBlackboardTask(s.ctx, application.DecomposeBlackboardTaskCommand{
+		TaskID: planningTask.ID, ClaimID: claimID, Identity: planner, Children: specs,
+	})
+	if err != nil {
+		s.fail("decompose planning task: %v", err)
+	}
+	created := make(map[string]domain.Task, len(decomposition.Children))
+	for _, task := range decomposition.Children {
+		created[task.Tags[0]] = task
 	}
 	relations := [][2]domain.TaskID{
-		{planningTaskID, created["module:auth"].ID},
-		{planningTaskID, created["docs"].ID},
 		{created["module:auth"].ID, created["test"].ID},
 	}
 	for _, relation := range relations {
 		if _, err := s.service.AddBlackboardRelation(s.ctx, application.AddBlackboardRelationCommand{
-			WorkItemID:              workItemID,
-			ExpectedWorkItemVersion: version,
-			FromTaskID:              relation[0],
-			ToTaskID:                relation[1],
-			Identity:                planner,
+			WorkItemID: workItemID,
+			FromTaskID: relation[0],
+			ToTaskID:   relation[1],
+			Identity:   planner,
 		}); err != nil {
 			s.fail("add blackboard relation: %v", err)
 		}
-		version++
 	}
 	s.planExpanded = true
-	s.record(`planner added "Implement authentication", "Update documentation", and "Run integration tests"`)
+	s.record(`planner decomposed %q into "Implement authentication", "Update documentation", and "Run integration tests"`, planningTask.Title)
 }
 
 func (s *collaborationSimulation) snapshot(

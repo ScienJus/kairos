@@ -135,6 +135,9 @@ func (s *Service) DecideReview(ctx context.Context, command DecideReviewCommand)
 			if err := s.appendEvent(store, workItem.ID, &task.ID, taskEvent, entityID, &actor, ""); err != nil {
 				return err
 			}
+			if err := s.completeBlackboardAncestors(store, workItem, task, &actor, now); err != nil {
+				return err
+			}
 			if workItem.CoordinationMode() == domain.CoordinationModeWorkflow && len(task.TransitionDecisions) > 0 {
 				decision := task.TransitionDecisions[len(task.TransitionDecisions)-1]
 				if err := s.applyWorkflowDecision(store, &workItem, task, decision); err != nil {

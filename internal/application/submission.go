@@ -166,6 +166,9 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 			if err := s.appendEvent(store, workItem.ID, &task.ID, domain.WorkItemEventTaskCompleted, string(submission.ID), &actor, ""); err != nil {
 				return err
 			}
+			if err := s.completeBlackboardAncestors(store, workItem, task, &actor, now); err != nil {
+				return err
+			}
 			if decision != nil {
 				if err := s.applyWorkflowDecision(store, &workItem, task, *decision); err != nil {
 					return err

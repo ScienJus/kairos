@@ -102,21 +102,21 @@ func TestGetBlackboardTaskExecutionContext(t *testing.T) {
 		t.Fatalf("create blackboard: %v", err)
 	}
 	first, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
-		Identity: agent, Title: "Investigate", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID,
+		Identity:   agent, Title: "Investigate", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create first task: %v", err)
 	}
 	second, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 1,
-		Identity: agent, Title: "Summarize", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID,
+		Identity:   agent, Title: "Summarize", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create second task: %v", err)
 	}
 	if _, err := service.AddBlackboardRelation(context.Background(), AddBlackboardRelationCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 2,
+		WorkItemID: workItem.ID,
 		FromTaskID: first.ID, ToTaskID: second.ID, Identity: agent,
 	}); err != nil {
 		t.Fatalf("add relation: %v", err)
@@ -255,51 +255,38 @@ func TestBlackboardPlanningAndExplicitCompletion(t *testing.T) {
 		t.Fatalf("create blackboard: %v", err)
 	}
 	first, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID:              workItem.ID,
-		ExpectedWorkItemVersion: 0,
-		Identity:                identity,
-		Title:                   "Collect failures",
-		Executor:                domain.ExecutorEither,
-		Tags:                    []string{"investigation"},
+		WorkItemID: workItem.ID,
+		Identity:   identity,
+		Title:      "Collect failures",
+		Executor:   domain.ExecutorEither,
+		Tags:       []string{"investigation"},
 	})
 	if err != nil {
 		t.Fatalf("create first task: %v", err)
 	}
 	second, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID:              workItem.ID,
-		ExpectedWorkItemVersion: 1,
-		Identity:                identity,
-		Title:                   "Remove obsolete hypothesis",
-		Executor:                domain.ExecutorAgent,
-		Tags:                    []string{"cleanup"},
+		WorkItemID: workItem.ID,
+		Identity:   identity,
+		Title:      "Remove obsolete hypothesis",
+		Executor:   domain.ExecutorAgent,
+		Tags:       []string{"cleanup"},
 	})
 	if err != nil {
 		t.Fatalf("create second task: %v", err)
 	}
 	if _, err := service.AddBlackboardRelation(context.Background(), AddBlackboardRelationCommand{
-		WorkItemID:              workItem.ID,
-		ExpectedWorkItemVersion: 2,
-		FromTaskID:              first.ID,
-		ToTaskID:                second.ID,
-		Identity:                identity,
+		WorkItemID: workItem.ID,
+		FromTaskID: first.ID,
+		ToTaskID:   second.ID,
+		Identity:   identity,
 	}); err != nil {
 		t.Fatalf("add relation: %v", err)
 	}
 	if _, err := service.AddBlackboardRelation(context.Background(), AddBlackboardRelationCommand{
-		WorkItemID:              workItem.ID,
-		ExpectedWorkItemVersion: 2,
-		FromTaskID:              second.ID,
-		ToTaskID:                first.ID,
-		Identity:                identity,
-	}); !errors.Is(err, ErrConflict) {
-		t.Fatalf("add relation from stale plan: got %v", err)
-	}
-	if _, err := service.AddBlackboardRelation(context.Background(), AddBlackboardRelationCommand{
-		WorkItemID:              workItem.ID,
-		ExpectedWorkItemVersion: 3,
-		FromTaskID:              second.ID,
-		ToTaskID:                first.ID,
-		Identity:                identity,
+		WorkItemID: workItem.ID,
+		FromTaskID: second.ID,
+		ToTaskID:   first.ID,
+		Identity:   identity,
 	}); err == nil {
 		t.Fatal("add cyclic relation: got nil error")
 	}
@@ -327,7 +314,7 @@ func TestBlackboardPlanningAndExplicitCompletion(t *testing.T) {
 	}
 }
 
-func TestBlackboardPlanningRejectsStaleWorkItemVersion(t *testing.T) {
+func TestBlackboardPlanningAppendsAgainstLatestRevision(t *testing.T) {
 	t.Parallel()
 
 	repository := newTestRepository()
@@ -344,22 +331,145 @@ func TestBlackboardPlanningRejectsStaleWorkItemVersion(t *testing.T) {
 		t.Fatalf("create blackboard: %v", err)
 	}
 	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
-		Identity: identity, Title: "Implement login", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID,
+		Identity:   identity, Title: "Implement login", Executor: domain.ExecutorAgent,
 	}); err != nil {
 		t.Fatalf("create first task: %v", err)
 	}
 	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
-		Identity: identity, Title: "Implement login", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID,
+		Identity:   identity, Title: "Test login", Executor: domain.ExecutorAgent,
+	}); err != nil {
+		t.Fatalf("append second task: %v", err)
+	}
+	if got := repository.workItems[workItem.ID].Version; got != 2 {
+		t.Fatalf("work item version: got %d, want 2", got)
+	}
+	if got := len(repository.tasksFor(workItem.ID)); got != 2 {
+		t.Fatalf("task count: got %d, want 2", got)
+	}
+}
+
+func TestBlackboardTaskHierarchySupportsOpenAppendAndRecursiveCompletion(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+	service := newTestService(t, repository)
+	planner := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "generalist"}
+	contributor := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "contributor"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: domain.DefinitionBinding{ID: "blackboard", Version: 1, Mode: domain.CoordinationModeBlackboard},
+		Identity:   planner, Title: "Implement login", Goal: "Deliver login",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	root, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: planner, Title: "Implement login", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create root task: %v", err)
+	}
+	rootClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: root.ID, Identity: planner})
+	if err != nil {
+		t.Fatalf("claim root task: %v", err)
+	}
+	decomposeCommand := DecomposeBlackboardTaskCommand{
+		TaskID: root.ID, ClaimID: rootClaim.ID, Identity: planner,
+		OperationID: "decompose-login",
+		Children: []BlackboardTaskSpec{
+			{Title: "Implement authentication", Executor: domain.ExecutorAgent},
+			{Title: "Run login tests", Executor: domain.ExecutorAgent},
+		},
+	}
+	decomposition, err := service.DecomposeBlackboardTask(context.Background(), decomposeCommand)
+	if err != nil {
+		t.Fatalf("decompose root task: %v", err)
+	}
+	repeated, err := service.DecomposeBlackboardTask(context.Background(), decomposeCommand)
+	if err != nil {
+		t.Fatalf("repeat decomposition: %v", err)
+	}
+	if repeated.Parent.ID != decomposition.Parent.ID || repeated.Children[0].ID != decomposition.Children[0].ID {
+		t.Fatalf("idempotent decomposition: first=%#v repeated=%#v", decomposition, repeated)
+	}
+	if decomposition.Parent.Status != domain.TaskStatusWaitingChildren || decomposition.Parent.ActiveClaimID != nil || decomposition.Parent.DecomposedAt == nil {
+		t.Fatalf("aggregate root: %#v", decomposition.Parent)
+	}
+	if claim := repository.claims[rootClaim.ID]; claim.Active() || claim.EndReason != domain.ClaimEndTaskDecomposed {
+		t.Fatalf("decomposition claim: %#v", claim)
+	}
+	for _, child := range decomposition.Children {
+		if child.ParentTaskID == nil || *child.ParentTaskID != root.ID {
+			t.Fatalf("child parent: %#v", child)
+		}
+	}
+
+	authentication := decomposition.Children[0]
+	authenticationClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: authentication.ID, Identity: planner})
+	if err != nil {
+		t.Fatalf("claim authentication task: %v", err)
+	}
+	nested, err := service.DecomposeBlackboardTask(context.Background(), DecomposeBlackboardTaskCommand{
+		TaskID: authentication.ID, ClaimID: authenticationClaim.ID, Identity: planner,
+		Children: []BlackboardTaskSpec{
+			{Title: "Implement password verification", Executor: domain.ExecutorAgent},
+			{Title: "Implement session management", Executor: domain.ExecutorAgent},
+		},
+	})
+	if err != nil {
+		t.Fatalf("decompose authentication task: %v", err)
+	}
+	extra, err := service.AddBlackboardChildTask(context.Background(), AddBlackboardChildTaskCommand{
+		ParentTaskID: authentication.ID,
+		Identity:     contributor,
+		Task:         BlackboardTaskSpec{Title: "Add brute force protection", Executor: domain.ExecutorAgent},
+	})
+	if err != nil {
+		t.Fatalf("append child task: %v", err)
+	}
+	if extra.ParentTaskID == nil || *extra.ParentTaskID != authentication.ID {
+		t.Fatalf("appended child: %#v", extra)
+	}
+
+	complete := func(task domain.Task) {
+		t.Helper()
+		claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: contributor})
+		if err != nil {
+			t.Fatalf("claim %q: %v", task.Title, err)
+		}
+		if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+			TaskID: task.ID, ClaimID: claim.ID, Identity: contributor, Result: "Completed " + task.Title,
+		}); err != nil {
+			t.Fatalf("complete %q: %v", task.Title, err)
+		}
+	}
+	complete(decomposition.Children[1])
+	for _, child := range nested.Children {
+		complete(child)
+	}
+	if parent := repository.tasks[root.ID]; parent.Status != domain.TaskStatusWaitingChildren {
+		t.Fatalf("root completed too early: %#v", parent)
+	}
+	complete(extra)
+
+	completedNested := repository.tasks[authentication.ID]
+	completedRoot := repository.tasks[root.ID]
+	if completedNested.Status != domain.TaskStatusCompleted || completedRoot.Status != domain.TaskStatusCompleted {
+		t.Fatalf("recursive completion: nested=%s root=%s", completedNested.Status, completedRoot.Status)
+	}
+	if len(completedNested.Submissions) != 0 || len(completedRoot.Submissions) != 0 {
+		t.Fatalf("aggregate submissions: nested=%d root=%d", len(completedNested.Submissions), len(completedRoot.Submissions))
+	}
+	if _, err := service.AddBlackboardChildTask(context.Background(), AddBlackboardChildTaskCommand{
+		ParentTaskID: root.ID, Identity: contributor,
+		Task: BlackboardTaskSpec{Title: "Late child", Executor: domain.ExecutorAgent},
 	}); !errors.Is(err, ErrConflict) {
-		t.Fatalf("stale task creation: got %v", err)
+		t.Fatalf("append to completed aggregate: got %v", err)
 	}
-	if got := repository.workItems[workItem.ID].Version; got != 1 {
-		t.Fatalf("work item version: got %d, want 1", got)
-	}
-	if got := len(repository.tasksFor(workItem.ID)); got != 1 {
-		t.Fatalf("task count: got %d, want 1", got)
+	if err := domain.ValidateBlackboardTaskHierarchy(workItem.ID, repository.tasksFor(workItem.ID)); err != nil {
+		t.Fatalf("final task hierarchy: %v", err)
 	}
 }
 
@@ -378,8 +488,8 @@ func TestOperationIDReturnsOriginalResultAndRejectsReuse(t *testing.T) {
 		t.Fatalf("create work item: %v", err)
 	}
 	command := CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
-		Identity: identity, OperationID: "create-login-task",
+		WorkItemID: workItem.ID,
+		Identity:   identity, OperationID: "create-login-task",
 		Title: "Implement login", Executor: domain.ExecutorAgent,
 	}
 	first, err := service.CreateBlackboardTask(context.Background(), command)
@@ -416,8 +526,8 @@ func TestFailTaskReopensAndPreservesFailure(t *testing.T) {
 		t.Fatalf("create work item: %v", err)
 	}
 	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
-		Identity: identity, Title: "Inspect logs", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID,
+		Identity:   identity, Title: "Inspect logs", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)
@@ -517,8 +627,8 @@ func TestBlackboardReviewReopensTaskWithCompleteHistory(t *testing.T) {
 		t.Fatalf("create blackboard: %v", err)
 	}
 	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
-		WorkItemID: workItem.ID, ExpectedWorkItemVersion: 0,
-		Identity: firstAgent, Title: "Analyze traces", Executor: domain.ExecutorAgent,
+		WorkItemID: workItem.ID,
+		Identity:   firstAgent, Title: "Analyze traces", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create task: %v", err)

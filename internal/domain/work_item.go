@@ -70,9 +70,9 @@ type WorkItem struct {
 	// Result records the final outcome and important deliverables. [Both]
 	Result string
 
-	// Version is used for WorkItem-level optimistic concurrency control.
-	// Blackboard planning mutations increment it, while Task execution uses the
-	// individual Task version. [Both]
+	// Version is the server-maintained WorkItem revision. Blackboard planning
+	// mutations increment it, while Task execution uses the individual Task
+	// version. [Both]
 	Version int64
 
 	CreatedAt   time.Time

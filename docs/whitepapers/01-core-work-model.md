@@ -56,6 +56,8 @@ Task 是单一执行者的执行边界：
 
 Task 的粒度应当支持一个执行者在一次连贯的工作过程中对其负责并产生交付。Task 可以限定由 Agent、人或两者中的任意一方执行。
 
+Blackboard 中的执行者也可以在产生成果前将 Task 拆分为子 Task。拆分后的父 Task 成为聚合边界，不再由执行者提交成果；它在全部子 Task 结束后完成。一个 Task 只采用直接交付或子 Task 聚合中的一种方式。
+
 执行者每次正式提交结果时，Kairos 在 Task 下创建不可变的 Task Submission，并关联产生该结果的 Claim。Task 可以经历多轮执行、提交和 Review，全部 Submission 都作为共享历史保留。
 
 执行者报告失败时，Kairos 在 Task 下创建不可变的 Task Failure。重新打开产生的提示会进入后续执行上下文；全局失败则结束当前 Task 与 WorkItem。Claim、Submission、Review、Failure 和推进决策同时形成按顺序追加的 WorkItem Event 历史。
@@ -72,6 +74,7 @@ Task 的粒度应当支持一个执行者在一次连贯的工作过程中对其
 
 Task Graph 可以表达：
 
+- Task 的拆分层级；
 - 前置依赖；
 - 并行工作；
 - 一个 Task 连接多个后续 Task；
@@ -171,7 +174,7 @@ Workflow 和 Blackboard 映射到相同的基础结构：
         正式、强约束的图              动态、建议性的图
 ```
 
-底层模型包含三个核心概念：
+底层模型包含三个核心概念。Task 通过 Parent Task 表达层级，通过 Task Relation 表达有向关系：
 
 ```text
 WorkItem
