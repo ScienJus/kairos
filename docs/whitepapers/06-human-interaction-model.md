@@ -24,6 +24,8 @@ WorkItem Detail
 
 List 和 Kanban 的对象都是 WorkItem。Task 存在于 WorkItem 详情中，并按照 Workflow 或 Blackboard 的语义进行交互。
 
+WorkItem 详情还提供按顺序追加的事件历史，用于追溯 Task 创建、Claim、提交、Review、失败和 Workflow 推进决策。
+
 ## 2. List
 
 List 用于管理大量 WorkItem，重点提供：

@@ -1,0 +1,490 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+
+	"github.com/ScienJus/kairos/internal/application"
+	"github.com/ScienJus/kairos/internal/domain"
+)
+
+type sqlStore struct {
+	ctx     context.Context
+	tx      *sql.Tx
+	dialect dialect
+}
+
+func (s *sqlStore) exec(query string, args ...any) (sql.Result, error) {
+	result, err := s.tx.ExecContext(s.ctx, rebind(s.dialect, query), args...)
+	return result, normalizeError(err)
+}
+
+func (s *sqlStore) query(query string, args ...any) (*sql.Rows, error) {
+	rows, err := s.tx.QueryContext(s.ctx, rebind(s.dialect, query), args...)
+	return rows, normalizeError(err)
+}
+
+func (s *sqlStore) queryRow(query string, args ...any) *sql.Row {
+	return s.tx.QueryRowContext(s.ctx, rebind(s.dialect, query), args...)
+}
+
+func encodeJSON(value any) (string, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("encode repository payload: %w", err)
+	}
+	return string(payload), nil
+}
+
+func decodeJSON[T any](payload string) (T, error) {
+	var value T
+	if err := json.Unmarshal([]byte(payload), &value); err != nil {
+		return value, fmt.Errorf("decode repository payload: %w", err)
+	}
+	return value, nil
+}
+
+func (s *sqlStore) GetWorkItem(id domain.WorkItemID) (domain.WorkItem, error) {
+	var payload string
+	if err := s.queryRow("SELECT payload FROM work_items WHERE id = ?", id).Scan(&payload); err != nil {
+		return domain.WorkItem{}, normalizeError(err)
+	}
+	return decodeJSON[domain.WorkItem](payload)
+}
+
+func (s *sqlStore) GetTask(id domain.TaskID) (domain.Task, error) {
+	var payload string
+	if err := s.queryRow("SELECT payload FROM tasks WHERE id = ?", id).Scan(&payload); err != nil {
+		return domain.Task{}, normalizeError(err)
+	}
+	return decodeJSON[domain.Task](payload)
+}
+
+func (s *sqlStore) ListTasks(workItemID domain.WorkItemID) ([]domain.Task, error) {
+	rows, err := s.query(
+		"SELECT payload FROM tasks WHERE work_item_id = ? ORDER BY position, id",
+		workItemID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.Task
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, normalizeError(err)
+		}
+		value, err := decodeJSON[domain.Task](payload)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) ListTaskRelations(workItemID domain.WorkItemID) ([]domain.TaskRelation, error) {
+	rows, err := s.query(
+		"SELECT payload FROM task_relations WHERE work_item_id = ? ORDER BY from_task_id, to_task_id",
+		workItemID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.TaskRelation
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, normalizeError(err)
+		}
+		value, err := decodeJSON[domain.TaskRelation](payload)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
+	rows, err := s.query(
+		"SELECT payload FROM claims WHERE task_id = ? ORDER BY claimed_at_ns, id",
+		taskID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.Claim
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, normalizeError(err)
+		}
+		value, err := decodeJSON[domain.Claim](payload)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) GetWorkflowTaskActivation(
+	id domain.WorkflowTaskActivationID,
+) (domain.WorkflowTaskActivation, error) {
+	var payload string
+	if err := s.queryRow("SELECT payload FROM workflow_activations WHERE id = ?", id).Scan(&payload); err != nil {
+		return domain.WorkflowTaskActivation{}, normalizeError(err)
+	}
+	return decodeJSON[domain.WorkflowTaskActivation](payload)
+}
+
+func (s *sqlStore) ListWorkflowTaskActivations(
+	workItemID domain.WorkItemID,
+) ([]domain.WorkflowTaskActivation, error) {
+	rows, err := s.query(
+		"SELECT payload FROM workflow_activations WHERE work_item_id = ? ORDER BY created_at_ns, id",
+		workItemID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.WorkflowTaskActivation
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, normalizeError(err)
+		}
+		value, err := decodeJSON[domain.WorkflowTaskActivation](payload)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) ListOpenTasks() ([]application.WorkCandidate, error) {
+	rows, err := s.query(`
+		SELECT w.payload, t.payload
+		FROM tasks t
+		JOIN work_items w ON w.id = t.work_item_id
+		WHERE w.status = ? AND t.status = ?
+		ORDER BY w.id, t.position, t.id`, domain.WorkItemStatusOpen, domain.TaskStatusPending)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []application.WorkCandidate
+	for rows.Next() {
+		var workItemPayload, taskPayload string
+		if err := rows.Scan(&workItemPayload, &taskPayload); err != nil {
+			return nil, normalizeError(err)
+		}
+		workItem, err := decodeJSON[domain.WorkItem](workItemPayload)
+		if err != nil {
+			return nil, err
+		}
+		task, err := decodeJSON[domain.Task](taskPayload)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, application.WorkCandidate{WorkItem: workItem, Task: task})
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) GetWorkflowDefinition(
+	id domain.DefinitionID,
+	version int64,
+) (domain.WorkflowDefinition, error) {
+	var payload string
+	if err := s.queryRow(
+		"SELECT payload FROM definitions WHERE id = ? AND version = ? AND mode = ?",
+		id, version, domain.CoordinationModeWorkflow,
+	).Scan(&payload); err != nil {
+		return domain.WorkflowDefinition{}, normalizeError(err)
+	}
+	return decodeJSON[domain.WorkflowDefinition](payload)
+}
+
+func (s *sqlStore) GetBlackboardDefinition(
+	id domain.DefinitionID,
+	version int64,
+) (domain.BlackboardDefinition, error) {
+	var payload string
+	if err := s.queryRow(
+		"SELECT payload FROM definitions WHERE id = ? AND version = ? AND mode = ?",
+		id, version, domain.CoordinationModeBlackboard,
+	).Scan(&payload); err != nil {
+		return domain.BlackboardDefinition{}, normalizeError(err)
+	}
+	return decodeJSON[domain.BlackboardDefinition](payload)
+}
+
+func (s *sqlStore) LastWorkItemEventSequence(workItemID domain.WorkItemID) (int64, error) {
+	var sequence int64
+	if err := s.queryRow(
+		"SELECT COALESCE(MAX(sequence), 0) FROM work_item_events WHERE work_item_id = ?",
+		workItemID,
+	).Scan(&sequence); err != nil {
+		return 0, normalizeError(err)
+	}
+	return sequence, nil
+}
+
+func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(`
+		INSERT INTO work_items
+			(id, definition_id, definition_version, mode, status, version, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		value.ID,
+		value.Definition.ID,
+		value.Definition.Version,
+		value.Definition.Mode,
+		value.Status,
+		value.Version,
+		payload,
+	)
+	return err
+}
+
+func (s *sqlStore) SaveWorkItem(value domain.WorkItem) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	if value.Version <= 0 {
+		return fmt.Errorf("%w: work item %q has no previous version", application.ErrConflict, value.ID)
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	result, err := s.exec(`
+		UPDATE work_items
+		SET status = ?, version = ?, payload = ?
+		WHERE id = ? AND version = ?`,
+		value.Status, value.Version, payload, value.ID, value.Version-1,
+	)
+	if err != nil {
+		return err
+	}
+	return s.requireUpdated(result, "work_items", value.ID)
+}
+
+func (s *sqlStore) CreateTask(value domain.Task) error {
+	mode, err := s.workItemMode(value.WorkItemID)
+	if err != nil {
+		return err
+	}
+	if err := value.Validate(mode); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(`
+		INSERT INTO tasks
+			(id, work_item_id, status, active_claim_id, position, version, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		value.ID,
+		value.WorkItemID,
+		value.Status,
+		nullString(value.ActiveClaimID),
+		value.Position,
+		value.Version,
+		payload,
+	)
+	return err
+}
+
+func (s *sqlStore) SaveTask(value domain.Task) error {
+	mode, err := s.workItemMode(value.WorkItemID)
+	if err != nil {
+		return err
+	}
+	if err := value.Validate(mode); err != nil {
+		return err
+	}
+	if value.Version <= 0 {
+		return fmt.Errorf("%w: task %q has no previous version", application.ErrConflict, value.ID)
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	result, err := s.exec(`
+		UPDATE tasks
+		SET status = ?, active_claim_id = ?, position = ?, version = ?, payload = ?
+		WHERE id = ? AND version = ?`,
+		value.Status,
+		nullString(value.ActiveClaimID),
+		value.Position,
+		value.Version,
+		payload,
+		value.ID,
+		value.Version-1,
+	)
+	if err != nil {
+		return err
+	}
+	return s.requireUpdated(result, "tasks", value.ID)
+}
+
+func (s *sqlStore) CreateTaskRelation(value domain.TaskRelation) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(`
+		INSERT INTO task_relations (work_item_id, from_task_id, to_task_id, payload)
+		VALUES (?, ?, ?, ?)`,
+		value.WorkItemID, value.FromTaskID, value.ToTaskID, payload,
+	)
+	return err
+}
+
+func (s *sqlStore) CreateWorkflowTaskActivation(value domain.WorkflowTaskActivation) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(`
+		INSERT INTO workflow_activations
+			(id, work_item_id, workflow_task_id, correlation_id, status, created_at_ns, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		value.ID,
+		value.WorkItemID,
+		value.WorkflowTaskID,
+		value.CorrelationID,
+		value.Status,
+		value.CreatedAt.UnixNano(),
+		payload,
+	)
+	return err
+}
+
+func (s *sqlStore) SaveWorkflowTaskActivation(value domain.WorkflowTaskActivation) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	result, err := s.exec(`
+		UPDATE workflow_activations
+		SET status = ?, payload = ?
+		WHERE id = ?`,
+		value.Status, payload, value.ID,
+	)
+	if err != nil {
+		return err
+	}
+	return s.requireUpdated(result, "workflow_activations", value.ID)
+}
+
+func (s *sqlStore) CreateClaim(value domain.Claim) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(`
+		INSERT INTO claims (id, task_id, active, claimed_at_ns, payload)
+		VALUES (?, ?, ?, ?, ?)`,
+		value.ID, value.TaskID, value.Active(), value.ClaimedAt.UnixNano(), payload,
+	)
+	return err
+}
+
+func (s *sqlStore) SaveClaim(value domain.Claim) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	result, err := s.exec(`
+		UPDATE claims
+		SET task_id = ?, active = ?, claimed_at_ns = ?, payload = ?
+		WHERE id = ?`,
+		value.TaskID, value.Active(), value.ClaimedAt.UnixNano(), payload, value.ID,
+	)
+	if err != nil {
+		return err
+	}
+	return s.requireUpdated(result, "claims", value.ID)
+}
+
+func (s *sqlStore) AppendWorkItemEvent(value domain.WorkItemEvent) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(`
+		INSERT INTO work_item_events (id, work_item_id, sequence, occurred_at_ns, payload)
+		VALUES (?, ?, ?, ?, ?)`,
+		value.ID, value.WorkItemID, value.Sequence, value.OccurredAt.UnixNano(), payload,
+	)
+	return err
+}
+
+func (s *sqlStore) workItemMode(workItemID domain.WorkItemID) (domain.CoordinationMode, error) {
+	var mode domain.CoordinationMode
+	if err := s.queryRow("SELECT mode FROM work_items WHERE id = ?", workItemID).Scan(&mode); err != nil {
+		return "", normalizeError(err)
+	}
+	return mode, nil
+}
+
+func (s *sqlStore) requireUpdated(result sql.Result, table string, id any) error {
+	count, err := result.RowsAffected()
+	if err != nil {
+		return normalizeError(err)
+	}
+	if count == 1 {
+		return nil
+	}
+	var exists bool
+	if err := s.queryRow("SELECT EXISTS (SELECT 1 FROM "+table+" WHERE id = ?)", id).Scan(&exists); err != nil {
+		return normalizeError(err)
+	}
+	if !exists {
+		return application.ErrNotFound
+	}
+	return application.ErrConflict
+}
+
+func nullString[T ~string](value *T) any {
+	if value == nil {
+		return nil
+	}
+	return string(*value)
+}

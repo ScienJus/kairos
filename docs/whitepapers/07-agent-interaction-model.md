@@ -56,9 +56,12 @@ executor = agent | either
 
 ## 3. Task 上下文
 
-Agent 执行 Task 时获得四类信息：
+Agent 执行 Task 时获得五类信息：
 
 ```text
+Definition Context
+    Description、Agent Instructions 与 Suggested Tags
+
 WorkItem Context
     目标、背景、约束与验收标准
 
@@ -72,9 +75,11 @@ Coordination Context
     当前模式、Task Relation 与可用决策
 ```
 
-Workflow 的 Coordination Context 包含正式前置关系、optional 判断和 Review 配置。Blackboard 则包含建议关系、tags 和当前共享工作态势。
+Definition Context 对同一协作空间中的全部 WorkItem 生效。Workflow 的 Coordination Context 包含正式前置关系、optional 判断和 Review 配置。Blackboard 则包含建议关系、tags 和当前共享工作态势。
 
 Agent 可以按需读取更多历史和成果。默认上下文应优先提供与当前 Task 直接相关的信息。
+
+Workflow Context 提供按距离排列的上游运行时 Task、当前合法的 Choice Group、直接目标和本次可判断的 optional Task。Agent 提交需要跳过的 Task ID，Kairos 根据 Workflow Definition 负责关系分区和路径展开。Blackboard Context 提供当前共享的 Task 与建议关系。
 
 ## 4. 执行与提交
 
@@ -85,16 +90,24 @@ Agent 在执行过程中可以持续记录：
 - 发现的问题；
 - 产生的成果和 Artifact。
 
-提交 Task 时，Agent 提供本次交付的结果摘要和相关成果。Kairos 将这些信息保存到 Task，并使其成为 WorkItem 的共享上下文。
+提交 Task 时，Agent 提供本次交付的结果摘要和相关成果。Kairos 在 Task 下创建不可变的 Submission，并使其成为 WorkItem 的共享上下文。返工后的再次提交形成新的 Submission，不覆盖此前结果。
+
+提交需要人工 Review 时，当前 Claim 随提交结束，Task 在 `InReview` 期间不再要求 Agent 保活。Review 驳回后 Task 回到候选集合，并在新的 Claim 下继续执行。
 
 ```text
 Task
 ├── Progress
-├── Result
-└── Artifacts
+├── Submission 1
+│   ├── Result
+│   └── Artifacts
+└── Submission 2
+    ├── Result
+    └── Artifacts
 ```
 
 提交还可以携带当前协调模式允许的推进决策。Kairos 根据这些决策和模式规则更新 Task Graph。
+
+Agent 无法完成 Task 时，可以提交失败原因并选择重新打开 Task 或使整个 WorkItem 失败。重新打开时可以附加 Retry Prompt；失败记录和提示会进入后续执行者读取的完整 Task 上下文。
 
 ## 5. Workflow 能力
 

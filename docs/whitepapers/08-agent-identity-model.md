@@ -115,6 +115,8 @@ Kairos 可以根据 Agent Role 提供默认 tags 或查询范围，Agent 再结�
 
 Blackboard 的 tags 表达工作分类和发现线索，不自动成为访问权限。需要限制某个 Task 时，应显式配置允许的 Role。
 
+Workflow Definition 和 Blackboard Definition 都可以提供 Suggested Tags，例如 `module:*`。Agent 根据实际工作为 Task 添加具体 tags；Definition 只提供推荐词汇，不要求人持续维护每个 Task 的标签。
+
 因此，Blackboard 默认使用 Role 改善任务发现，也允许在需要时施加明确约束。
 
 ## 7. AGENTS.md
