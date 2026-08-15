@@ -573,57 +573,6 @@ func (s *Service) failWorkflowExecutionLimit(
 	return s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventWorkItemFailed, string(workItem.ID), &actor, message)
 }
 
-func (s *Service) completeWorkflowIfDone(
-	store WriteStore,
-	workItem *domain.WorkItem,
-	actor *domain.ActorRef,
-) error {
-	if workItem.CoordinationMode() != domain.CoordinationModeWorkflow || workItem.Status != domain.WorkItemStatusOpen {
-		return nil
-	}
-	tasks, err := store.ListTasks(workItem.ID)
-	if err != nil {
-		return fmt.Errorf("list workflow tasks for completion: %w", err)
-	}
-	definition, err := store.GetWorkflowDefinition(workItem.Definition.ID, workItem.Definition.Version)
-	if err != nil {
-		return fmt.Errorf("get workflow definition for completion: %w", err)
-	}
-	for _, task := range tasks {
-		if task.Status != domain.TaskStatusCompleted && task.Status != domain.TaskStatusSkipped {
-			return nil
-		}
-		groups, err := workflowChoiceGroups(definition, task)
-		if err != nil {
-			return err
-		}
-		if len(groups) > 0 && !hasAppliedDecision(task) {
-			return nil
-		}
-	}
-	activations, err := store.ListWorkflowTaskActivations(workItem.ID)
-	if err != nil {
-		return fmt.Errorf("list workflow activations for completion: %w", err)
-	}
-	for _, activation := range activations {
-		if activation.Status == domain.WorkflowActivationWaiting {
-			return nil
-		}
-	}
-	now := s.clock.Now()
-	workItem.Status = domain.WorkItemStatusCompleted
-	workItem.CompletedAt = &now
-	workItem.UpdatedAt = now
-	workItem.Version++
-	if err := workItem.Validate(); err != nil {
-		return err
-	}
-	if err := store.SaveWorkItem(*workItem); err != nil {
-		return fmt.Errorf("save completed workflow: %w", err)
-	}
-	return s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventWorkItemCompleted, string(workItem.ID), actor, "")
-}
-
 func hasAppliedDecision(task domain.Task) bool {
 	for _, decision := range task.TransitionDecisions {
 		if decision.AppliedAt != nil {

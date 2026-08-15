@@ -235,9 +235,20 @@ func TestFindWorkDiscoversEmptyBlackboard(t *testing.T) {
 	if err != nil || len(other) != 0 {
 		t.Fatalf("unmatched empty blackboard: candidates=%#v err=%v", other, err)
 	}
+	completed, err := service.CompleteBlackboardWorkItem(context.Background(), CompleteBlackboardWorkItemCommand{
+		WorkItemID: workItem.ID,
+		Identity:   agent,
+		Result:     "The goal requires no execution tasks.",
+	})
+	if err != nil {
+		t.Fatalf("complete empty blackboard: %v", err)
+	}
+	if completed.Status != domain.WorkItemStatusCompleted || completed.CompletedAt == nil {
+		t.Fatalf("completed empty blackboard: %#v", completed)
+	}
 }
 
-func TestBlackboardPlanningAndExplicitCompletion(t *testing.T) {
+func TestBlackboardPlanningAndAutomaticCompletion(t *testing.T) {
 	t.Parallel()
 
 	repository := newTestRepository()
@@ -296,21 +307,74 @@ func TestBlackboardPlanningAndExplicitCompletion(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("skip first task: %v", err)
 	}
+	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusOpen {
+		t.Fatalf("blackboard completed with pending task: got %s", got)
+	}
 	if _, err := service.SkipBlackboardTask(context.Background(), SkipBlackboardTaskCommand{
 		TaskID: second.ID, Identity: identity, Reason: "No longer useful",
 	}); err != nil {
 		t.Fatalf("skip second task: %v", err)
 	}
-	completed, err := service.CompleteBlackboardWorkItem(context.Background(), CompleteBlackboardWorkItemCommand{
-		WorkItemID: workItem.ID,
-		Identity:   identity,
-		Result:     "The suite was already stable after removing obsolete tasks.",
-	})
-	if err != nil {
-		t.Fatalf("complete blackboard: %v", err)
-	}
+	completed := repository.workItems[workItem.ID]
 	if completed.Status != domain.WorkItemStatusCompleted || completed.CompletedAt == nil {
 		t.Fatalf("completed blackboard: %#v", completed)
+	}
+	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: identity, Title: "Late task", Executor: domain.ExecutorAgent,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("append after automatic completion: got %v", err)
+	}
+}
+
+func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := blackboardDefinition()
+	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Investigate login", Goal: "Resolve the login issue",
+	})
+	if err != nil {
+		t.Fatalf("create blackboard: %v", err)
+	}
+	first, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent, Title: "Investigate failure", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create initial task: %v", err)
+	}
+	claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: first.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim initial task: %v", err)
+	}
+	followUp, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent, Title: "Apply discovered fix", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create follow-up task: %v", err)
+	}
+	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: first.ID, ClaimID: claim.ID, Identity: agent, Result: "Found the root cause",
+	}); err != nil {
+		t.Fatalf("submit initial task: %v", err)
+	}
+	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusOpen {
+		t.Fatalf("blackboard with follow-up task: got %s", got)
+	}
+	followUpClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: followUp.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim follow-up task: %v", err)
+	}
+	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: followUp.ID, ClaimID: followUpClaim.ID, Identity: agent, Result: "Applied the fix",
+	}); err != nil {
+		t.Fatalf("submit follow-up task: %v", err)
+	}
+	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusCompleted {
+		t.Fatalf("blackboard after final task: got %s", got)
 	}
 }
 
@@ -461,6 +525,9 @@ func TestBlackboardTaskHierarchySupportsOpenAppendAndRecursiveCompletion(t *test
 	}
 	if len(completedNested.Submissions) != 0 || len(completedRoot.Submissions) != 0 {
 		t.Fatalf("aggregate submissions: nested=%d root=%d", len(completedNested.Submissions), len(completedRoot.Submissions))
+	}
+	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusCompleted {
+		t.Fatalf("blackboard after aggregate closure: got %s", got)
 	}
 	if _, err := service.AddBlackboardChildTask(context.Background(), AddBlackboardChildTaskCommand{
 		ParentTaskID: root.ID, Identity: contributor,
@@ -660,13 +727,24 @@ func TestBlackboardReviewReopensTaskWithCompleteHistory(t *testing.T) {
 		t.Fatalf("reclaim task: %v", err)
 	}
 	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
-		TaskID: task.ID, ClaimID: claim.ID, Identity: secondAgent, Result: "Diagnosis with database traces",
+		TaskID: task.ID, ClaimID: claim.ID, Identity: secondAgent,
+		Result: "Diagnosis with database traces", RequestReview: true,
 	}); err != nil {
 		t.Fatalf("submit revised task: %v", err)
 	}
 	task = repository.tasks[task.ID]
-	if task.Status != domain.TaskStatusCompleted || len(task.Submissions) != 2 || task.Reviews[0].Feedback != "Include database traces." {
+	review = task.Reviews[len(task.Reviews)-1]
+	if _, err := service.DecideReview(context.Background(), DecideReviewCommand{
+		TaskID: task.ID, ReviewID: review.ID, Identity: reviewer, Decision: domain.ReviewStatusApproved,
+	}); err != nil {
+		t.Fatalf("approve revised task: %v", err)
+	}
+	task = repository.tasks[task.ID]
+	if task.Status != domain.TaskStatusCompleted || len(task.Submissions) != 2 || len(task.Reviews) != 2 || task.Reviews[0].Feedback != "Include database traces." {
 		t.Fatalf("completed revised task: %#v", task)
+	}
+	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusCompleted {
+		t.Fatalf("blackboard after approved final task: got %s", got)
 	}
 }
 

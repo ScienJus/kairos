@@ -108,18 +108,18 @@ Blackboard 形成持续反馈循环：
 
 ## 5. 完成语义
 
-Workflow 的完成可以从正式结构中推导：
+两种模式采用相同的完成条件：
 
 ```text
 所有已产生的 Task 均已完成或跳过
-+ Workflow 已没有后续 Task 需要产生
-                  ↓
-          WorkItem 完成
++ 没有待处理的结构推进
+                ↓
+        WorkItem 完成
 ```
 
-Blackboard 的 Task Graph 保持开放。当前 Task 全部完成时，系统仍需根据 WorkItem 的目标和验收标准判断整体工作是否完成。判断结果也可能促使协作者创建新的 Task。
+Workflow 的结构推进由 Definition、路径选择和循环状态决定。Blackboard 的执行者在结束当前 Task 前判断是否需要扩展计划；需要继续时先创建后续 Task，没有后续工作时最后一个 Task 的结束会完成 WorkItem。空 Blackboard 可以由协作者直接确认完成。
 
-完成语义由协调模式解释，Task 的单项完成含义在两种模式下保持一致。
+协调模式决定 Task 如何产生，WorkItem 的闭合条件保持一致。
 
 ## 6. 模式边界
 

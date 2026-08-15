@@ -174,7 +174,7 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 					return err
 				}
 			}
-			if err := s.completeWorkflowIfDone(store, &workItem, &actor); err != nil {
+			if err := s.completeWorkItemIfDone(store, &workItem, &actor); err != nil {
 				return err
 			}
 		}

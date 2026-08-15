@@ -132,16 +132,18 @@ Blackboard 的自主性来自持续规划，因此无需通过预配置的 optio
 
 ## 6. WorkItem 完成
 
-当前所有 Task 结束后，协作者根据 WorkItem 的目标和验收标准重新判断整体工作：
+执行者在结束当前 Task 前，根据 WorkItem 的目标和验收标准判断是否需要继续扩展工作：
 
 ```text
-当前 Task 均已结束
-        ↓
-检查 WorkItem 目标
- ├── 已满足 → WorkItem 完成
- └── 未满足 → 创建新的 Task
+结束当前 Task 前检查 WorkItem 目标
+ ├── 仍需推进 → 先创建后续 Task
+ └── 已经满足 → 结束当前 Task
+                       ↓
+             所有 Task 均已结束
+                       ↓
+               WorkItem 完成
 ```
 
-这个检查也可以在执行过程中随时发生。新的发现可能扩展 Task Graph，目标已经满足时则可以将剩余的低价值 Task 标记为 Skipped。
+新的发现可以随时扩展 Task Graph，目标已经满足时则可以将剩余的低价值 Task 标记为 Skipped。最后一个 Task 完成或跳过后，WorkItem 自动完成。空 Blackboard 也可以由协作者直接确认完成。
 
 > Blackboard grows a shared plan while people and agents execute the work.

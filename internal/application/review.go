@@ -144,7 +144,7 @@ func (s *Service) DecideReview(ctx context.Context, command DecideReviewCommand)
 					return err
 				}
 			}
-			if err := s.completeWorkflowIfDone(store, &workItem, &actor); err != nil {
+			if err := s.completeWorkItemIfDone(store, &workItem, &actor); err != nil {
 				return err
 			}
 		}

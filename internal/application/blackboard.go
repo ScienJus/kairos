@@ -268,6 +268,9 @@ func (s *Service) SkipBlackboardTask(ctx context.Context, command SkipBlackboard
 		if err := s.completeBlackboardAncestors(store, workItem, task, &actor, now); err != nil {
 			return err
 		}
+		if err := s.completeWorkItemIfDone(store, &workItem, &actor); err != nil {
+			return err
+		}
 		skipped = task
 		return nil
 	})

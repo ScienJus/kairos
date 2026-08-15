@@ -196,7 +196,76 @@ func (s *Service) newWorkflowTask(
 	return task, nil
 }
 
-// CompleteBlackboardWorkItemCommand records the explicit completion judgment.
+func (s *Service) completeWorkItemIfDone(
+	store WriteStore,
+	workItem *domain.WorkItem,
+	actor *domain.ActorRef,
+) error {
+	if workItem.Status != domain.WorkItemStatusOpen {
+		return nil
+	}
+	tasks, err := store.ListTasks(workItem.ID)
+	if err != nil {
+		return fmt.Errorf("list tasks for completion: %w", err)
+	}
+	if len(tasks) == 0 {
+		return nil
+	}
+	for _, task := range tasks {
+		if task.Status != domain.TaskStatusCompleted && task.Status != domain.TaskStatusSkipped {
+			return nil
+		}
+	}
+
+	if workItem.CoordinationMode() == domain.CoordinationModeWorkflow {
+		definition, err := store.GetWorkflowDefinition(workItem.Definition.ID, workItem.Definition.Version)
+		if err != nil {
+			return fmt.Errorf("get workflow definition for completion: %w", err)
+		}
+		for _, task := range tasks {
+			groups, err := workflowChoiceGroups(definition, task)
+			if err != nil {
+				return err
+			}
+			if len(groups) > 0 && !hasAppliedDecision(task) {
+				return nil
+			}
+		}
+		activations, err := store.ListWorkflowTaskActivations(workItem.ID)
+		if err != nil {
+			return fmt.Errorf("list workflow activations for completion: %w", err)
+		}
+		for _, activation := range activations {
+			if activation.Status == domain.WorkflowActivationWaiting {
+				return nil
+			}
+		}
+	}
+	return s.completeWorkItem(store, workItem, actor, "")
+}
+
+func (s *Service) completeWorkItem(
+	store WriteStore,
+	workItem *domain.WorkItem,
+	actor *domain.ActorRef,
+	result string,
+) error {
+	now := s.clock.Now()
+	workItem.Status = domain.WorkItemStatusCompleted
+	workItem.Result = strings.TrimSpace(result)
+	workItem.CompletedAt = &now
+	workItem.UpdatedAt = now
+	workItem.Version++
+	if err := workItem.Validate(); err != nil {
+		return err
+	}
+	if err := store.SaveWorkItem(*workItem); err != nil {
+		return fmt.Errorf("save completed work item: %w", err)
+	}
+	return s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventWorkItemCompleted, string(workItem.ID), actor, workItem.Result)
+}
+
+// CompleteBlackboardWorkItemCommand directly completes an empty Blackboard.
 type CompleteBlackboardWorkItemCommand struct {
 	WorkItemID  domain.WorkItemID
 	Identity    Identity
@@ -204,7 +273,7 @@ type CompleteBlackboardWorkItemCommand struct {
 	Result      string
 }
 
-// CompleteBlackboardWorkItem completes an open Blackboard after all current Tasks end.
+// CompleteBlackboardWorkItem completes an empty Blackboard without creating a Task.
 func (s *Service) CompleteBlackboardWorkItem(ctx context.Context, command CompleteBlackboardWorkItemCommand) (domain.WorkItem, error) {
 	if strings.TrimSpace(string(command.WorkItemID)) == "" {
 		return domain.WorkItem{}, invalidCommand("work item id is required")
@@ -232,26 +301,12 @@ func (s *Service) CompleteBlackboardWorkItem(ctx context.Context, command Comple
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}
-		for _, task := range tasks {
-			if task.Status != domain.TaskStatusCompleted && task.Status != domain.TaskStatusSkipped {
-				return conflict("task %q is still %s", task.ID, task.Status)
-			}
+		if len(tasks) != 0 {
+			return conflict("non-empty blackboard %q completes from its task states", workItem.ID)
 		}
 
-		now := s.clock.Now()
-		workItem.Status = domain.WorkItemStatusCompleted
-		workItem.Result = strings.TrimSpace(command.Result)
-		workItem.CompletedAt = &now
-		workItem.UpdatedAt = now
-		workItem.Version++
-		if err := workItem.Validate(); err != nil {
-			return err
-		}
-		if err := store.SaveWorkItem(workItem); err != nil {
-			return fmt.Errorf("save completed work item: %w", err)
-		}
 		actor := command.Identity.Actor
-		if err := s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventWorkItemCompleted, string(workItem.ID), &actor, workItem.Result); err != nil {
+		if err := s.completeWorkItem(store, &workItem, &actor, command.Result); err != nil {
 			return err
 		}
 		completed = workItem

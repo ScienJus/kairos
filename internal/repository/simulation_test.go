@@ -220,20 +220,6 @@ func (s *collaborationSimulation) run(workItemID domain.WorkItemID, agents []sim
 			s.assertInvariants(workItemID)
 			continue
 		}
-		if workItem.CoordinationMode() == domain.CoordinationModeBlackboard && allTasksTerminal(tasks) {
-			completed, err := s.service.CompleteBlackboardWorkItem(s.ctx, application.CompleteBlackboardWorkItemCommand{
-				WorkItemID: workItemID,
-				Identity:   agents[s.random.Intn(len(agents))].identity,
-				Result:     "All planned work completed",
-			})
-			if err != nil {
-				s.fail("complete blackboard: %v", err)
-			}
-			s.record("completed blackboard %s", completed.ID)
-			s.assertInvariants(workItemID)
-			continue
-		}
-
 		agent := agents[s.random.Intn(len(agents))]
 		if s.executeRandomTask(workItemID, agent) {
 			s.assertInvariants(workItemID)
@@ -549,18 +535,6 @@ func (s *collaborationSimulation) fail(format string, args ...any) {
 	s.t.Fatalf("seed=%d: %s\ntrace:\n%s", s.seed, fmt.Sprintf(format, args...), strings.Join(s.trace, "\n"))
 }
 
-func allTasksTerminal(tasks []domain.Task) bool {
-	if len(tasks) == 0 {
-		return false
-	}
-	for _, task := range tasks {
-		if task.Status != domain.TaskStatusCompleted && task.Status != domain.TaskStatusSkipped {
-			return false
-		}
-	}
-	return true
-}
-
 func taskWithTag(t *testing.T, tasks []domain.Task, tag string) domain.Task {
 	t.Helper()
 	for _, task := range tasks {
@@ -606,7 +580,7 @@ func simulationBlackboardDefinition() domain.BlackboardDefinition {
 		ID:                "simulation-blackboard",
 		Version:           1,
 		Name:              "Login collaboration blackboard",
-		AgentInstructions: "Plan useful tasks, respect suggested dependencies, and close the shared work explicitly.",
+		AgentInstructions: "Plan useful tasks, respect suggested dependencies, and create follow-up tasks before ending the current task.",
 		SuggestedTags:     []string{"planning", "module:*", "docs", "test"},
 		Status:            domain.DefinitionStatusPublished,
 		CreatedAt:         repositoryTestTime,
