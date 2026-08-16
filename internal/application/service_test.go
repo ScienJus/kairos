@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,7 +134,7 @@ func TestGetBlackboardTaskExecutionContext(t *testing.T) {
 	if contextView.Blackboard == nil || contextView.Workflow != nil {
 		t.Fatalf("mode context: %#v", contextView)
 	}
-	if len(contextView.Blackboard.Tasks) != 2 || len(contextView.Blackboard.Relations) != 1 {
+	if len(contextView.Blackboard.Tasks) != 1 || contextView.Blackboard.Tasks[0].ID != second.ID || len(contextView.Blackboard.Relations) != 1 {
 		t.Fatalf("blackboard space: %#v", contextView.Blackboard)
 	}
 	if contextView.Definition.AgentInstructions != definition.AgentInstructions {
@@ -180,6 +181,9 @@ func TestCreateWorkflowWorkItemAndClaimByRole(t *testing.T) {
 	}
 	if len(candidates) != 1 {
 		t.Fatalf("backend candidates: got %d, want 1", len(candidates))
+	}
+	if candidates[0].Definition.Name == "" {
+		t.Fatalf("backend candidate is missing Definition context: %#v", candidates[0])
 	}
 	claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: candidates[0].Task.ID, Identity: backend})
 	if err != nil {
@@ -375,6 +379,21 @@ func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T
 	}
 	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusCompleted {
 		t.Fatalf("blackboard after final task: got %s", got)
+	}
+	completed := repository.workItems[workItem.ID]
+	if !strings.Contains(completed.Result, "Investigate failure\nFound the root cause") ||
+		!strings.Contains(completed.Result, "Apply discovered fix\nApplied the fix") {
+		t.Fatalf("aggregated WorkItem result = %q", completed.Result)
+	}
+	contextView, err := service.GetWorkItemExecutionContext(context.Background(), GetWorkItemExecutionContextQuery{
+		WorkItemID: workItem.ID,
+		Identity:   agent,
+	})
+	if err != nil {
+		t.Fatalf("get completed WorkItem context: %v", err)
+	}
+	if contextView.WorkItem.Status != domain.WorkItemStatusCompleted || len(contextView.Tasks) != 2 || contextView.Relations == nil {
+		t.Fatalf("completed WorkItem context: %#v", contextView)
 	}
 }
 

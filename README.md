@@ -150,7 +150,7 @@ Administrators call these endpoints with `Authorization: Bearer <admin-token>`:
 
 Work requests use the issued `Authorization: Bearer <identity-token>`. Authenticated Mode ignores all `X-Kairos-Actor-*` headers; ID, Kind, and Role come only from the server-side identity record. An Agent has exactly one required Role, while a Human has none. Role and Actor ID remain stable together; create a separate Actor Identity when another Role is needed.
 
-`/api/v1` exposes Definition management, WorkItem creation, Blackboard planning, work discovery, execution context, Claims, submissions, failures, decomposition, skipping, and review decisions. Definition versions are immutable; clients explicitly provide `version` when creating one.
+`/api/v1` exposes Definition management, WorkItem creation, Blackboard planning, work discovery, Task and WorkItem execution context, Claims, submissions, failures, decomposition, skipping, and review decisions. A terminal WorkItem remains readable at `GET /api/v1/work-items/{work_item_id}/context`, including its aggregated result and Task summaries. Definition versions are immutable; clients explicitly provide `version` when creating one.
 
 Definitions use separate resources for the two coordination modes:
 
@@ -168,15 +168,27 @@ The real-SQLite Trusted and Authenticated HTTP flows are covered by `internal/ht
 
 The server exposes a stateless Streamable HTTP MCP endpoint at `/mcp`. It uses the same identity resolver as `/api/v1`: Trusted Mode accepts `X-Kairos-Actor-*` transport headers, while Authenticated Mode requires the issued `Authorization: Bearer <identity-token>`. Identity values never appear in tool arguments.
 
-The first execution surface contains seven tools:
+The execution surface contains eight tools with compact `snake_case` structured results:
 
-- `find_work` and `get_task_context` for discovery and inspection;
+- `find_work`, `get_task_context`, and `get_work_item_context` for discovery and inspection, including terminal WorkItems;
 - `claim_task`, `release_claim`, `submit_task`, and `fail_task` for the Claim lifecycle;
 - `create_blackboard_task` for planning an empty or open Blackboard.
 
 Definition management, Identity management, and human Review decisions intentionally remain HTTP-only. Every MCP mutation requires a caller-generated `operation_id`; retry the same logical call with the same ID and use a new ID when any argument changes.
 
-The repository-level Codex Skill is available at `.agents/skills/kairos-agent`. Its MCP dependency points to the default `http://127.0.0.1:8080/mcp` endpoint and guides an agent through discover → inspect → claim → execute → submit/fail/release. Real-SQLite Trusted and Authenticated MCP flows are covered by `internal/mcpapi/mcpapi_test.go`.
+The repository-level Codex Skill is available at `.agents/skills/kairos-agent`. Project-level Codex MCP configuration lives in `.codex/config.toml` and points to the default `http://127.0.0.1:8080/mcp` endpoint. Configure one transport identity before starting Codex from this trusted repository:
+
+```bash
+# Trusted Mode
+export KAIROS_ACTOR_ID=codex-backend
+export KAIROS_ACTOR_KIND=agent
+export KAIROS_ACTOR_ROLE=backend
+
+# Or Authenticated Mode
+export KAIROS_IDENTITY_TOKEN='<issued-identity-token>'
+```
+
+Restart the Codex task after changing project MCP configuration or these environment variables. The Skill guides an agent through discover → inspect → claim → execute → submit/fail/release → verify. Real-SQLite Trusted and Authenticated MCP flows are covered by `internal/mcpapi/mcpapi_test.go`.
 
 ## Design Whitepapers
 

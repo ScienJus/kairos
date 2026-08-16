@@ -4,6 +4,7 @@ package mcpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/ScienJus/kairos/internal/application"
@@ -13,6 +14,8 @@ import (
 )
 
 const maxRequestBodyBytes = 1 << 20
+
+const serverInstructions = "Use find_work to discover eligible work. For an empty_blackboard, create a concrete task and discover again. Read task context before claim_task; execute only after a successful claim. End every claim with submit_task, fail_task, or release_claim. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
 
 // Handler serves a stateless Streamable HTTP MCP endpoint. Every request is
 // authenticated independently before the SDK dispatches a tool call.
@@ -32,12 +35,13 @@ func New(service *application.Service, resolver identity.Resolver) (*Handler, er
 	}
 
 	h := &Handler{service: service, identity: resolver}
+	schemaCache := mcp.NewSchemaCache()
 	streamable := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		actor, ok := identityFromContext(request)
 		if !ok {
 			return nil
 		}
-		return newServer(service, actor)
+		return newServer(service, actor, schemaCache)
 	}, &mcp.StreamableHTTPOptions{
 		Stateless:                    true,
 		JSONResponse:                 true,
@@ -62,51 +66,74 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	h.handler.ServeHTTP(writer, request.WithContext(withIdentity(request.Context(), actor)))
 }
 
-func newServer(service *application.Service, actor identity.Identity) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "kairos", Version: "v1"}, nil)
+func newServer(service *application.Service, actor identity.Identity, schemaCache *mcp.SchemaCache) *mcp.Server {
+	server := mcp.NewServer(&mcp.Implementation{Name: "kairos", Version: "v1"}, &mcp.ServerOptions{
+		Instructions: serverInstructions,
+		SchemaCache:  schemaCache,
+	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "find_work",
 		Title:       "Find Kairos work",
 		Description: "Find pending tasks this actor may execute, plus empty blackboards that need planning.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input findWorkInput) (*mcp.CallToolResult, workCandidatesOutput, error) {
+		Annotations: readOnlyAnnotations(),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input findWorkInput) (*mcp.CallToolResult, findWorkOutput, error) {
 		candidates, err := service.FindWork(ctx, application.FindWorkQuery{
 			Identity: actor,
 			Tags:     input.Tags,
 			Limit:    input.Limit,
 		})
-		return nil, workCandidatesOutput{Data: candidates}, err
+		output := findWorkView(candidates)
+		return successResult(fmt.Sprintf("Found %d eligible candidate(s).", len(output.Candidates))), output, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_work_item_context",
+		Title:       "Get work item context",
+		Description: "Get one open or terminal WorkItem with its Definition, task summaries, relations, final result, and status.",
+		Annotations: readOnlyAnnotations(),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input workItemContextInput) (*mcp.CallToolResult, workItemContextOutput, error) {
+		result, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{
+			WorkItemID: domain.WorkItemID(input.WorkItemID),
+			Identity:   actor,
+		})
+		output := workItemContextView(result)
+		return successResult(fmt.Sprintf("Loaded WorkItem %s with status %s.", output.WorkItem.ID, output.WorkItem.Status)), output, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_task_context",
 		Title:       "Get task context",
 		Description: "Get the durable execution context for a task, including instructions, history, and coordination state.",
+		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input taskContextInput) (*mcp.CallToolResult, taskContextOutput, error) {
 		result, err := service.GetTaskExecutionContext(ctx, application.GetTaskExecutionContextQuery{
 			TaskID:   domain.TaskID(input.TaskID),
 			Identity: actor,
 		})
-		return nil, taskContextOutput{Data: result}, err
+		output := taskContextView(result)
+		return successResult(fmt.Sprintf("Loaded Task %s with status %s.", output.Task.ID, output.Task.Status)), output, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "claim_task",
 		Title:       "Claim task",
 		Description: "Atomically claim a pending task before starting work. Reuse operation_id when retrying the same call.",
+		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input claimTaskInput) (*mcp.CallToolResult, claimOutput, error) {
 		claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{
 			TaskID:      domain.TaskID(input.TaskID),
 			Identity:    actor,
 			OperationID: input.OperationID,
 		})
-		return nil, claimOutput{Data: claim}, err
+		return successResult(fmt.Sprintf("Claimed Task %s with Claim %s.", claim.TaskID, claim.ID)), claimOutput{Claim: claimViewFrom(claim)}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "submit_task",
 		Title:       "Submit task result",
 		Description: "Submit an immutable result from an active claim and optionally request review or choose a workflow transition.",
+		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitTaskInput) (*mcp.CallToolResult, submissionOutput, error) {
 		var transition *application.WorkflowTransitionCommand
 		if input.Transition != nil {
@@ -126,13 +153,14 @@ func newServer(service *application.Service, actor identity.Identity) *mcp.Serve
 			RequestReview: input.RequestReview,
 			Transition:    transition,
 		})
-		return nil, submissionOutput{Data: submission}, err
+		return successResult(fmt.Sprintf("Submitted result %s for Task %s.", submission.ID, submission.TaskID)), submissionOutput{Submission: submissionViewFrom(submission)}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "fail_task",
 		Title:       "Report task failure",
 		Description: "End an active claim by reopening the task for retry or failing the whole work item.",
+		Annotations: mutationAnnotations(true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input failTaskInput) (*mcp.CallToolResult, failureOutput, error) {
 		failure, err := service.FailTask(ctx, application.FailTaskCommand{
 			TaskID:      domain.TaskID(input.TaskID),
@@ -143,13 +171,14 @@ func newServer(service *application.Service, actor identity.Identity) *mcp.Serve
 			Reason:      input.Reason,
 			RetryPrompt: input.RetryPrompt,
 		})
-		return nil, failureOutput{Data: failure}, err
+		return successResult(fmt.Sprintf("Recorded failure %s for Task %s.", failure.ID, failure.TaskID)), failureOutput{Failure: failureViewFrom(failure)}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "release_claim",
 		Title:       "Release task claim",
 		Description: "Release an active claim and return the task to the pending candidate set.",
+		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input releaseClaimInput) (*mcp.CallToolResult, releasedOutput, error) {
 		err := service.ReleaseClaim(ctx, application.ReleaseClaimCommand{
 			TaskID:      domain.TaskID(input.TaskID),
@@ -158,13 +187,14 @@ func newServer(service *application.Service, actor identity.Identity) *mcp.Serve
 			OperationID: input.OperationID,
 			Reason:      input.Reason,
 		})
-		return nil, releasedOutput{Released: err == nil}, err
+		return successResult(fmt.Sprintf("Released Claim %s for Task %s.", input.ClaimID, input.TaskID)), releasedOutput{Released: err == nil}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_blackboard_task",
 		Title:       "Create blackboard task",
 		Description: "Plan one executable task in an open blackboard, including an empty blackboard returned by find_work.",
+		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createBlackboardTaskInput) (*mcp.CallToolResult, taskOutput, error) {
 		task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
 			WorkItemID:         domain.WorkItemID(input.WorkItemID),
@@ -177,7 +207,7 @@ func newServer(service *application.Service, actor identity.Identity) *mcp.Serve
 			AllowedRoles:       input.AllowedRoles,
 			Tags:               input.Tags,
 		})
-		return nil, taskOutput{Data: task}, err
+		return successResult(fmt.Sprintf("Created Task %s in WorkItem %s.", task.ID, task.WorkItemID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
 	})
 
 	return server
@@ -190,6 +220,10 @@ type findWorkInput struct {
 
 type taskContextInput struct {
 	TaskID string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
+}
+
+type workItemContextInput struct {
+	WorkItemID string `json:"work_item_id" jsonschema:"Concrete Kairos WorkItem ID, including a terminal WorkItem."`
 }
 
 type claimTaskInput struct {
@@ -240,38 +274,28 @@ type createBlackboardTaskInput struct {
 	Tags               []string `json:"tags,omitempty" jsonschema:"Searchable task tags."`
 }
 
-type workCandidatesOutput struct {
-	Data []application.WorkCandidate `json:"data"`
-}
-
-type taskContextOutput struct {
-	Data application.TaskExecutionContext `json:"data"`
-}
-
-type claimOutput struct {
-	Data domain.Claim `json:"data"`
-}
-
-type submissionOutput struct {
-	Data domain.TaskSubmission `json:"data"`
-}
-
-type failureOutput struct {
-	Data domain.TaskFailure `json:"data"`
-}
-
-type taskOutput struct {
-	Data domain.Task `json:"data"`
-}
-
-type releasedOutput struct {
-	Released bool `json:"released"`
-}
-
 func workflowTaskIDs(values []string) []domain.WorkflowTaskID {
 	result := make([]domain.WorkflowTaskID, 0, len(values))
 	for _, value := range values {
 		result = append(result, domain.WorkflowTaskID(value))
 	}
 	return result
+}
+
+func successResult(message string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: message}}}
+}
+
+func readOnlyAnnotations() *mcp.ToolAnnotations {
+	closedWorld := false
+	return &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &closedWorld}
+}
+
+func mutationAnnotations(destructive bool) *mcp.ToolAnnotations {
+	closedWorld := false
+	return &mcp.ToolAnnotations{
+		DestructiveHint: &destructive,
+		IdempotentHint:  true,
+		OpenWorldHint:   &closedWorld,
+	}
 }

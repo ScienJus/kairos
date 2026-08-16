@@ -38,7 +38,8 @@ type WorkflowExecutionContext struct {
 	ChoiceGroups []WorkflowChoiceOption
 }
 
-// BlackboardExecutionContext contains the current shared task space.
+// BlackboardExecutionContext contains the other Tasks in the current shared
+// space. The Task being executed is available separately on TaskExecutionContext.
 type BlackboardExecutionContext struct {
 	Tasks     []domain.Task
 	Relations []domain.TaskRelation
@@ -123,11 +124,20 @@ func (s *Service) GetTaskExecutionContext(
 			if err != nil {
 				return fmt.Errorf("list blackboard tasks: %w", err)
 			}
+			otherTasks := make([]domain.Task, 0, len(tasks))
+			for _, sharedTask := range tasks {
+				if sharedTask.ID != task.ID {
+					otherTasks = append(otherTasks, sharedTask)
+				}
+			}
 			relations, err := store.ListTaskRelations(workItem.ID)
 			if err != nil {
 				return fmt.Errorf("list blackboard relations: %w", err)
 			}
-			result.Blackboard = &BlackboardExecutionContext{Tasks: tasks, Relations: relations}
+			if relations == nil {
+				relations = []domain.TaskRelation{}
+			}
+			result.Blackboard = &BlackboardExecutionContext{Tasks: otherTasks, Relations: relations}
 		default:
 			return invalidCommand("work item %q has invalid coordination mode", workItem.ID)
 		}

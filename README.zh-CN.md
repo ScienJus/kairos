@@ -150,7 +150,7 @@ go run ./cmd/kairos-server
 
 业务请求使用签发的 `Authorization: Bearer <identity-token>`。Authenticated Mode 忽略全部 `X-Kairos-Actor-*` 请求头，ID、Kind 和 Role 只来自服务端身份记录。Agent 必须具有且只具有一个 Role；Human 的 Role 为空。Role 与 Actor ID 一起保持稳定，需要另一 Role 时创建新的 Actor Identity。
 
-`/api/v1` 已暴露 Definition 管理、WorkItem 创建、Blackboard 规划、工作发现、执行上下文、Claim、提交、失败、拆分、跳过和 Review 决策。Definition 版本不可变；创建时由调用方显式提供 `version`。
+`/api/v1` 已暴露 Definition 管理、WorkItem 创建、Blackboard 规划、工作发现、Task 与 WorkItem 执行上下文、Claim、提交、失败、拆分、跳过和 Review 决策。终态 WorkItem 仍可通过 `GET /api/v1/work-items/{work_item_id}/context` 读取，其中包含聚合结果与 Task 摘要。Definition 版本不可变；创建时由调用方显式提供 `version`。
 
 Definition 使用两组独立资源：
 
@@ -168,15 +168,27 @@ Definition 使用两组独立资源：
 
 服务在 `/mcp` 暴露无状态 Streamable HTTP MCP 端点，并与 `/api/v1` 复用同一套身份解析：Trusted Mode 接受传输层的 `X-Kairos-Actor-*` 请求头，Authenticated Mode 要求签发的 `Authorization: Bearer <identity-token>`。身份字段不会出现在工具参数中。
 
-首批执行面包含 7 个工具：
+执行面包含 8 个工具，并返回紧凑的 `snake_case` 结构化结果：
 
-- `find_work`、`get_task_context`：发现工作与读取上下文；
+- `find_work`、`get_task_context`、`get_work_item_context`：发现工作并读取 Task 或终态 WorkItem 上下文；
 - `claim_task`、`release_claim`、`submit_task`、`fail_task`：完整 Claim 生命周期；
 - `create_blackboard_task`：为空或已有内容的 Blackboard 规划 Task。
 
 Definition 管理、Identity 管理与人工 Review 决策仍然只通过 HTTP 暴露。每个 MCP 变更都必须携带调用方生成的 `operation_id`；重试同一逻辑请求时复用该 ID，任何参数变化后都使用新 ID。
 
-仓库级 Codex Skill 位于 `.agents/skills/kairos-agent`。其中的 MCP 依赖指向默认端点 `http://127.0.0.1:8080/mcp`，并指导 Agent 完成“发现 → 检查 → Claim → 执行 → 提交/失败/释放”。真实 SQLite 的 Trusted 与 Authenticated MCP 闭环测试见 `internal/mcpapi/mcpapi_test.go`。
+仓库级 Codex Skill 位于 `.agents/skills/kairos-agent`，项目级 Codex MCP 配置位于 `.codex/config.toml`，默认连接 `http://127.0.0.1:8080/mcp`。从可信仓库启动 Codex 前，配置一种传输身份：
+
+```bash
+# Trusted Mode
+export KAIROS_ACTOR_ID=codex-backend
+export KAIROS_ACTOR_KIND=agent
+export KAIROS_ACTOR_ROLE=backend
+
+# 或 Authenticated Mode
+export KAIROS_IDENTITY_TOKEN='<issued-identity-token>'
+```
+
+项目 MCP 配置或这些环境变量变化后需要重启 Codex 任务。Skill 会指导 Agent 完成“发现 → 检查 → Claim → 执行 → 提交/失败/释放 → 验证”。真实 SQLite 的 Trusted 与 Authenticated MCP 闭环测试见 `internal/mcpapi/mcpapi_test.go`。
 
 ## 设计白皮书
 

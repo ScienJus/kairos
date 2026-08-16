@@ -84,6 +84,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /api/v1/definitions/blackboards/{definition_id}/versions/{version}", h.getBlackboardDefinition)
 	h.mux.HandleFunc("GET /api/v1/work", h.findWork)
 	h.mux.HandleFunc("POST /api/v1/work-items", h.createWorkItem)
+	h.mux.HandleFunc("GET /api/v1/work-items/{work_item_id}/context", h.getWorkItemContext)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/tasks", h.createBlackboardTask)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/relations", h.addBlackboardRelation)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/completion", h.completeBlackboardWorkItem)
@@ -344,6 +345,22 @@ func (h *Handler) createWorkItem(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writeJSON(writer, http.StatusCreated, dataResponse{Data: created})
+}
+
+func (h *Handler) getWorkItemContext(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	result, err := h.service.GetWorkItemExecutionContext(request.Context(), application.GetWorkItemExecutionContextQuery{
+		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")),
+		Identity:   actor,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: result})
 }
 
 type createBlackboardTaskRequest struct {

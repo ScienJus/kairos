@@ -1,6 +1,6 @@
 ---
 name: kairos-agent
-description: Execute work coordinated by Kairos through its MCP tools. Use when asked to find available Kairos work, plan an empty Blackboard, claim or release a Task, read Task execution context, submit a result, or report a Task failure. Do not use for Definition or Identity administration.
+description: Execute work coordinated by Kairos through its MCP tools. Use when asked to find available Kairos work, plan an empty Blackboard, claim or release a Task, read Task or WorkItem execution context, submit a result, or report a Task failure. Do not use for Definition or Identity administration.
 ---
 
 # Kairos Agent
@@ -20,6 +20,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
    - Call `fail_task` with `reopen` and a useful retry prompt when another attempt can succeed.
    - Call `fail_task` with `fail_work_item` only when the whole WorkItem cannot continue.
    - Call `release_claim` when stopping without a result or failure decision.
+8. When the final WorkItem status or aggregated result matters, call `get_work_item_context` after the lifecycle action. This query works for both open and terminal WorkItems.
 
 ## Mutation discipline
 
@@ -38,3 +39,5 @@ For Blackboard Tasks, omit `transition`. Use `create_blackboard_task` only for o
 ## Boundaries
 
 The MCP surface is execution-only. Do not attempt to create or modify Definitions, manage identities or tokens, or make human review decisions through this skill. Use the Kairos HTTP management API for those operations when the user explicitly requests them.
+
+If the Kairos tools are unavailable, do not replace this protocol with ad-hoc HTTP calls. The repository configures the local server in `.codex/config.toml`; start Kairos, set the Trusted or Authenticated identity environment variables, and restart the Codex task so project MCP configuration is loaded.

@@ -241,7 +241,33 @@ func (s *Service) completeWorkItemIfDone(
 			}
 		}
 	}
-	return s.completeWorkItem(store, workItem, actor, "")
+	return s.completeWorkItem(store, workItem, actor, summarizeWorkItemResult(tasks))
+}
+
+func summarizeWorkItemResult(tasks []domain.Task) string {
+	type taskResult struct {
+		title  string
+		result string
+	}
+	results := make([]taskResult, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Status != domain.TaskStatusCompleted || len(task.Submissions) == 0 {
+			continue
+		}
+		latest := task.Submissions[len(task.Submissions)-1]
+		results = append(results, taskResult{title: task.Title, result: latest.Result})
+	}
+	if len(results) == 0 {
+		return ""
+	}
+	if len(results) == 1 {
+		return results[0].result
+	}
+	sections := make([]string, 0, len(results))
+	for _, result := range results {
+		sections = append(sections, fmt.Sprintf("%s\n%s", result.title, result.result))
+	}
+	return strings.Join(sections, "\n\n")
 }
 
 func (s *Service) completeWorkItem(

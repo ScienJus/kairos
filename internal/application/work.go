@@ -31,7 +31,7 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 		}
 	}
 
-	var result []WorkCandidate
+	result := make([]WorkCandidate, 0)
 	err := s.repository.View(ctx, func(store ReadStore) error {
 		candidates, err := store.ListOpenTasks()
 		if err != nil {
@@ -62,6 +62,11 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 			if !containsAll(candidate.Task.Tags, query.Tags) {
 				continue
 			}
+			definition, err := loadDefinitionExecutionContext(store, candidate.WorkItem)
+			if err != nil {
+				return err
+			}
+			candidate.Definition = definition
 			result = append(result, candidate)
 			if query.Limit > 0 && len(result) == query.Limit {
 				return nil

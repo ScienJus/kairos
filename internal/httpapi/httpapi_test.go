@@ -114,10 +114,18 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if submission.Result != "Migration implemented and tested" {
 		t.Fatalf("submission result = %q", submission.Result)
 	}
+	workItemContext := requestData[application.WorkItemExecutionContext](t, client, http.MethodGet,
+		server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", nil, "", http.StatusOK)
+	if workItemContext.WorkItem.Status != domain.WorkItemStatusCompleted || workItemContext.WorkItem.Result != submission.Result {
+		t.Fatalf("completed WorkItem context = %+v", workItemContext)
+	}
+	if len(workItemContext.Tasks) != 1 || workItemContext.Tasks[0].ID != task.ID || workItemContext.Relations == nil {
+		t.Fatalf("completed WorkItem coordination context = %+v", workItemContext)
+	}
 
 	candidates = requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work", nil, "", http.StatusOK)
-	if len(candidates) != 0 {
-		t.Fatalf("candidates after submission = %+v, want none", candidates)
+	if candidates == nil || len(candidates) != 0 {
+		t.Fatalf("candidates after submission = %#v, want a non-nil empty list", candidates)
 	}
 
 	workflowWorkItem := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{

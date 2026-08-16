@@ -38,6 +38,9 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	}
 	session := connectMCP(t, ctx, server.URL, headers)
 	t.Cleanup(func() { _ = session.Close() })
+	if initialized := session.InitializeResult(); initialized == nil || initialized.Instructions != serverInstructions {
+		t.Fatalf("server instructions = %#v, want Kairos execution guidance", initialized)
+	}
 
 	tools, err := session.ListTools(ctx, nil)
 	if err != nil {
@@ -45,7 +48,7 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	}
 	wantTools := []string{
 		"claim_task", "create_blackboard_task", "fail_task", "find_work",
-		"get_task_context", "release_claim", "submit_task",
+		"get_task_context", "get_work_item_context", "release_claim", "submit_task",
 	}
 	gotTools := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
@@ -55,88 +58,122 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	if !slices.Equal(gotTools, wantTools) {
 		t.Fatalf("tools = %v, want %v", gotTools, wantTools)
 	}
-
-	find := callTool[workCandidatesOutput](t, ctx, session, "find_work", findWorkInput{})
-	if len(find.Data) != 1 || find.Data[0].Kind != application.WorkCandidateEmptyBlackboard {
-		t.Fatalf("initial candidates = %+v, want one empty blackboard", find.Data)
+	toolPayload, err := json.Marshal(tools.Tools)
+	if err != nil {
+		t.Fatalf("marshal tool definitions: %v", err)
 	}
-	workItemID := find.Data[0].WorkItem.ID
+	if len(toolPayload) > 32_000 {
+		t.Fatalf("tool definitions are %d bytes, want at most 32000", len(toolPayload))
+	}
+	prettyToolPayload, err := json.MarshalIndent(tools.Tools, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal formatted tool definitions: %v", err)
+	}
+	if len(prettyToolPayload) > 52_000 {
+		t.Fatalf("formatted tool definitions are %d bytes, want at most 52000", len(prettyToolPayload))
+	}
+
+	find := callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{})
+	if len(find.Candidates) != 1 || find.Candidates[0].Kind != string(application.WorkCandidateEmptyBlackboard) || find.Candidates[0].Task != nil {
+		t.Fatalf("initial candidates = %+v, want one empty blackboard without a zero-value task", find.Candidates)
+	}
+	if find.Candidates[0].Definition.AgentInstructions == "" {
+		t.Fatalf("empty blackboard definition = %+v", find.Candidates[0].Definition)
+	}
+	workItemID := find.Candidates[0].WorkItem.ID
 
 	created := callTool[taskOutput](t, ctx, session, "create_blackboard_task", createBlackboardTaskInput{
-		WorkItemID: string(workItemID), OperationID: "plan-task-1",
+		WorkItemID: workItemID, OperationID: "plan-task-1",
 		Title: "Implement MCP lifecycle", Description: "Exercise the agent execution tools.",
 		AcceptanceCriteria: "Task can be claimed and submitted through MCP.",
 		Executor:           "agent", AllowedRoles: []string{"backend"}, Tags: []string{"mcp"},
 	})
-	if created.Data.ID == "" || created.Data.WorkItemID != workItemID {
-		t.Fatalf("created task = %+v", created.Data)
+	if created.Task.ID == "" || created.Task.WorkItemID != workItemID {
+		t.Fatalf("created task = %+v", created.Task)
 	}
 	retryTask := callTool[taskOutput](t, ctx, session, "create_blackboard_task", createBlackboardTaskInput{
-		WorkItemID: string(workItemID), OperationID: "plan-task-2",
+		WorkItemID: workItemID, OperationID: "plan-task-2",
 		Title: "Exercise failure recovery", Executor: "agent", AllowedRoles: []string{"backend"}, Tags: []string{"mcp"},
 	})
 
-	find = callTool[workCandidatesOutput](t, ctx, session, "find_work", findWorkInput{Tags: []string{"mcp"}})
-	if len(find.Data) != 2 || find.Data[0].Task.ID != created.Data.ID || find.Data[1].Task.ID != retryTask.Data.ID {
-		t.Fatalf("planned candidates = %+v, want tasks %q and %q", find.Data, created.Data.ID, retryTask.Data.ID)
+	find = callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{Tags: []string{"mcp"}})
+	if len(find.Candidates) != 2 || find.Candidates[0].Task == nil || find.Candidates[1].Task == nil ||
+		find.Candidates[0].Task.ID != created.Task.ID || find.Candidates[1].Task.ID != retryTask.Task.ID {
+		t.Fatalf("planned candidates = %+v, want tasks %q and %q", find.Candidates, created.Task.ID, retryTask.Task.ID)
+	}
+	if find.Candidates[0].Definition.AgentInstructions == "" {
+		t.Fatalf("task candidate definition = %+v", find.Candidates[0].Definition)
 	}
 
 	claimed := callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
-		TaskID: string(created.Data.ID), OperationID: "claim-task-1",
+		TaskID: created.Task.ID, OperationID: "claim-task-1",
 	})
-	if claimed.Data.Executor.ID != "codex-backend" {
-		t.Fatalf("claim executor = %+v", claimed.Data.Executor)
+	if claimed.Claim.Executor.ID != "codex-backend" {
+		t.Fatalf("claim executor = %+v", claimed.Claim.Executor)
 	}
 
 	taskContext := callTool[taskContextOutput](t, ctx, session, "get_task_context", taskContextInput{
-		TaskID: string(created.Data.ID),
+		TaskID: created.Task.ID,
 	})
-	if taskContext.Data.Task.Status != domain.TaskStatusWorking || taskContext.Data.Blackboard == nil {
-		t.Fatalf("task context = %+v", taskContext.Data)
+	if taskContext.Task.Status != string(domain.TaskStatusWorking) || taskContext.Blackboard == nil {
+		t.Fatalf("task context = %+v", taskContext)
+	}
+	if len(taskContext.Blackboard.Tasks) != 1 || taskContext.Blackboard.Tasks[0].ID != retryTask.Task.ID {
+		t.Fatalf("blackboard context duplicated current Task: %+v", taskContext.Blackboard.Tasks)
 	}
 	released := callTool[releasedOutput](t, ctx, session, "release_claim", releaseClaimInput{
-		TaskID: string(created.Data.ID), ClaimID: string(claimed.Data.ID),
+		TaskID: created.Task.ID, ClaimID: claimed.Claim.ID,
 		OperationID: "release-task-1", Reason: "Verify claim release before completing the task.",
 	})
 	if !released.Released {
 		t.Fatal("release_claim did not acknowledge release")
 	}
 	claimed = callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
-		TaskID: string(created.Data.ID), OperationID: "claim-task-2",
+		TaskID: created.Task.ID, OperationID: "claim-task-2",
 	})
 
 	submitted := callTool[submissionOutput](t, ctx, session, "submit_task", submitTaskInput{
-		TaskID: string(created.Data.ID), ClaimID: string(claimed.Data.ID),
+		TaskID: created.Task.ID, ClaimID: claimed.Claim.ID,
 		OperationID: "submit-task-1", Result: "MCP lifecycle verified end to end.",
 	})
-	if submitted.Data.TaskID != created.Data.ID {
-		t.Fatalf("submission = %+v", submitted.Data)
+	if submitted.Submission.TaskID != created.Task.ID {
+		t.Fatalf("submission = %+v", submitted.Submission)
 	}
 
 	retryClaim := callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
-		TaskID: string(retryTask.Data.ID), OperationID: "claim-retry-task-1",
+		TaskID: retryTask.Task.ID, OperationID: "claim-retry-task-1",
 	})
 	failure := callTool[failureOutput](t, ctx, session, "fail_task", failTaskInput{
-		TaskID: string(retryTask.Data.ID), ClaimID: string(retryClaim.Data.ID),
+		TaskID: retryTask.Task.ID, ClaimID: retryClaim.Claim.ID,
 		OperationID: "fail-retry-task-1", Action: "reopen",
 		Reason: "First attempt found missing context.", RetryPrompt: "Use the complete Blackboard context on retry.",
 	})
-	if failure.Data.Action != domain.TaskFailureReopen {
-		t.Fatalf("failure = %+v", failure.Data)
+	if failure.Failure.Action != string(domain.TaskFailureReopen) {
+		t.Fatalf("failure = %+v", failure.Failure)
 	}
 	retryClaim = callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
-		TaskID: string(retryTask.Data.ID), OperationID: "claim-retry-task-2",
+		TaskID: retryTask.Task.ID, OperationID: "claim-retry-task-2",
 	})
 	callTool[submissionOutput](t, ctx, session, "submit_task", submitTaskInput{
-		TaskID: string(retryTask.Data.ID), ClaimID: string(retryClaim.Data.ID),
+		TaskID: retryTask.Task.ID, ClaimID: retryClaim.Claim.ID,
 		OperationID: "submit-retry-task-1", Result: "Failure recovery verified.",
 	})
 
 	taskContext = callTool[taskContextOutput](t, ctx, session, "get_task_context", taskContextInput{
-		TaskID: string(retryTask.Data.ID),
+		TaskID: retryTask.Task.ID,
 	})
-	if taskContext.Data.Task.Status != domain.TaskStatusCompleted || taskContext.Data.WorkItem.Status != domain.WorkItemStatusCompleted || len(taskContext.Data.Task.Failures) != 1 {
-		t.Fatalf("completed context = %+v", taskContext.Data)
+	if taskContext.Task.Status != string(domain.TaskStatusCompleted) || taskContext.WorkItem.Status != string(domain.WorkItemStatusCompleted) || len(taskContext.Task.Failures) != 1 {
+		t.Fatalf("completed context = %+v", taskContext)
+	}
+	workItemContext := callTool[workItemContextOutput](t, ctx, session, "get_work_item_context", workItemContextInput{
+		WorkItemID: workItemID,
+	})
+	if workItemContext.WorkItem.Status != string(domain.WorkItemStatusCompleted) || workItemContext.WorkItem.Result == "" || len(workItemContext.Tasks) != 2 {
+		t.Fatalf("completed work item context = %+v", workItemContext)
+	}
+	find = callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{Tags: []string{"mcp"}})
+	if find.Candidates == nil || len(find.Candidates) != 0 {
+		t.Fatalf("terminal candidate list = %#v, want non-nil empty list", find.Candidates)
 	}
 }
 
@@ -175,20 +212,20 @@ func TestAuthenticatedMCPRequiresBearerAndUsesManagedIdentity(t *testing.T) {
 
 	session := connectMCP(t, ctx, server.URL, http.Header{"Authorization": {"Bearer " + issued.Token}})
 	t.Cleanup(func() { _ = session.Close() })
-	find := callTool[workCandidatesOutput](t, ctx, session, "find_work", findWorkInput{})
-	if len(find.Data) != 1 || find.Data[0].Kind != application.WorkCandidateEmptyBlackboard {
-		t.Fatalf("authenticated candidates = %+v", find.Data)
+	find := callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{})
+	if len(find.Candidates) != 1 || find.Candidates[0].Kind != string(application.WorkCandidateEmptyBlackboard) {
+		t.Fatalf("authenticated candidates = %+v", find.Candidates)
 	}
 
 	created := callTool[taskOutput](t, ctx, session, "create_blackboard_task", createBlackboardTaskInput{
-		WorkItemID: string(find.Data[0].WorkItem.ID), OperationID: "authenticated-plan-1",
+		WorkItemID: find.Candidates[0].WorkItem.ID, OperationID: "authenticated-plan-1",
 		Title: "Authenticated task", Executor: "agent", AllowedRoles: []string{"backend"},
 	})
 	claimed := callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
-		TaskID: string(created.Data.ID), OperationID: "authenticated-claim-1",
+		TaskID: created.Task.ID, OperationID: "authenticated-claim-1",
 	})
-	if claimed.Data.Executor.ID != "authenticated-agent" || claimed.Data.Executor.Kind != domain.ActorAgent {
-		t.Fatalf("authenticated claim executor = %+v", claimed.Data.Executor)
+	if claimed.Claim.Executor.ID != "authenticated-agent" || claimed.Claim.Executor.Kind != string(domain.ActorAgent) {
+		t.Fatalf("authenticated claim executor = %+v", claimed.Claim.Executor)
 	}
 }
 
@@ -250,6 +287,13 @@ func callTool[T any](t *testing.T, ctx context.Context, session *mcp.ClientSessi
 	}
 	if result.IsError {
 		t.Fatalf("tool %s returned error: %+v", name, result.Content)
+	}
+	if len(result.Content) != 1 {
+		t.Fatalf("tool %s content blocks = %d, want one concise summary", name, len(result.Content))
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || len(text.Text) == 0 || len(text.Text) > 256 || text.Text[0] == '{' {
+		t.Fatalf("tool %s content is not a concise summary: %#v", name, result.Content[0])
 	}
 	payload, err := json.Marshal(result.StructuredContent)
 	if err != nil {
