@@ -57,6 +57,8 @@ type ReadStore interface {
 
 	GetWorkflowDefinition(domain.DefinitionID, int64) (domain.WorkflowDefinition, error)
 	GetBlackboardDefinition(domain.DefinitionID, int64) (domain.BlackboardDefinition, error)
+	ListWorkflowDefinitions() ([]domain.WorkflowDefinition, error)
+	ListBlackboardDefinitions() ([]domain.BlackboardDefinition, error)
 
 	LastWorkItemEventSequence(domain.WorkItemID) (int64, error)
 	GetIdempotencyRecord(domain.ActorRef, string) (IdempotencyRecord, error)
@@ -65,6 +67,8 @@ type ReadStore interface {
 // WriteStore exposes mutations performed inside one repository transaction.
 type WriteStore interface {
 	ReadStore
+	CreateWorkflowDefinition(domain.WorkflowDefinition) error
+	CreateBlackboardDefinition(domain.BlackboardDefinition) error
 
 	CreateWorkItem(domain.WorkItem) error
 	SaveWorkItem(domain.WorkItem) error

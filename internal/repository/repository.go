@@ -145,37 +145,15 @@ func (r *SQLRepository) withWriteTransaction(ctx context.Context, operation func
 
 // CreateWorkflowDefinition stores one immutable Workflow Definition version.
 func (r *SQLRepository) CreateWorkflowDefinition(ctx context.Context, definition domain.WorkflowDefinition) error {
-	if err := definition.Validate(); err != nil {
-		return err
-	}
-	return r.createDefinition(ctx, definition.ID, definition.Version, domain.CoordinationModeWorkflow, definition)
+	return r.withWriteTransaction(ctx, func(store *sqlStore) error {
+		return store.CreateWorkflowDefinition(definition)
+	})
 }
 
 // CreateBlackboardDefinition stores one immutable Blackboard Definition version.
 func (r *SQLRepository) CreateBlackboardDefinition(ctx context.Context, definition domain.BlackboardDefinition) error {
-	if err := definition.Validate(); err != nil {
-		return err
-	}
-	return r.createDefinition(ctx, definition.ID, definition.Version, domain.CoordinationModeBlackboard, definition)
-}
-
-func (r *SQLRepository) createDefinition(
-	ctx context.Context,
-	id domain.DefinitionID,
-	version int64,
-	mode domain.CoordinationMode,
-	definition any,
-) error {
-	payload, err := encodeJSON(definition)
-	if err != nil {
-		return err
-	}
 	return r.withWriteTransaction(ctx, func(store *sqlStore) error {
-		_, err := store.exec(
-			"INSERT INTO definitions (id, version, mode, payload) VALUES (?, ?, ?, ?)",
-			id, version, mode, payload,
-		)
-		return err
+		return store.CreateBlackboardDefinition(definition)
 	})
 }
 

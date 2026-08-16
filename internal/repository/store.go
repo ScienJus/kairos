@@ -272,6 +272,35 @@ func (s *sqlStore) GetBlackboardDefinition(
 	return decodeJSON[domain.BlackboardDefinition](payload)
 }
 
+func (s *sqlStore) ListWorkflowDefinitions() ([]domain.WorkflowDefinition, error) {
+	return listDefinitions[domain.WorkflowDefinition](s, domain.CoordinationModeWorkflow)
+}
+
+func (s *sqlStore) ListBlackboardDefinitions() ([]domain.BlackboardDefinition, error) {
+	return listDefinitions[domain.BlackboardDefinition](s, domain.CoordinationModeBlackboard)
+}
+
+func listDefinitions[T any](s *sqlStore, mode domain.CoordinationMode) ([]T, error) {
+	rows, err := s.query("SELECT payload FROM definitions WHERE mode = ? ORDER BY id, version", mode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]T, 0)
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, normalizeError(err)
+		}
+		definition, err := decodeJSON[T](payload)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, definition)
+	}
+	return result, normalizeError(rows.Err())
+}
+
 func (s *sqlStore) LastWorkItemEventSequence(workItemID domain.WorkItemID) (int64, error) {
 	var sequence int64
 	if err := s.queryRow(
@@ -310,6 +339,37 @@ func (s *sqlStore) GetIdempotencyRecord(
 	record.Actor = domain.ActorRef{Kind: domain.ActorKind(actorKind), ID: domain.ActorID(actorID)}
 	record.CreatedAt = time.Unix(0, createdAtNS).UTC()
 	return record, nil
+}
+
+func (s *sqlStore) CreateWorkflowDefinition(value domain.WorkflowDefinition) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	return s.createDefinition(value.ID, value.Version, domain.CoordinationModeWorkflow, value)
+}
+
+func (s *sqlStore) CreateBlackboardDefinition(value domain.BlackboardDefinition) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	return s.createDefinition(value.ID, value.Version, domain.CoordinationModeBlackboard, value)
+}
+
+func (s *sqlStore) createDefinition(
+	id domain.DefinitionID,
+	version int64,
+	mode domain.CoordinationMode,
+	value any,
+) error {
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(
+		"INSERT INTO definitions (id, version, mode, payload) VALUES (?, ?, ?, ?)",
+		id, version, mode, payload,
+	)
+	return err
 }
 
 func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {

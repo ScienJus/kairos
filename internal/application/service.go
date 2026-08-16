@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ScienJus/kairos/internal/domain"
+	"github.com/ScienJus/kairos/internal/identity"
 )
 
 var (
@@ -22,22 +23,9 @@ var (
 	ErrInvalidCommand = errors.New("invalid application command")
 )
 
-// Identity contains the trusted actor identity used by application operations.
-type Identity struct {
-	Actor domain.ActorRef
-	Role  string
-}
-
-// Validate checks the trusted identity fields.
-func (i Identity) Validate() error {
-	if err := i.Actor.Validate(); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidCommand, err)
-	}
-	if i.Actor.Kind == domain.ActorHuman && strings.TrimSpace(i.Role) != "" {
-		return fmt.Errorf("%w: human identity must not declare an agent role", ErrInvalidCommand)
-	}
-	return nil
-}
+// Identity is kept as an application-level alias for command compatibility.
+// The identity model itself lives independently from application orchestration.
+type Identity = identity.Identity
 
 // Service coordinates application operations over one Repository.
 type Service struct {
@@ -82,7 +70,7 @@ func forbidden(format string, args ...any) error {
 
 func identityCanExecute(identity Identity, task domain.Task) error {
 	if err := identity.Validate(); err != nil {
-		return err
+		return invalidCommand("invalid identity: %v", err)
 	}
 	switch task.Executor {
 	case domain.ExecutorAgent:
@@ -98,13 +86,8 @@ func identityCanExecute(identity Identity, task domain.Task) error {
 		return invalidCommand("task %q has invalid executor %q", task.ID, task.Executor)
 	}
 
-	if identity.Actor.Kind != domain.ActorAgent || len(task.AllowedRoles) == 0 {
+	if identity.Actor.Kind != domain.ActorAgent || identity.HasAnyRole(task.AllowedRoles) {
 		return nil
-	}
-	for _, role := range task.AllowedRoles {
-		if role == identity.Role {
-			return nil
-		}
 	}
 	return forbidden("agent role %q cannot execute task %q", identity.Role, task.ID)
 }

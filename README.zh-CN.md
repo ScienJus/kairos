@@ -89,7 +89,7 @@ Kanban 展示完整 WorkItem，不承担两种模式的协调语义。
 
 ## 项目状态
 
-Kairos 目前是 Go 核心引擎，还不是可以直接部署的最终用户服务。
+Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最终用户服务。
 
 当前仓库已经包含：
 
@@ -97,12 +97,12 @@ Kairos 目前是 Go 核心引擎，还不是可以直接部署的最终用户服
 - Workflow 与 Blackboard 的运行时语义；
 - PostgreSQL 与 SQLite 持久化；
 - 并发与幂等保护；
+- 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
 - 确定性单元测试和随机协作模拟测试。
 
 仍需实现：
 
-- Agent Identity 与 Token 认证；
-- MCP / Skill 和服务 API；
+- MCP / Skill API；
 - Claim 保活与失联恢复；
 - 人类 List、Kanban、Flow Graph 和 Checklist UI。
 
@@ -111,6 +111,57 @@ Kairos 目前是 Go 核心引擎，还不是可以直接部署的最终用户服
 ```bash
 go test ./...
 ```
+
+## HTTP API
+
+服务默认使用 Trusted Mode 和 SQLite：
+
+```bash
+KAIROS_SQLITE_PATH=kairos.db \
+KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
+go run ./cmd/kairos-server
+```
+
+除 `/healthz` 外，请求需要携带身份头：
+
+```text
+X-Kairos-Actor-Id: codex-backend
+X-Kairos-Actor-Role: backend
+```
+
+Actor ID 同时是稳定身份和可读名称，不应随意改名。`X-Kairos-Actor-Kind` 默认为 `agent`，人工 Review 时设置为 `human`。Trusted Mode 仅适用于调用方和传输层均可信的环境；服务会无条件信任这些请求头。变更请求可通过 `Idempotency-Key` 获得持久幂等语义。
+
+共享环境应使用 Authenticated Mode。Admin Token 至少需要 32 个字符，用于保护身份管理 API：
+
+```bash
+KAIROS_AUTH_MODE=authenticated \
+KAIROS_ADMIN_TOKEN='<high-entropy-admin-token>' \
+KAIROS_SQLITE_PATH=kairos.db \
+go run ./cmd/kairos-server
+```
+
+管理员通过 `Authorization: Bearer <admin-token>` 调用：
+
+- `POST /api/v1/identities`：创建一对一的 `Token → Actor ID → Role`，明文 Token 仅在响应中返回一次；
+- `GET /api/v1/identities` 和 `GET /api/v1/identities/{kind}/{id}`：读取不含 Token Hash 的身份信息；
+- `POST /api/v1/identities/{kind}/{id}/token`：轮换 Token，旧 Token 立即失效；
+- `DELETE /api/v1/identities/{kind}/{id}/token`：撤销 Token，但保留 Actor 历史。
+
+业务请求使用签发的 `Authorization: Bearer <identity-token>`。Authenticated Mode 忽略全部 `X-Kairos-Actor-*` 请求头，ID、Kind 和 Role 只来自服务端身份记录。Agent 必须具有且只具有一个 Role；Human 的 Role 为空。Role 与 Actor ID 一起保持稳定，需要另一 Role 时创建新的 Actor Identity。
+
+`/api/v1` 已暴露 Definition 管理、WorkItem 创建、Blackboard 规划、工作发现、执行上下文、Claim、提交、失败、拆分、跳过和 Review 决策。Definition 版本不可变；创建时由调用方显式提供 `version`。
+
+Definition 使用两组独立资源：
+
+| | Workflow | Blackboard |
+| --- | --- | --- |
+| 创建与列表 | `/definitions/workflows` | `/definitions/blackboards` |
+| 版本读取 | `/definitions/workflows/{id}/versions/{version}` | `/definitions/blackboards/{id}/versions/{version}` |
+| Definition 内容 | 发布时必须包含合法的正式 Task Graph | 只包含共享元数据与协作指引 |
+| 创建 WorkItem 后 | 立即实例化 Graph 的起始 Task | 保持为空，作为规划候选被发现 |
+| 后续规划 | 运行时按正式关系和选择组推进 | 协作者动态创建 Task、层级和建议关系 |
+
+真实 SQLite 的 Trusted 与 Authenticated HTTP 闭环测试见 `internal/httpapi/httpapi_test.go` 和 `internal/httpapi/authenticated_test.go`。
 
 ## 设计白皮书
 

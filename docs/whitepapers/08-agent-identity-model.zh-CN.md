@@ -4,9 +4,9 @@
 
 ## 摘要
 
-Kairos 为 Agent 提供原生身份。一个 Agent Identity 包含稳定标识、名称和一个或多个 Role，并通过 Token 进行认证。Agent 只需携带 Token，Kairos 即可识别其身份，并返回它可以看见和领取的 Task。
+Kairos 为 Agent 提供原生身份。一个 Agent Identity 包含稳定、可读的标识和一个 Role，并通过 Token 进行认证。Agent 只需携带 Token，Kairos 即可识别其身份，并返回它可以看见和领取的 Task。
 
-Kairos 也支持 Trusted Mode。在受信环境中，Agent 可以直接声明 name 和 roles，无需 Token。两种模式使用相同的任务发现和执行模型，但提供不同程度的身份可信性。
+Kairos 也支持 Trusted Mode。在受信环境中，Agent 可以直接声明 id 和 role，无需 Token。两种模式使用相同的任务发现和执行模型，但提供不同程度的身份可信性。
 
 ## 1. Agent Identity
 
@@ -15,24 +15,24 @@ Agent Identity 表达一个 Agent 在 Kairos 中的稳定身份：
 ```text
 Agent Identity
 ├── id
-├── name
-├── roles
+├── role
 └── credentials
 ```
 
-- `id` 是稳定标识；
-- `name` 用于展示和协作记录；
-- `roles` 表达 Agent 可以承担的工作类型；
+- `id` 是稳定且可读的标识，同时用于展示和协作记录；
+- `role` 表达 Agent 可以承担的工作类型；
 - `credentials` 用于证明该身份。
 
-一个 Agent 可以具有多个 Role：
+`id` 不应随意改名，因为 Claim 所有权、幂等记录和协作历史都引用它。未来如果需要可变展示信息，可以在 Agent Profile 中增加独立的展示标签，而不改变身份标识。
+
+一个 Agent Identity 只具有一个 Role：
 
 ```text
-name: codex-backend
-roles: [backend, database]
+id: codex-backend
+role: backend
 ```
 
-Role 保持简单、显式，并由项目或团队按照自身工作划分定义。Kairos 不需要为 Role 引入能力评分或自动匹配模型。
+Role 保持简单、显式，并由项目或团队按照自身工作划分定义。需要另一 Role 时创建新的 Agent Identity，避免一个 Token 隐含多组授权。Kairos 不需要为 Role 引入能力评分或自动匹配模型。
 
 ## 2. Token
 
@@ -43,10 +43,10 @@ Token
   ↓ authenticate
 Agent Identity
   ↓ resolve
-name + roles
+id + role
 ```
 
-Agent 调用 Kairos 时只需要携带 Token，不必重复声明 name 和 roles。Token 可以被轮换或撤销，Agent Identity 以及它产生的协作记录保持不变。
+Agent 调用 Kairos 时只需要携带 Token，不必重复声明 id 和 role。服务只保存 Token Hash，明文仅在签发或轮换时返回。Token 可以被轮换或撤销，Agent Identity 以及它产生的协作记录保持不变。
 
 Token 应保存在 Agent 的运行环境中，不进入 WorkItem、Task 或项目文档。
 
@@ -59,10 +59,10 @@ Agent 携带 Token
       ↓
 Kairos 验证身份
       ↓
-使用已配置的 name 和 roles
+使用已配置的 id 和 role
 ```
 
-Agent 不能通过请求临时扩大自己的 Role。Task 发现和领取均使用 Kairos 中已授予的身份信息。
+Agent 不能通过请求临时改变自己的 Role。Task 发现和领取均使用 Kairos 中已授予的身份信息。Authenticated Mode 忽略 Trusted Mode 身份头，只接受 Bearer Token。
 
 这种模式适合需要明确身份归属和访问控制的共享环境。
 
@@ -71,11 +71,11 @@ Agent 不能通过请求临时扩大自己的 Role。Task 发现和领取均使�
 Trusted Mode 适合本地开发、受信网络和其他身份已由运行环境保证的场景：
 
 ```text
-name: local-codex
-roles: [backend]
+id: local-codex
+role: backend
 ```
 
-Agent 无需 Token，直接声明 name 和 roles。Kairos 信任这些信息，并以此进行任务发现和协作记录。
+Agent 无需 Token，直接声明 id 和 role。Kairos 信任这些信息，并以此进行任务发现和协作记录。
 
 Trusted Mode 的信任边界是运行环境。它提供身份标识和 Role 语义，但不提供 Authenticated Mode 的认证保证。
 
@@ -107,7 +107,7 @@ Role 也参与领取校验。拥有 `backend` Role 的 Agent 可以领取上述 
 Blackboard 中的 Role 主要帮助 Agent 发现相关工作：
 
 ```text
-Agent roles: [backend]
+Agent role: backend
 Task tags: [backend, auth]
 ```
 
@@ -137,6 +137,6 @@ AGENTS.md 适合保留在项目仓库中：
 
 Kairos 可以在 Task 上提供仓库和工作目录信息，使 Agent 找到对应的 AGENTS.md。平台不需要复制或取代仓库中的规则文件。
 
-Kairos 可以托管轻量的 Agent Profile，例如 name、roles 和描述；项目级执行规则仍由仓库维护。
+Kairos 可以托管轻量的 Agent Profile，例如 role、展示标签和描述；项目级执行规则仍由仓库维护。
 
-> Agent identity establishes who is acting; roles define which work the agent may participate in.
+> Agent identity establishes who is acting; its role defines which work the agent may participate in.

@@ -1501,6 +1501,34 @@ func (r *testRepository) GetBlackboardDefinition(id domain.DefinitionID, version
 	return value, nil
 }
 
+func (r *testRepository) ListWorkflowDefinitions() ([]domain.WorkflowDefinition, error) {
+	result := make([]domain.WorkflowDefinition, 0, len(r.workflows))
+	for _, definition := range r.workflows {
+		result = append(result, definition)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].ID == result[j].ID {
+			return result[i].Version < result[j].Version
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result, nil
+}
+
+func (r *testRepository) ListBlackboardDefinitions() ([]domain.BlackboardDefinition, error) {
+	result := make([]domain.BlackboardDefinition, 0, len(r.blackboards))
+	for _, definition := range r.blackboards {
+		result = append(result, definition)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].ID == result[j].ID {
+			return result[i].Version < result[j].Version
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result, nil
+}
+
 func (r *testRepository) LastWorkItemEventSequence(workItemID domain.WorkItemID) (int64, error) {
 	var sequence int64
 	for _, event := range r.events {
@@ -1517,6 +1545,24 @@ func (r *testRepository) GetIdempotencyRecord(actor domain.ActorRef, operationID
 		return IdempotencyRecord{}, ErrNotFound
 	}
 	return value, nil
+}
+
+func (r *testRepository) CreateWorkflowDefinition(value domain.WorkflowDefinition) error {
+	key := definitionKey(value.ID, value.Version)
+	if _, exists := r.workflows[key]; exists {
+		return ErrConflict
+	}
+	r.workflows[key] = value
+	return nil
+}
+
+func (r *testRepository) CreateBlackboardDefinition(value domain.BlackboardDefinition) error {
+	key := definitionKey(value.ID, value.Version)
+	if _, exists := r.blackboards[key]; exists {
+		return ErrConflict
+	}
+	r.blackboards[key] = value
+	return nil
 }
 
 func (r *testRepository) CreateWorkItem(value domain.WorkItem) error {

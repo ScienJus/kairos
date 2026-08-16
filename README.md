@@ -89,7 +89,7 @@ Kanban is a view of complete WorkItems. It does not implement either coordinatio
 
 ## Project Status
 
-Kairos is currently a Go core engine, not yet a deployable end-user service.
+Kairos currently includes a Go core engine and a runnable HTTP service, but it is not yet a final end-user service.
 
 Available in this repository:
 
@@ -97,12 +97,12 @@ Available in this repository:
 - Workflow and Blackboard runtime semantics;
 - PostgreSQL and SQLite persistence;
 - concurrency and idempotency protection;
+- persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - deterministic unit tests and randomized collaboration simulations.
 
 Still to be built:
 
-- Agent Identity and Token authentication;
-- MCP / Skill and service APIs;
+- MCP / Skill APIs;
 - Claim heartbeat and recovery;
 - human List, Kanban, Flow Graph, and Checklist UI.
 
@@ -111,6 +111,57 @@ For development, use Go 1.26.5 or later and run:
 ```bash
 go test ./...
 ```
+
+## HTTP API
+
+The server uses Trusted Mode and SQLite by default:
+
+```bash
+KAIROS_SQLITE_PATH=kairos.db \
+KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
+go run ./cmd/kairos-server
+```
+
+Every request except `/healthz` requires identity headers:
+
+```text
+X-Kairos-Actor-Id: codex-backend
+X-Kairos-Actor-Role: backend
+```
+
+The Actor ID is both the stable identity and its readable name, so it should not be casually renamed. `X-Kairos-Actor-Kind` defaults to `agent`; set it to `human` for human review decisions. Trusted Mode must only be used when callers and transport are inside the trust boundary because the service accepts these headers without authentication. Mutation requests can use `Idempotency-Key` for durable idempotency.
+
+Shared environments should use Authenticated Mode. The Admin Token must contain at least 32 characters and protects identity management APIs:
+
+```bash
+KAIROS_AUTH_MODE=authenticated \
+KAIROS_ADMIN_TOKEN='<high-entropy-admin-token>' \
+KAIROS_SQLITE_PATH=kairos.db \
+go run ./cmd/kairos-server
+```
+
+Administrators call these endpoints with `Authorization: Bearer <admin-token>`:
+
+- `POST /api/v1/identities` creates a one-to-one `Token → Actor ID → Role`; plaintext Token is returned only once;
+- `GET /api/v1/identities` and `GET /api/v1/identities/{kind}/{id}` return identity data without Token hashes;
+- `POST /api/v1/identities/{kind}/{id}/token` rotates the Token and immediately invalidates the old one;
+- `DELETE /api/v1/identities/{kind}/{id}/token` revokes the Token while retaining Actor history.
+
+Work requests use the issued `Authorization: Bearer <identity-token>`. Authenticated Mode ignores all `X-Kairos-Actor-*` headers; ID, Kind, and Role come only from the server-side identity record. An Agent has exactly one required Role, while a Human has none. Role and Actor ID remain stable together; create a separate Actor Identity when another Role is needed.
+
+`/api/v1` exposes Definition management, WorkItem creation, Blackboard planning, work discovery, execution context, Claims, submissions, failures, decomposition, skipping, and review decisions. Definition versions are immutable; clients explicitly provide `version` when creating one.
+
+Definitions use separate resources for the two coordination modes:
+
+| | Workflow | Blackboard |
+| --- | --- | --- |
+| Create and list | `/definitions/workflows` | `/definitions/blackboards` |
+| Read a version | `/definitions/workflows/{id}/versions/{version}` | `/definitions/blackboards/{id}/versions/{version}` |
+| Definition content | A published version requires a valid formal Task Graph | Shared metadata and collaboration guidance only |
+| After WorkItem creation | Start Tasks are instantiated immediately from the Graph | Remains empty and is discovered as a planning candidate |
+| Further planning | Runtime follows formal relations and choice groups | Collaborators dynamically add Tasks, hierarchy, and suggested relations |
+
+The real-SQLite Trusted and Authenticated HTTP flows are covered by `internal/httpapi/httpapi_test.go` and `internal/httpapi/authenticated_test.go`.
 
 ## Design Whitepapers
 
