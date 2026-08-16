@@ -1,0 +1,15 @@
+interface:
+  display_name: "Kairos Agent"
+  short_description: "Discover, claim, and complete Kairos work"
+  default_prompt: "Use $kairos-agent to discover eligible Kairos work, claim one task, execute it, and report the durable result."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "kairos"
+      description: "Kairos agent execution and coordination tools"
+      transport: "streamable_http"
+      url: "http://127.0.0.1:8080/mcp"
+
+policy:
+  allow_implicit_invocation: true

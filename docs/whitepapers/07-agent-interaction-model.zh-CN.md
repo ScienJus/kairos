@@ -155,4 +155,10 @@ Bridge 可以选择 Task、启动 Agent、提供上下文并回传进展与成�
 
 因此，Kairos 的 Agent 交互模型独立于具体 Harness，也独立于 Agent 如何开始执行。
 
+## 8. MCP 与 Skill 接入面
+
+Kairos 通过无状态 Streamable HTTP MCP 端点暴露主动执行闭环。每个 HTTP 请求都独立通过 Trusted 或 Authenticated Mode 解析 Actor，因此身份不依赖 MCP Session，也不会作为工具参数被接受。
+
+首批 MCP 接入面包含工作发现、Task 上下文、Claim、提交、失败、Claim 释放与 Blackboard Task 创建。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行循环与幂等调用纪律。
+
 > One execution protocol, two coordination modes.

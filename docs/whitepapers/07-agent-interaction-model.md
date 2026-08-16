@@ -155,4 +155,10 @@ A Bridge can choose a Task, start an agent, provide context, and return progress
 
 The Kairos agent interaction model is therefore independent of a specific Harness and of how an agent begins execution.
 
+## 8. MCP and Skill Surface
+
+Kairos exposes the proactive execution loop through a stateless Streamable HTTP MCP endpoint. Each HTTP request independently resolves the actor through Trusted or Authenticated Mode, so identity does not depend on an MCP session and is never accepted as a tool argument.
+
+The initial MCP surface contains work discovery, Task context, Claim, submission, failure, Claim release, and Blackboard Task creation. Definition and Identity administration and human Review decisions stay outside the Agent surface. A repository-level Codex Skill supplies the execution loop and idempotency discipline to compatible harnesses.
+
 > One execution protocol, two coordination modes.

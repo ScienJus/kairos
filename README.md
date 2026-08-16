@@ -98,11 +98,12 @@ Available in this repository:
 - PostgreSQL and SQLite persistence;
 - concurrency and idempotency protection;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
+- stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - deterministic unit tests and randomized collaboration simulations.
 
 Still to be built:
 
-- MCP / Skill APIs;
+- the remaining Blackboard planning tools on MCP and a Bridge for automatic dispatch;
 - Claim heartbeat and recovery;
 - human List, Kanban, Flow Graph, and Checklist UI.
 
@@ -162,6 +163,20 @@ Definitions use separate resources for the two coordination modes:
 | Further planning | Runtime follows formal relations and choice groups | Collaborators dynamically add Tasks, hierarchy, and suggested relations |
 
 The real-SQLite Trusted and Authenticated HTTP flows are covered by `internal/httpapi/httpapi_test.go` and `internal/httpapi/authenticated_test.go`.
+
+## MCP and Codex Skill
+
+The server exposes a stateless Streamable HTTP MCP endpoint at `/mcp`. It uses the same identity resolver as `/api/v1`: Trusted Mode accepts `X-Kairos-Actor-*` transport headers, while Authenticated Mode requires the issued `Authorization: Bearer <identity-token>`. Identity values never appear in tool arguments.
+
+The first execution surface contains seven tools:
+
+- `find_work` and `get_task_context` for discovery and inspection;
+- `claim_task`, `release_claim`, `submit_task`, and `fail_task` for the Claim lifecycle;
+- `create_blackboard_task` for planning an empty or open Blackboard.
+
+Definition management, Identity management, and human Review decisions intentionally remain HTTP-only. Every MCP mutation requires a caller-generated `operation_id`; retry the same logical call with the same ID and use a new ID when any argument changes.
+
+The repository-level Codex Skill is available at `.agents/skills/kairos-agent`. Its MCP dependency points to the default `http://127.0.0.1:8080/mcp` endpoint and guides an agent through discover → inspect → claim → execute → submit/fail/release. Real-SQLite Trusted and Authenticated MCP flows are covered by `internal/mcpapi/mcpapi_test.go`.
 
 ## Design Whitepapers
 

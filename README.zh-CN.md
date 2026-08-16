@@ -98,11 +98,12 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - PostgreSQL 与 SQLite 持久化；
 - 并发与幂等保护；
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
+- 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
 - 确定性单元测试和随机协作模拟测试。
 
 仍需实现：
 
-- MCP / Skill API；
+- 剩余的 Blackboard MCP 规划工具与用于自动派发的 Bridge；
 - Claim 保活与失联恢复；
 - 人类 List、Kanban、Flow Graph 和 Checklist UI。
 
@@ -162,6 +163,20 @@ Definition 使用两组独立资源：
 | 后续规划 | 运行时按正式关系和选择组推进 | 协作者动态创建 Task、层级和建议关系 |
 
 真实 SQLite 的 Trusted 与 Authenticated HTTP 闭环测试见 `internal/httpapi/httpapi_test.go` 和 `internal/httpapi/authenticated_test.go`。
+
+## MCP 与 Codex Skill
+
+服务在 `/mcp` 暴露无状态 Streamable HTTP MCP 端点，并与 `/api/v1` 复用同一套身份解析：Trusted Mode 接受传输层的 `X-Kairos-Actor-*` 请求头，Authenticated Mode 要求签发的 `Authorization: Bearer <identity-token>`。身份字段不会出现在工具参数中。
+
+首批执行面包含 7 个工具：
+
+- `find_work`、`get_task_context`：发现工作与读取上下文；
+- `claim_task`、`release_claim`、`submit_task`、`fail_task`：完整 Claim 生命周期；
+- `create_blackboard_task`：为空或已有内容的 Blackboard 规划 Task。
+
+Definition 管理、Identity 管理与人工 Review 决策仍然只通过 HTTP 暴露。每个 MCP 变更都必须携带调用方生成的 `operation_id`；重试同一逻辑请求时复用该 ID，任何参数变化后都使用新 ID。
+
+仓库级 Codex Skill 位于 `.agents/skills/kairos-agent`。其中的 MCP 依赖指向默认端点 `http://127.0.0.1:8080/mcp`，并指导 Agent 完成“发现 → 检查 → Claim → 执行 → 提交/失败/释放”。真实 SQLite 的 Trusted 与 Authenticated MCP 闭环测试见 `internal/mcpapi/mcpapi_test.go`。
 
 ## 设计白皮书
 

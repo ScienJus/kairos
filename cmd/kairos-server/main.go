@@ -16,6 +16,7 @@ import (
 	"github.com/ScienJus/kairos/internal/application"
 	"github.com/ScienJus/kairos/internal/httpapi"
 	"github.com/ScienJus/kairos/internal/identity"
+	"github.com/ScienJus/kairos/internal/mcpapi"
 	"github.com/ScienJus/kairos/internal/repository"
 )
 
@@ -59,19 +60,26 @@ func run() error {
 		return fmt.Errorf("unsupported KAIROS_AUTH_MODE %q", authMode)
 	}
 
-	var handler http.Handler
+	var apiHandler http.Handler
 	if adminToken != "" {
-		handler, err = httpapi.NewWithIdentityManagement(service, resolver, identityService, adminToken)
+		apiHandler, err = httpapi.NewWithIdentityManagement(service, resolver, identityService, adminToken)
 	} else {
-		handler, err = httpapi.New(service, resolver)
+		apiHandler, err = httpapi.New(service, resolver)
 	}
 	if err != nil {
 		return err
 	}
+	mcpHandler, err := mcpapi.New(service, resolver)
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/", apiHandler)
 
 	server := &http.Server{
 		Addr:              environment("KAIROS_LISTEN_ADDR", "127.0.0.1:8080"),
-		Handler:           handler,
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	serverErrors := make(chan error, 1)
