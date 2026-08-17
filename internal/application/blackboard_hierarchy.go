@@ -49,30 +49,15 @@ func (s *Service) DecomposeBlackboardTask(
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", parent.WorkItemID, err)
 		}
-		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
-			return conflict("task %q does not belong to a blackboard", parent.ID)
-		}
-		if workItem.Status != domain.WorkItemStatusOpen {
-			return conflict("work item %q is %s", workItem.ID, workItem.Status)
-		}
 		claims, err := store.ListClaims(parent.ID)
 		if err != nil {
 			return fmt.Errorf("list claims for task %q: %w", parent.ID, err)
 		}
+		if err := validateBlackboardTaskDecomposition(workItem, parent, claims, command.Identity, command.ClaimID); err != nil {
+			return err
+		}
 		claimIndex := findClaim(claims, command.ClaimID)
-		if claimIndex < 0 {
-			return fmt.Errorf("%w: claim %q", ErrNotFound, command.ClaimID)
-		}
 		claim := claims[claimIndex]
-		if parent.Status != domain.TaskStatusWorking || parent.ActiveClaimID == nil || *parent.ActiveClaimID != claim.ID || !claim.Active() {
-			return conflict("claim %q is not active for task %q", claim.ID, parent.ID)
-		}
-		if !sameActor(claim.Executor, command.Identity.Actor) {
-			return forbidden("actor does not own claim %q", claim.ID)
-		}
-		if parent.DecomposedAt != nil || len(parent.Submissions) > 0 || len(parent.Reviews) > 0 || len(parent.Failures) > 0 || len(parent.TransitionDecisions) > 0 {
-			return conflict("task %q already contains execution history", parent.ID)
-		}
 
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
@@ -141,7 +126,37 @@ func (s *Service) DecomposeBlackboardTask(
 	if err != nil {
 		return BlackboardTaskDecomposition{}, err
 	}
-	return result, nil
+	return normalizeBlackboardTaskDecomposition(result), nil
+}
+
+func validateBlackboardTaskDecomposition(
+	workItem domain.WorkItem,
+	task domain.Task,
+	claims []domain.Claim,
+	identity Identity,
+	claimID domain.ClaimID,
+) error {
+	if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
+		return conflict("task %q does not belong to a blackboard", task.ID)
+	}
+	if workItem.Status != domain.WorkItemStatusOpen {
+		return conflict("work item %q is %s", workItem.ID, workItem.Status)
+	}
+	claimIndex := findClaim(claims, claimID)
+	if claimIndex < 0 {
+		return fmt.Errorf("%w: claim %q", ErrNotFound, claimID)
+	}
+	claim := claims[claimIndex]
+	if task.Status != domain.TaskStatusWorking || task.ActiveClaimID == nil || *task.ActiveClaimID != claim.ID || !claim.Active() {
+		return conflict("claim %q is not active for task %q", claim.ID, task.ID)
+	}
+	if !sameActor(claim.Executor, identity.Actor) {
+		return forbidden("actor does not own claim %q", claim.ID)
+	}
+	if task.DecomposedAt != nil || len(task.Submissions) > 0 || len(task.Reviews) > 0 || len(task.Failures) > 0 || len(task.TransitionDecisions) > 0 {
+		return conflict("task %q already contains execution history", task.ID)
+	}
+	return nil
 }
 
 // AddBlackboardChildTaskCommand appends one Task to an open aggregate Task.
@@ -228,7 +243,7 @@ func (s *Service) AddBlackboardChildTask(
 	if err != nil {
 		return domain.Task{}, err
 	}
-	return created, nil
+	return normalizeTaskCollections(created), nil
 }
 
 func (s *Service) completeBlackboardAncestors(

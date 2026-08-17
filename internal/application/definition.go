@@ -58,7 +58,7 @@ func (s *Service) CreateWorkflowDefinition(
 	if err != nil {
 		return domain.WorkflowDefinition{}, err
 	}
-	return created, nil
+	return normalizeWorkflowDefinition(created), nil
 }
 
 // CreateBlackboardDefinitionCommand creates one immutable Blackboard Definition version.
@@ -95,7 +95,7 @@ func (s *Service) CreateBlackboardDefinition(
 	if err != nil {
 		return domain.BlackboardDefinition{}, err
 	}
-	return created, nil
+	return normalizeBlackboardDefinition(created), nil
 }
 
 // GetDefinitionQuery selects one immutable Definition version.
@@ -119,7 +119,7 @@ func (s *Service) GetWorkflowDefinition(ctx context.Context, query GetDefinition
 		result = definition
 		return nil
 	})
-	return result, err
+	return normalizeWorkflowDefinition(result), err
 }
 
 // GetBlackboardDefinition returns one Blackboard Definition version.
@@ -136,7 +136,7 @@ func (s *Service) GetBlackboardDefinition(ctx context.Context, query GetDefiniti
 		result = definition
 		return nil
 	})
-	return result, err
+	return normalizeBlackboardDefinition(result), err
 }
 
 // ListWorkflowDefinitions returns every stored Workflow Definition version.
@@ -153,7 +153,7 @@ func (s *Service) ListWorkflowDefinitions(ctx context.Context, actor Identity) (
 		result = definitions
 		return nil
 	})
-	return result, err
+	return normalizeWorkflowDefinitions(result), err
 }
 
 // ListBlackboardDefinitions returns every stored Blackboard Definition version.
@@ -170,7 +170,7 @@ func (s *Service) ListBlackboardDefinitions(ctx context.Context, actor Identity)
 		result = definitions
 		return nil
 	})
-	return result, err
+	return normalizeBlackboardDefinitions(result), err
 }
 
 func validateDefinitionMetadataCommand(command DefinitionMetadataCommand) error {

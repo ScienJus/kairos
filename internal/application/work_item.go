@@ -9,7 +9,7 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-// CreateWorkItemCommand creates one concrete unit of work in a published Definition.
+// CreateWorkItemCommand creates one concrete unit of work using the latest published Definition.
 type CreateWorkItemCommand struct {
 	Definition  domain.DefinitionBinding
 	Identity    Identity
@@ -23,49 +23,48 @@ type CreateWorkItemCommand struct {
 	Tags               []string
 }
 
-// CreateWorkItem binds a WorkItem to an immutable Definition version.
+// CreateWorkItem resolves the latest published version and binds the WorkItem to it.
 // Workflow start Tasks are created in the same transaction.
 func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemCommand) (domain.WorkItem, error) {
 	if err := command.Identity.Validate(); err != nil {
 		return domain.WorkItem{}, err
 	}
-	if err := command.Definition.Validate(); err != nil {
-		return domain.WorkItem{}, invalidCommand("invalid definition binding: %v", err)
+	if strings.TrimSpace(string(command.Definition.ID)) == "" || !command.Definition.Mode.Valid() {
+		return domain.WorkItem{}, invalidCommand("definition id and mode are required")
 	}
 
 	var created domain.WorkItem
 	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_work_item", command, &created, func(store WriteStore) error {
 		var workflow *domain.WorkflowDefinition
+		var binding domain.DefinitionBinding
 		switch command.Definition.Mode {
 		case domain.CoordinationModeWorkflow:
-			definition, err := store.GetWorkflowDefinition(command.Definition.ID, command.Definition.Version)
+			definitions, err := store.ListWorkflowDefinitions()
 			if err != nil {
-				return fmt.Errorf("get workflow definition: %w", err)
+				return fmt.Errorf("list workflow definitions: %w", err)
 			}
-			if definition.Binding() != command.Definition {
-				return conflict("workflow definition does not match binding")
-			}
-			if definition.Status != domain.DefinitionStatusPublished {
-				return conflict("workflow definition is %s", definition.Status)
+			definition, ok := latestPublishedWorkflowDefinition(definitions, command.Definition.ID)
+			if !ok {
+				return fmt.Errorf("%w: published workflow definition %q", ErrNotFound, command.Definition.ID)
 			}
 			if err := definition.Validate(); err != nil {
 				return fmt.Errorf("validate workflow definition: %w", err)
 			}
 			workflow = &definition
+			binding = definition.Binding()
 		case domain.CoordinationModeBlackboard:
-			definition, err := store.GetBlackboardDefinition(command.Definition.ID, command.Definition.Version)
+			definitions, err := store.ListBlackboardDefinitions()
 			if err != nil {
-				return fmt.Errorf("get blackboard definition: %w", err)
+				return fmt.Errorf("list blackboard definitions: %w", err)
 			}
-			if definition.Binding() != command.Definition {
-				return conflict("blackboard definition does not match binding")
-			}
-			if definition.Status != domain.DefinitionStatusPublished {
-				return conflict("blackboard definition is %s", definition.Status)
+			definition, ok := latestPublishedBlackboardDefinition(definitions, command.Definition.ID)
+			if !ok {
+				return fmt.Errorf("%w: published blackboard definition %q", ErrNotFound, command.Definition.ID)
 			}
 			if err := definition.Validate(); err != nil {
 				return fmt.Errorf("validate blackboard definition: %w", err)
 			}
+			binding = definition.Binding()
 		default:
 			return invalidCommand("unsupported coordination mode %q", command.Definition.Mode)
 		}
@@ -77,7 +76,7 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 		now := s.clock.Now()
 		workItem := domain.WorkItem{
 			ID:                 domain.WorkItemID(id),
-			Definition:         command.Definition,
+			Definition:         binding,
 			Status:             domain.WorkItemStatusOpen,
 			Title:              strings.TrimSpace(command.Title),
 			Goal:               strings.TrimSpace(command.Goal),
@@ -156,6 +155,28 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 		return domain.WorkItem{}, err
 	}
 	return created, nil
+}
+
+func latestPublishedWorkflowDefinition(definitions []domain.WorkflowDefinition, id domain.DefinitionID) (domain.WorkflowDefinition, bool) {
+	var latest domain.WorkflowDefinition
+	found := false
+	for _, definition := range definitions {
+		if definition.ID == id && definition.Status == domain.DefinitionStatusPublished && (!found || definition.Version > latest.Version) {
+			latest, found = definition, true
+		}
+	}
+	return latest, found
+}
+
+func latestPublishedBlackboardDefinition(definitions []domain.BlackboardDefinition, id domain.DefinitionID) (domain.BlackboardDefinition, bool) {
+	var latest domain.BlackboardDefinition
+	found := false
+	for _, definition := range definitions {
+		if definition.ID == id && definition.Status == domain.DefinitionStatusPublished && (!found || definition.Version > latest.Version) {
+			latest, found = definition, true
+		}
+	}
+	return latest, found
 }
 
 func (s *Service) newWorkflowTask(
@@ -341,5 +362,5 @@ func (s *Service) CompleteBlackboardWorkItem(ctx context.Context, command Comple
 	if err != nil {
 		return domain.WorkItem{}, err
 	}
-	return completed, nil
+	return normalizeWorkItemCollections(completed), nil
 }

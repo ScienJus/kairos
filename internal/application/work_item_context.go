@@ -3,18 +3,88 @@ package application
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
+// ListWorkItemsQuery filters the durable WorkItem collection for operational views.
+type ListWorkItemsQuery struct {
+	Identity Identity
+	Statuses []domain.WorkItemStatus
+	Modes    []domain.CoordinationMode
+	Tags     []string
+}
+
+// ListWorkItems returns durable WorkItems, including terminal items, newest first.
+func (s *Service) ListWorkItems(ctx context.Context, query ListWorkItemsQuery) ([]domain.WorkItem, error) {
+	if err := query.Identity.Validate(); err != nil {
+		return nil, err
+	}
+	for _, status := range query.Statuses {
+		if !status.Valid() {
+			return nil, invalidCommand("unsupported work item status %q", status)
+		}
+	}
+	for _, mode := range query.Modes {
+		if !mode.Valid() {
+			return nil, invalidCommand("unsupported coordination mode %q", mode)
+		}
+	}
+
+	var result []domain.WorkItem
+	err := s.repository.View(ctx, func(store ReadStore) error {
+		workItems, err := store.ListWorkItems()
+		if err != nil {
+			return fmt.Errorf("list work items: %w", err)
+		}
+		for _, workItem := range workItems {
+			if len(query.Statuses) > 0 && !slices.Contains(query.Statuses, workItem.Status) {
+				continue
+			}
+			if len(query.Modes) > 0 && !slices.Contains(query.Modes, workItem.CoordinationMode()) {
+				continue
+			}
+			if !containsAllStrings(workItem.Tags, query.Tags) {
+				continue
+			}
+			result = append(result, normalizeWorkItemCollections(workItem))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(result, func(a, b domain.WorkItem) int {
+		if compared := b.UpdatedAt.Compare(a.UpdatedAt); compared != 0 {
+			return compared
+		}
+		return strings.Compare(string(a.ID), string(b.ID))
+	})
+	if result == nil {
+		result = []domain.WorkItem{}
+	}
+	return result, nil
+}
+
+func containsAllStrings(values, required []string) bool {
+	for _, value := range required {
+		if !slices.Contains(values, value) {
+			return false
+		}
+	}
+	return true
+}
+
 // WorkItemExecutionContext contains a durable WorkItem view that remains
 // addressable after it leaves the open candidate set.
 type WorkItemExecutionContext struct {
-	WorkItem   domain.WorkItem
-	Definition DefinitionExecutionContext
-	Tasks      []domain.Task
-	Relations  []domain.TaskRelation
+	WorkItem     domain.WorkItem
+	Definition   DefinitionExecutionContext
+	Tasks        []domain.Task
+	Relations    []domain.TaskRelation
+	ActiveClaims []domain.Claim
 }
 
 // GetWorkItemExecutionContextQuery identifies one WorkItem and requesting actor.
@@ -60,8 +130,25 @@ func (s *Service) GetWorkItemExecutionContext(
 		if relations == nil {
 			relations = []domain.TaskRelation{}
 		}
+		activeClaims := []domain.Claim{}
+		for _, task := range tasks {
+			if task.ActiveClaimID == nil {
+				continue
+			}
+			claims, err := store.ListClaims(task.ID)
+			if err != nil {
+				return fmt.Errorf("list claims for task %q: %w", task.ID, err)
+			}
+			for _, claim := range claims {
+				if claim.ID == *task.ActiveClaimID && claim.Active() {
+					activeClaims = append(activeClaims, claim)
+					break
+				}
+			}
+		}
 		result = WorkItemExecutionContext{
-			WorkItem: workItem, Definition: definition, Tasks: tasks, Relations: relations,
+			WorkItem: normalizeWorkItemCollections(workItem), Definition: normalizeDefinitionContext(definition),
+			Tasks: normalizeTasks(tasks), Relations: relations, ActiveClaims: activeClaims,
 		}
 		return nil
 	})

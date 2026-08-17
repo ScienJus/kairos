@@ -60,6 +60,27 @@ func (s *sqlStore) GetWorkItem(id domain.WorkItemID) (domain.WorkItem, error) {
 	return decodeJSON[domain.WorkItem](payload)
 }
 
+func (s *sqlStore) ListWorkItems() ([]domain.WorkItem, error) {
+	rows, err := s.query("SELECT payload FROM work_items ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.WorkItem
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, normalizeError(err)
+		}
+		value, err := decodeJSON[domain.WorkItem](payload)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, normalizeError(rows.Err())
+}
+
 func (s *sqlStore) GetTask(id domain.TaskID) (domain.Task, error) {
 	if s.writable && s.dialect == dialectPostgres {
 		var workItemID domain.WorkItemID

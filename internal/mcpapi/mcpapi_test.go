@@ -121,9 +121,12 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	if len(taskContext.Blackboard.Tasks) != 1 || taskContext.Blackboard.Tasks[0].ID != retryTask.Task.ID {
 		t.Fatalf("blackboard context duplicated current Task: %+v", taskContext.Blackboard.Tasks)
 	}
+	if !taskContext.Blackboard.CanDecompose {
+		t.Fatalf("freshly claimed task cannot decompose: %+v", taskContext.Blackboard)
+	}
 	released := callTool[releasedOutput](t, ctx, session, "release_claim", releaseClaimInput{
 		TaskID: created.Task.ID, ClaimID: claimed.Claim.ID,
-		OperationID: "release-task-1", Reason: "Verify claim release before completing the task.",
+		OperationID: "release-task-1", Reason: "Waiting for dependency access",
 	})
 	if !released.Released {
 		t.Fatal("release_claim did not acknowledge release")

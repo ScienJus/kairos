@@ -260,7 +260,7 @@ type releaseClaimInput struct {
 	TaskID      string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
 	ClaimID     string `json:"claim_id" jsonschema:"Active claim owned by the current actor."`
 	OperationID string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
-	Reason      string `json:"reason" jsonschema:"Why the actor is giving up responsibility."`
+	Reason      string `json:"reason,omitempty" jsonschema:"Why the claim is being released, when useful for the next executor or an automated release."`
 }
 
 type createBlackboardTaskInput struct {

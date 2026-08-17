@@ -41,8 +41,9 @@ type WorkflowExecutionContext struct {
 // BlackboardExecutionContext contains the other Tasks in the current shared
 // space. The Task being executed is available separately on TaskExecutionContext.
 type BlackboardExecutionContext struct {
-	Tasks     []domain.Task
-	Relations []domain.TaskRelation
+	Tasks        []domain.Task
+	Relations    []domain.TaskRelation
+	CanDecompose bool
 }
 
 // TaskExecutionContext contains the durable context needed to execute one Task.
@@ -137,7 +138,11 @@ func (s *Service) GetTaskExecutionContext(
 			if relations == nil {
 				relations = []domain.TaskRelation{}
 			}
-			result.Blackboard = &BlackboardExecutionContext{Tasks: otherTasks, Relations: relations}
+			canDecompose := false
+			if task.ActiveClaimID != nil {
+				canDecompose = validateBlackboardTaskDecomposition(workItem, task, claims, query.Identity, *task.ActiveClaimID) == nil
+			}
+			result.Blackboard = &BlackboardExecutionContext{Tasks: otherTasks, Relations: relations, CanDecompose: canDecompose}
 		default:
 			return invalidCommand("work item %q has invalid coordination mode", workItem.ID)
 		}
@@ -145,6 +150,22 @@ func (s *Service) GetTaskExecutionContext(
 	})
 	if err != nil {
 		return TaskExecutionContext{}, err
+	}
+	result.WorkItem = normalizeWorkItemCollections(result.WorkItem)
+	result.Task = normalizeTaskCollections(result.Task)
+	if result.Claims == nil {
+		result.Claims = []domain.Claim{}
+	}
+	result.Definition = normalizeDefinitionContext(result.Definition)
+	if result.Workflow != nil {
+		result.Workflow.UpstreamTasks = normalizeTasks(result.Workflow.UpstreamTasks)
+		result.Workflow.ChoiceGroups = normalizeWorkflowChoiceOptions(result.Workflow.ChoiceGroups)
+	}
+	if result.Blackboard != nil {
+		result.Blackboard.Tasks = normalizeTasks(result.Blackboard.Tasks)
+		if result.Blackboard.Relations == nil {
+			result.Blackboard.Relations = []domain.TaskRelation{}
+		}
 	}
 	return result, nil
 }

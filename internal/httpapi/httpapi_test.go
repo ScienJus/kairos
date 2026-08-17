@@ -52,7 +52,7 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 
 	workflowDefinition := requestData[domain.WorkflowDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/workflows", map[string]any{
 		"id": "delivery", "version": 1, "name": "Delivery", "status": "published",
-		"suggested_tags": []string{"backend"},
+		"suggested_tags": []string{},
 		"graph": map[string]any{
 			"start_task_ids": []string{"implement"},
 			"tasks": []map[string]any{{
@@ -64,6 +64,9 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	}, "create-workflow-definition", http.StatusCreated)
 	if len(workflowDefinition.Graph.Tasks) != 1 || workflowDefinition.Graph.Tasks[0].ID != "implement" {
 		t.Fatalf("workflow graph = %+v", workflowDefinition.Graph)
+	}
+	if workflowDefinition.SuggestedTags == nil || workflowDefinition.Graph.Relations == nil {
+		t.Fatalf("workflow definition contains nil collections: %#v", workflowDefinition)
 	}
 
 	workflows := requestData[[]domain.WorkflowDefinition](t, client, http.MethodGet, server.URL+"/api/v1/definitions/workflows", nil, "", http.StatusOK)
@@ -78,9 +81,14 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	}
 
 	workItem := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
-		"definition_id": "engineering", "definition_version": 1, "mode": "blackboard",
+		"definition_id": "engineering", "mode": "blackboard",
 		"title": "Ship storage change", "goal": "Deliver a tested storage change", "tags": []string{"backend"},
 	}, "create-work-item", http.StatusCreated)
+	listedWorkItems := requestData[[]domain.WorkItem](t, client, http.MethodGet,
+		server.URL+"/api/v1/work-items?status=open&mode=blackboard&tag=backend", nil, "", http.StatusOK)
+	if len(listedWorkItems) != 1 || listedWorkItems[0].ID != workItem.ID {
+		t.Fatalf("listed WorkItems = %+v, want %q", listedWorkItems, workItem.ID)
+	}
 
 	candidates := requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work?tag=backend", nil, "", http.StatusOK)
 	if len(candidates) != 1 || candidates[0].Kind != application.WorkCandidateEmptyBlackboard {
@@ -107,6 +115,12 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if executionContext.Task.ActiveClaimID == nil || *executionContext.Task.ActiveClaimID != claim.ID {
 		t.Fatalf("execution context has active claim %v, want %q", executionContext.Task.ActiveClaimID, claim.ID)
 	}
+	activeWorkItemContext := requestData[application.WorkItemExecutionContext](t, client, http.MethodGet,
+		server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", nil, "", http.StatusOK)
+	if len(activeWorkItemContext.ActiveClaims) != 1 || activeWorkItemContext.ActiveClaims[0].ID != claim.ID ||
+		activeWorkItemContext.ActiveClaims[0].Executor.ID != claim.Executor.ID {
+		t.Fatalf("active WorkItem claims = %+v, want claim %q by %q", activeWorkItemContext.ActiveClaims, claim.ID, claim.Executor.ID)
+	}
 
 	submission := requestData[domain.TaskSubmission](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/submissions", map[string]any{
 		"claim_id": claim.ID, "result": "Migration implemented and tested",
@@ -122,6 +136,9 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if len(workItemContext.Tasks) != 1 || workItemContext.Tasks[0].ID != task.ID || workItemContext.Relations == nil {
 		t.Fatalf("completed WorkItem coordination context = %+v", workItemContext)
 	}
+	if workItemContext.ActiveClaims == nil || len(workItemContext.ActiveClaims) != 0 {
+		t.Fatalf("completed WorkItem active claims = %#v, want non-nil empty slice", workItemContext.ActiveClaims)
+	}
 
 	candidates = requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work", nil, "", http.StatusOK)
 	if candidates == nil || len(candidates) != 0 {
@@ -129,7 +146,7 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	}
 
 	workflowWorkItem := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
-		"definition_id": "delivery", "definition_version": 1, "mode": "workflow",
+		"definition_id": "delivery", "mode": "workflow",
 		"title": "Ship API", "goal": "Deliver the API", "tags": []string{"backend"},
 	}, "create-workflow-item", http.StatusCreated)
 	candidates = requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work?tag=backend", nil, "", http.StatusOK)
@@ -238,7 +255,7 @@ func TestTrustedHTTPIdentityEnforcementEndToEnd(t *testing.T) {
 		"id": "identity-test", "version": 1, "name": "Identity test", "status": "published",
 	}, "create-definition", http.StatusCreated, owner)
 	workItem := requestDataAs[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
-		"definition_id": "identity-test", "definition_version": 1, "mode": "blackboard",
+		"definition_id": "identity-test", "mode": "blackboard",
 		"title": "Verify identity", "goal": "Enforce execution ownership",
 	}, "create-work-item", http.StatusCreated, owner)
 	task := requestDataAs[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{

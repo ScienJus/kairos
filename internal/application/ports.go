@@ -46,6 +46,7 @@ type IdempotencyRecord struct {
 // ReadStore exposes the state required by application operations.
 type ReadStore interface {
 	GetWorkItem(domain.WorkItemID) (domain.WorkItem, error)
+	ListWorkItems() ([]domain.WorkItem, error)
 	GetTask(domain.TaskID) (domain.Task, error)
 	ListTasks(domain.WorkItemID) ([]domain.Task, error)
 	ListTaskRelations(domain.WorkItemID) ([]domain.TaskRelation, error)

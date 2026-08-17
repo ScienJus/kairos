@@ -18,6 +18,7 @@ import (
 	"github.com/ScienJus/kairos/internal/identity"
 	"github.com/ScienJus/kairos/internal/mcpapi"
 	"github.com/ScienJus/kairos/internal/repository"
+	webui "github.com/ScienJus/kairos/web"
 )
 
 func main() {
@@ -75,7 +76,9 @@ func run() error {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpHandler)
-	mux.Handle("/", apiHandler)
+	mux.Handle("/api/", apiHandler)
+	mux.Handle("/healthz", apiHandler)
+	mux.Handle("/", webui.Handler())
 
 	server := &http.Server{
 		Addr:              environment("KAIROS_LISTEN_ADDR", "127.0.0.1:8080"),

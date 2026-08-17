@@ -122,6 +122,22 @@ func TestGetBlackboardTaskExecutionContext(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add relation: %v", err)
 	}
+	pendingContext, err := service.GetTaskExecutionContext(context.Background(), GetTaskExecutionContextQuery{
+		TaskID: second.ID, Identity: agent,
+	})
+	if err != nil {
+		t.Fatalf("get pending execution context: %v", err)
+	}
+	if pendingContext.Claims == nil || len(pendingContext.Claims) != 0 {
+		t.Fatalf("pending claims = %#v, want non-nil empty slice", pendingContext.Claims)
+	}
+	if pendingContext.Task.AllowedRoles == nil || pendingContext.Task.Tags == nil || pendingContext.Task.Reviews == nil ||
+		pendingContext.Task.Submissions == nil || pendingContext.Task.Failures == nil || pendingContext.Task.TransitionDecisions == nil {
+		t.Fatalf("pending task contains nil collections: %#v", pendingContext.Task)
+	}
+	if pendingContext.Blackboard == nil || pendingContext.Blackboard.Tasks == nil || pendingContext.Blackboard.Relations == nil {
+		t.Fatalf("pending blackboard contains nil collections: %#v", pendingContext.Blackboard)
+	}
 	if _, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: first.ID, Identity: agent}); err != nil {
 		t.Fatalf("claim first task: %v", err)
 	}
@@ -134,11 +150,43 @@ func TestGetBlackboardTaskExecutionContext(t *testing.T) {
 	if contextView.Blackboard == nil || contextView.Workflow != nil {
 		t.Fatalf("mode context: %#v", contextView)
 	}
+	if !contextView.Blackboard.CanDecompose {
+		t.Fatalf("freshly claimed blackboard task cannot decompose: %#v", contextView.Blackboard)
+	}
 	if len(contextView.Blackboard.Tasks) != 1 || contextView.Blackboard.Tasks[0].ID != second.ID || len(contextView.Blackboard.Relations) != 1 {
 		t.Fatalf("blackboard space: %#v", contextView.Blackboard)
 	}
 	if contextView.Definition.AgentInstructions != definition.AgentInstructions {
 		t.Fatalf("agent instructions: got %q", contextView.Definition.AgentInstructions)
+	}
+}
+
+func TestCreateWorkItemBindsLatestPublishedDefinition(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	v1 := blackboardDefinition()
+	v2 := v1
+	v2.Version = 2
+	v2.Name = "Current collaboration"
+	v3 := v2
+	v3.Version = 3
+	v3.Status = domain.DefinitionStatusArchived
+	repository.blackboards[definitionKey(v1.ID, v1.Version)] = v1
+	repository.blackboards[definitionKey(v2.ID, v2.Version)] = v2
+	repository.blackboards[definitionKey(v3.ID, v3.Version)] = v3
+	service := newTestService(t, repository)
+
+	created, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: domain.DefinitionBinding{ID: v1.ID, Mode: domain.CoordinationModeBlackboard},
+		Identity:   Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}},
+		Title:      "Use current rules", Goal: "Bind without choosing a version",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	if created.Definition != v2.Binding() {
+		t.Fatalf("definition binding = %#v, want %#v", created.Definition, v2.Binding())
 	}
 }
 
@@ -195,13 +243,16 @@ func TestCreateWorkflowWorkItemAndClaimByRole(t *testing.T) {
 	}
 
 	if err := service.ReleaseClaim(context.Background(), ReleaseClaimCommand{
-		TaskID: claimed.ID, ClaimID: claim.ID, Identity: backend, Reason: "Switch executor",
+		TaskID: claimed.ID, ClaimID: claim.ID, Identity: backend, Reason: "Waiting for external access",
 	}); err != nil {
 		t.Fatalf("release claim: %v", err)
 	}
 	released := repository.tasks[claimed.ID]
 	if released.Status != domain.TaskStatusPending || released.ActiveClaimID != nil {
 		t.Fatalf("released task state: %#v", released)
+	}
+	if got := repository.events[len(repository.events)-1].Message; got != "Waiting for external access" {
+		t.Fatalf("release event reason = %q", got)
 	}
 }
 
@@ -330,6 +381,56 @@ func TestBlackboardPlanningAndAutomaticCompletion(t *testing.T) {
 	}
 }
 
+func TestListHumanAttentionAggregatesHumanTasksAndReviews(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+	service := newTestService(t, repository)
+	planner := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "generalist"}
+	human := Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "reviewer"}}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: domain.DefinitionBinding{ID: "blackboard", Version: 1, Mode: domain.CoordinationModeBlackboard},
+		Identity:   planner, Title: "Human attention", Goal: "Exercise the attention feed",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: planner, Title: "Check the result", Executor: domain.ExecutorHuman,
+	})
+	if err != nil {
+		t.Fatalf("create human task: %v", err)
+	}
+	items, err := service.ListHumanAttention(context.Background(), human)
+	if err != nil {
+		t.Fatalf("list human attention: %v", err)
+	}
+	if len(items) != 1 || items[0].Kind != HumanAttentionTask || items[0].Task.ID != task.ID {
+		t.Fatalf("pending human attention = %+v", items)
+	}
+	claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: human})
+	if err != nil {
+		t.Fatalf("claim human task: %v", err)
+	}
+	items, err = service.ListHumanAttention(context.Background(), human)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("claimed human attention = %+v, err = %v", items, err)
+	}
+	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: human, Result: "Ready for review", RequestReview: true,
+	}); err != nil {
+		t.Fatalf("submit for review: %v", err)
+	}
+	items, err = service.ListHumanAttention(context.Background(), human)
+	if err != nil {
+		t.Fatalf("list review attention: %v", err)
+	}
+	if len(items) != 1 || items[0].Kind != HumanAttentionReview || items[0].Task.ID != task.ID {
+		t.Fatalf("review attention = %+v", items)
+	}
+}
+
 func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T) {
 	t.Parallel()
 
@@ -454,6 +555,9 @@ func TestBlackboardTaskHierarchySupportsOpenAppendAndRecursiveCompletion(t *test
 	if err != nil {
 		t.Fatalf("create root task: %v", err)
 	}
+	if root.AllowedRoles == nil || root.Tags == nil || root.Reviews == nil || root.Submissions == nil || root.Failures == nil || root.TransitionDecisions == nil {
+		t.Fatalf("created root contains nil collections: %#v", root)
+	}
 	rootClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: root.ID, Identity: planner})
 	if err != nil {
 		t.Fatalf("claim root task: %v", err)
@@ -479,6 +583,9 @@ func TestBlackboardTaskHierarchySupportsOpenAppendAndRecursiveCompletion(t *test
 	}
 	if decomposition.Parent.Status != domain.TaskStatusWaitingChildren || decomposition.Parent.ActiveClaimID != nil || decomposition.Parent.DecomposedAt == nil {
 		t.Fatalf("aggregate root: %#v", decomposition.Parent)
+	}
+	if decomposition.Parent.Tags == nil || decomposition.Children[0].Tags == nil || decomposition.Children[0].Reviews == nil {
+		t.Fatalf("decomposition contains nil collections: %#v", decomposition)
 	}
 	if claim := repository.claims[rootClaim.ID]; claim.Active() || claim.EndReason != domain.ClaimEndTaskDecomposed {
 		t.Fatalf("decomposition claim: %#v", claim)
@@ -514,6 +621,9 @@ func TestBlackboardTaskHierarchySupportsOpenAppendAndRecursiveCompletion(t *test
 	}
 	if extra.ParentTaskID == nil || *extra.ParentTaskID != authentication.ID {
 		t.Fatalf("appended child: %#v", extra)
+	}
+	if extra.AllowedRoles == nil || extra.Tags == nil || extra.Reviews == nil || extra.Submissions == nil || extra.Failures == nil || extra.TransitionDecisions == nil {
+		t.Fatalf("appended child contains nil collections: %#v", extra)
 	}
 
 	complete := func(task domain.Task) {
@@ -636,6 +746,23 @@ func TestFailTaskReopensAndPreservesFailure(t *testing.T) {
 	reopened := repository.tasks[task.ID]
 	if reopened.Status != domain.TaskStatusPending || len(reopened.Failures) != 1 || reopened.Failures[0].ID != failure.ID {
 		t.Fatalf("reopened task: %#v", reopened)
+	}
+	retryClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: identity})
+	if err != nil {
+		t.Fatalf("reclaim task: %v", err)
+	}
+	retryContext, err := service.GetTaskExecutionContext(context.Background(), GetTaskExecutionContextQuery{TaskID: task.ID, Identity: identity})
+	if err != nil {
+		t.Fatalf("get retried task context: %v", err)
+	}
+	if retryContext.Blackboard == nil || retryContext.Blackboard.CanDecompose {
+		t.Fatalf("task with failure history can decompose: %#v", retryContext.Blackboard)
+	}
+	if _, err := service.DecomposeBlackboardTask(context.Background(), DecomposeBlackboardTaskCommand{
+		TaskID: task.ID, ClaimID: retryClaim.ID, Identity: identity,
+		Children: []BlackboardTaskSpec{{Title: "Retry child", Executor: domain.ExecutorAgent}},
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("decompose task with failure history: got %v", err)
 	}
 }
 
@@ -1417,6 +1544,15 @@ func (r *testRepository) GetWorkItem(id domain.WorkItemID) (domain.WorkItem, err
 		return domain.WorkItem{}, ErrNotFound
 	}
 	return value, nil
+}
+
+func (r *testRepository) ListWorkItems() ([]domain.WorkItem, error) {
+	result := make([]domain.WorkItem, 0, len(r.workItems))
+	for _, workItem := range r.workItems {
+		result = append(result, workItem)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result, nil
 }
 
 func (r *testRepository) GetTask(id domain.TaskID) (domain.Task, error) {

@@ -145,8 +145,9 @@ type workflowContextView struct {
 }
 
 type blackboardContextView struct {
-	Tasks     []taskSummaryView `json:"tasks"`
-	Relations []relationView    `json:"relations"`
+	Tasks        []taskSummaryView `json:"tasks"`
+	Relations    []relationView    `json:"relations"`
+	CanDecompose bool              `json:"can_decompose"`
 }
 
 type workCandidateView struct {
@@ -236,8 +237,9 @@ func taskContextView(value application.TaskExecutionContext) taskContextOutput {
 	}
 	if value.Blackboard != nil {
 		blackboard := blackboardContextView{
-			Tasks:     taskSummaryViews(value.Blackboard.Tasks),
-			Relations: relationViews(value.Blackboard.Relations),
+			Tasks:        taskSummaryViews(value.Blackboard.Tasks),
+			Relations:    relationViews(value.Blackboard.Relations),
+			CanDecompose: value.Blackboard.CanDecompose,
 		}
 		result.Blackboard = &blackboard
 	}

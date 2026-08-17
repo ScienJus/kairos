@@ -77,7 +77,7 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 		"id": "authenticated", "version": 1, "name": "Authenticated", "status": "published",
 	}, agent.Token, http.StatusCreated)
 	workItem := authenticatedRequestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
-		"definition_id": "authenticated", "definition_version": 1, "mode": "blackboard",
+		"definition_id": "authenticated", "mode": "blackboard",
 		"title": "Authenticated execution", "goal": "Verify bearer authentication",
 	}, agent.Token, http.StatusCreated)
 	task := authenticatedRequestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{

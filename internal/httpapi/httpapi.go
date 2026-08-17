@@ -83,6 +83,8 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/v1/definitions/blackboards", h.createBlackboardDefinition)
 	h.mux.HandleFunc("GET /api/v1/definitions/blackboards/{definition_id}/versions/{version}", h.getBlackboardDefinition)
 	h.mux.HandleFunc("GET /api/v1/work", h.findWork)
+	h.mux.HandleFunc("GET /api/v1/human-attention", h.listHumanAttention)
+	h.mux.HandleFunc("GET /api/v1/work-items", h.listWorkItems)
 	h.mux.HandleFunc("POST /api/v1/work-items", h.createWorkItem)
 	h.mux.HandleFunc("GET /api/v1/work-items/{work_item_id}/context", h.getWorkItemContext)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/tasks", h.createBlackboardTask)
@@ -97,6 +99,42 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/decomposition", h.decomposeBlackboardTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/children", h.addBlackboardChildTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/reviews/{review_id}/decision", h.decideReview)
+}
+
+func (h *Handler) listHumanAttention(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	items, err := h.service.ListHumanAttention(request.Context(), actor)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: items})
+}
+
+func (h *Handler) listWorkItems(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	statuses := make([]domain.WorkItemStatus, 0, len(request.URL.Query()["status"]))
+	for _, status := range request.URL.Query()["status"] {
+		statuses = append(statuses, domain.WorkItemStatus(status))
+	}
+	modes := make([]domain.CoordinationMode, 0, len(request.URL.Query()["mode"]))
+	for _, mode := range request.URL.Query()["mode"] {
+		modes = append(modes, domain.CoordinationMode(mode))
+	}
+	workItems, err := h.service.ListWorkItems(request.Context(), application.ListWorkItemsQuery{
+		Identity: actor, Statuses: statuses, Modes: modes, Tags: request.URL.Query()["tag"],
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: workItems})
 }
 
 func (h *Handler) health(writer http.ResponseWriter, _ *http.Request) {
@@ -315,7 +353,6 @@ func (h *Handler) findWork(writer http.ResponseWriter, request *http.Request) {
 
 type createWorkItemRequest struct {
 	DefinitionID       domain.DefinitionID     `json:"definition_id"`
-	DefinitionVersion  int64                   `json:"definition_version"`
 	Mode               domain.CoordinationMode `json:"mode"`
 	Title              string                  `json:"title"`
 	Goal               string                  `json:"goal"`
@@ -335,7 +372,7 @@ func (h *Handler) createWorkItem(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	created, err := h.service.CreateWorkItem(request.Context(), application.CreateWorkItemCommand{
-		Definition: domain.DefinitionBinding{ID: body.DefinitionID, Version: body.DefinitionVersion, Mode: body.Mode},
+		Definition: domain.DefinitionBinding{ID: body.DefinitionID, Mode: body.Mode},
 		Identity:   actor, OperationID: operationID(request),
 		Title: body.Title, Goal: body.Goal, Context: body.Context,
 		Constraints: body.Constraints, AcceptanceCriteria: body.AcceptanceCriteria, Tags: body.Tags,
@@ -480,16 +517,14 @@ func (h *Handler) claimTask(writer http.ResponseWriter, request *http.Request) {
 	writeJSON(writer, http.StatusCreated, dataResponse{Data: claim})
 }
 
-type releaseClaimRequest struct {
-	Reason string `json:"reason"`
-}
-
 func (h *Handler) releaseClaim(writer http.ResponseWriter, request *http.Request) {
 	actor, ok := h.resolveIdentity(writer, request)
 	if !ok {
 		return
 	}
-	var body releaseClaimRequest
+	var body struct {
+		Reason string `json:"reason"`
+	}
 	if request.ContentLength != 0 && !decodeRequest(writer, request, &body) {
 		return
 	}

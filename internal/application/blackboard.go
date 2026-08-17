@@ -84,7 +84,7 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 	if err != nil {
 		return domain.Task{}, err
 	}
-	return created, nil
+	return normalizeTaskCollections(created), nil
 }
 
 // BlackboardTaskSpec describes one new executable Task.
@@ -277,5 +277,5 @@ func (s *Service) SkipBlackboardTask(ctx context.Context, command SkipBlackboard
 	if err != nil {
 		return domain.Task{}, err
 	}
-	return skipped, nil
+	return normalizeTaskCollections(skipped), nil
 }

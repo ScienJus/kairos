@@ -1,0 +1,102 @@
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+
+export type Locale = 'en' | 'zh-CN'
+
+const messages = {
+  en: {
+    close: 'Close', identitySettings: 'Identity settings', identity: 'Identity', startSomething: 'Start something',
+    blackboards: 'Blackboards', blackboardLibrary: 'Definition library', blackboardsTitle: 'Blackboards', blackboardsBody: 'Reusable spaces that tell people and agents how to begin a kind of work.', newBlackboard: 'New blackboard', loadingBlackboards: 'Opening the shelf...', noBlackboards: 'No blackboards have been published yet.', published: 'Published', draft: 'Draft', archived: 'Archived', createNextVersion: 'Create next version', useThisBlackboard: 'Use this blackboard', noAgentInstructions: 'No planning guidance has been written.', noSuggestedTags: 'No suggested tags.', versionHistory: 'Version history', chooseBlackboard: 'Choose a blackboard', chooseBlackboardBody: 'Select one from the shelf to read its guidance and versions.', cancelEditing: 'Back to definition', newVersion: 'New version · v{version}', untitledBlackboard: 'Untitled blackboard', publishNewVersion: 'Publish new version', publishBlackboard: 'Publish blackboard',
+    workflows: 'Workflows', workflowLibrary: 'Definition library', workflowsTitle: 'Workflows', workflowsLibraryBody: 'Repeatable paths for work that benefits from a known sequence and clear handoffs.', loadingWorkflows: 'Opening the shelf...', noWorkflows: 'No Workflow definitions have been published yet.', useThisWorkflow: 'Use this workflow', tasks: 'Tasks', connections: 'Connections', executionLimit: 'Execution limit', workflowStructure: 'Workflow structure', selectNodeBody: 'Choose a node to read its execution definition.', chooseWorkflow: 'Choose a workflow', chooseWorkflowBody: 'Select one from the shelf to understand its path and versions.', optionalTask: 'Optional', requiredTask: 'Required', executionPolicy: 'Execution', reviewPolicy: 'Review', reviewRequiredPolicy: 'Required', reviewExecutorDecides: 'Executor decides', reviewNone: 'None',
+    newWorkflow: 'New workflow', untitledWorkflow: 'Untitled workflow', leaveEditor: 'Leave editor', savedLocally: 'Saved to this browser', savingLocally: 'Saving...', discardDraft: 'Discard draft', discardDraftBody: 'Discard every local change in this draft?', keepEditing: 'Keep editing', confirmDiscard: 'Discard draft', publishVersion: 'Publish v{version}', workflowValidationFailed: '{count} things need attention before publishing.', canvas: 'Canvas', properties: 'Properties', taskTitle: 'Task title', add: 'Add', deleteConnection: 'Delete connection', workflowSettings: 'Workflow settings', workflowDetails: 'Workflow details', taskSettings: 'Task settings', startNode: 'Start task', deleteTask: 'Delete task', deleteTaskBody: 'Delete this task and all of its connections?', workflowEditLatestOnly: 'Only the latest Workflow version can be edited.',
+    validationWorkflowName: 'Give the Workflow a name.', validationWorkflowTasks: 'Add at least one task.', validationWorkflowStart: 'Choose at least one start task.', validationTaskTitles: 'Every task needs a title.', validationExecutionLimit: 'Execution limit must be greater than zero.', validationSelfRelation: 'A task cannot connect to itself.', validationDuplicateRelation: 'Remove duplicate connections.', validationWorkflowGraph: 'The Workflow graph needs attention.',
+    workspaceViews: 'Workspace views', allWork: 'All work', needsHuman: 'Needs a person', nothingNeedsYou: 'Nothing needs you right now', nothingNeedsYouBody: 'Reviews and tasks reserved for a person will appear here.', reviewNeeded: 'Review', humanTask: 'Human task',
+    unreachable: 'Unable to reach Kairos.', workspace: 'Workspace', welcomeTitle: 'What would you like to tend to?',
+    welcomeBody: 'Choose one piece of work. Everything else can wait.', quiet: 'The workspace is quiet', createWork: 'Create work',
+    workAtRest: 'Work at rest', historyBody: 'A quiet record of what has already been tended to.', started: 'Started', completed: 'Completed', closed: 'Closed',
+    putDown: 'Put this down', waitingReviews: '{count} waiting for your review', readBrief: 'Read the brief', doneWhen: 'Done when', context: 'Context', keepInMind: 'Keep in mind',
+    workflowTitle: 'How the work unfolds', blackboardTitle: 'Things to take care of', workflowBody: 'Follow the path at your own pace.', blackboardBody: 'Open a task only when you need its details.',
+    selectedTask: 'Selected task', taskDetails: 'Task details', closeTask: 'Close task details', openWorkspace: 'Open workspace',
+    hideCompleted: 'Hide completed', completedHidden: 'Completed tasks are hidden', collapseAll: 'Collapse all', expandAll: 'Expand all', collapseTask: 'Collapse subtasks', expandTask: 'Expand subtasks',
+    acquiring: 'Acquiring signal', noWork: 'No work selected', awaitingPlanning: 'Awaiting agent planning', taskFallback: '{executor} task',
+    noDescription: 'No execution description.', executor: 'Executor', role: 'Role', claim: 'Claim', claimedBy: 'Claimed by', unclaimed: 'Unclaimed', unrestricted: 'Unrestricted', acceptance: 'Acceptance', latestResult: 'Latest result',
+    reviewChannel: 'Review channel', requestedBy: 'Requested by {actor}', openReview: 'Open review', failureHistory: 'Failure history',
+    addTask: 'Add task', addExecutionTask: 'Add execution task', blackboardPlanning: 'Blackboard / Planning', title: 'Title', description: 'Description', acceptanceCriteria: 'Acceptance criteria', allowedRoles: 'Allowed roles', tags: 'Tags', cancel: 'Cancel', createTask: 'Create task', agent: 'Agent', human: 'Human', either: 'Either',
+    registerBlackboard: 'Register blackboard', openNewWork: 'Open new work', definitionPublish: 'Definition / Publish', newWork: 'New work', definitionID: 'Definition ID', displayName: 'Display name', agentInstructions: 'Agent instructions', suggestedTags: 'Suggested tags', back: 'Back', publish: 'Publish', coordinationDefinition: 'Coordination definition', selectDefinition: 'Select published definition', goal: 'Goal', constraints: 'Constraints', openWork: 'Open work',
+    transportIdentity: 'Transport identity', trustedMode: 'Local / Trusted mode', actorID: 'Actor ID', actorKind: 'Actor kind', agentRole: 'Agent role', ignoredForHumans: 'Ignored for humans', trustedWarning: 'Trusted Mode headers are accepted only inside the local trust boundary.', applyIdentity: 'Apply identity',
+    humanReview: 'Human review', reviewDecision: 'Review / Decision', backToTask: 'Back to task', reviewingTask: 'Reviewing task', noAcceptance: 'No acceptance criteria provided.', submissionResult: 'Submission result', noSubmission: 'No submission payload available.', feedback: 'Feedback', rejectPlaceholder: 'Required when rejecting', reject: 'Reject', approve: 'Approve',
+    reviewThisResult: 'Review this result', reviewActionBody: 'Compare the submitted result with the task and its acceptance criteria, then leave your decision here.',
+    statusOpen: 'Open', statusCompleted: 'Complete', statusCancelled: 'Cancelled', statusFailed: 'Failed', statusPending: 'Pending', statusWorking: 'Active', statusWaiting: 'Waiting on subtasks', statusReview: 'Review', statusSkipped: 'Skipped',
+    statusApproved: 'Approved', statusRejected: 'Rejected', actionReopen: 'Reopened', actionFailWorkItem: 'Work closed as failed', workflow: 'Workflow', blackboard: 'Blackboard',
+    preparingTask: 'Preparing this task...', taskActionsUnavailable: 'Task actions unavailable', taskContextUnavailable: 'The latest task context could not be loaded.', retry: 'Retry', startTaskBody: 'Starting makes this task yours until you complete it or put it down.', startTask: 'Start task', completeTask: 'Complete this task', completeTaskBody: 'Leave a clear result for the people and agents who continue from here.', workResult: 'What was accomplished?', workResultPlaceholder: 'Describe the result of this task.', nextPath: 'Where should the work go next?', requestReview: 'Ask another person to review this result', reviewRequired: 'This result will be sent for human review.', putDownForNow: 'Put down for now', putDownBody: 'Release this task so another person or agent can continue it later.', submitResult: 'Complete task', couldNotComplete: 'I could not complete this task', failureActionBody: 'Record what blocked this attempt and decide whether the work should continue.', failureReason: 'What prevented completion?', failureOutcome: 'What should happen next?', makeAvailableAgain: 'Make this task available again', makeAvailableAgainBody: 'Another person or agent can make a new attempt.', closeWorkAsFailed: 'Close the entire work as failed', closeWorkAsFailedBody: 'End this WorkItem and revoke every other active claim.', retryGuidance: 'What should the next attempt know?', recordAndReopen: 'Record and make available again', confirmFailWorkItem: 'Close work as failed',
+    beginBlackboard: 'How should this work begin?', beginBlackboardBody: 'Add the first task, or close the work if nothing needs to be done.', completeWithoutTasks: 'Nothing needs to be done', completionResult: 'Closing note', completeWork: 'Complete work',
+    plannedTask: 'Planned task', plannedTaskNumber: 'Task {number}', removeTask: 'Remove task', breakIntoTasks: 'Break into smaller tasks', breakIntoTasksBody: 'Turn this task into a short, concrete checklist for others to continue.', addAnotherTask: 'Add another task', confirmBreakdown: 'Create subtasks', addChildTask: 'Add another subtask', addChildTaskBody: 'Add something newly discovered while this group is still open.', createChildTask: 'Create subtask', noLongerNeeded: 'This is no longer needed', noLongerNeededBody: 'Remove this pending task from the active plan while keeping a record of why.', skipReason: 'Why is it no longer needed?', skipTask: 'Skip this task',
+  },
+  'zh-CN': {
+    close: '关闭', identitySettings: '身份设置', identity: '身份', startSomething: '开始一件事',
+    blackboards: 'Blackboard', blackboardLibrary: 'Definition 资料架', blackboardsTitle: 'Blackboards', blackboardsBody: '为一类工作保存可复用的协作方式，让人和 Agent 知道如何开始。', newBlackboard: '新建 Blackboard', loadingBlackboards: '正在打开资料架…', noBlackboards: '还没有发布过 Blackboard。', published: '已发布', draft: '草稿', archived: '已归档', createNextVersion: '创建下一版本', useThisBlackboard: '使用这个 Blackboard', noAgentInstructions: '尚未填写规划说明。', noSuggestedTags: '没有建议标签。', versionHistory: '版本记录', chooseBlackboard: '选择一个 Blackboard', chooseBlackboardBody: '从左侧资料架选择一项，阅读它的说明和历史版本。', cancelEditing: '返回 Definition', newVersion: '新版本 · v{version}', untitledBlackboard: '未命名 Blackboard', publishNewVersion: '发布新版本', publishBlackboard: '发布 Blackboard',
+    workflows: 'Workflow', workflowLibrary: 'Definition 资料架', workflowsTitle: 'Workflows', workflowsLibraryBody: '为适合固定步骤和清晰交接的工作保存可重复使用的路径。', loadingWorkflows: '正在打开资料架…', noWorkflows: '还没有发布过 Workflow Definition。', useThisWorkflow: '使用这个 Workflow', tasks: '任务', connections: '连接', executionLimit: '执行上限', workflowStructure: 'Workflow 结构', selectNodeBody: '选择一个节点，查看它的执行定义。', chooseWorkflow: '选择一个 Workflow', chooseWorkflowBody: '从左侧资料架选择一项，了解它的路径和历史版本。', optionalTask: '可选', requiredTask: '必须', executionPolicy: '执行策略', reviewPolicy: 'Review 策略', reviewRequiredPolicy: '必须 Review', reviewExecutorDecides: '执行者决定', reviewNone: '无需 Review',
+    newWorkflow: '新建 Workflow', untitledWorkflow: '未命名 Workflow', leaveEditor: '离开编辑器', savedLocally: '已保存到此浏览器', savingLocally: '正在保存…', discardDraft: '放弃草稿', discardDraftBody: '放弃这个草稿中的所有本地修改？', keepEditing: '继续编辑', confirmDiscard: '放弃草稿', publishVersion: '发布 v{version}', workflowValidationFailed: '发布前还有 {count} 项需要处理。', canvas: '画布', properties: '属性', taskTitle: '任务标题', add: '添加', deleteConnection: '删除连接', workflowSettings: 'Workflow 设置', workflowDetails: 'Workflow 详情', taskSettings: '任务设置', startNode: '起始任务', deleteTask: '删除任务', deleteTaskBody: '删除这个任务及其所有连接？', workflowEditLatestOnly: '只能编辑最新的 Workflow 版本。',
+    validationWorkflowName: '请填写 Workflow 名称。', validationWorkflowTasks: '请至少添加一个任务。', validationWorkflowStart: '请至少选择一个起始任务。', validationTaskTitles: '每个任务都需要标题。', validationExecutionLimit: '执行上限必须大于零。', validationSelfRelation: '任务不能连接到自身。', validationDuplicateRelation: '请移除重复连接。', validationWorkflowGraph: 'Workflow 图还需要检查。',
+    workspaceViews: '工作空间视图', allWork: '全部工作', needsHuman: '需要人处理', nothingNeedsYou: '现在没有需要你处理的事情', nothingNeedsYouBody: '等待 Review 和指定由人完成的任务会出现在这里。', reviewNeeded: '等待 Review', humanTask: '人类任务',
+    unreachable: '无法连接到 Kairos。', workspace: '工作空间', welcomeTitle: '现在想照看哪一件事？',
+    welcomeBody: '选择一件工作，其他事情可以暂时放下。', quiet: '工作空间现在很安静', createWork: '创建工作',
+    workAtRest: '已经完成的工作', historyBody: '这里安静地记录着已经照看过的事情。', started: '开始于', completed: '完成于', closed: '结束于',
+    putDown: '先放下这件事', waitingReviews: '有 {count} 项等待你的 Review', readBrief: '查看工作说明', doneWhen: '完成标准', context: '背景', keepInMind: '需要注意',
+    workflowTitle: '工作如何展开', blackboardTitle: '需要照看的事情', workflowBody: '按照自己的节奏沿着路径推进。', blackboardBody: '需要更多信息时，再打开具体任务。',
+    selectedTask: '已选择的任务', taskDetails: '任务详情', closeTask: '关闭任务详情', openWorkspace: '打开工作空间',
+    hideCompleted: '隐藏已完成', completedHidden: '已完成的任务已隐藏', collapseAll: '全部折叠', expandAll: '全部展开', collapseTask: '折叠子任务', expandTask: '展开子任务',
+    acquiring: '正在读取', noWork: '尚未选择工作', awaitingPlanning: '等待 Agent 规划', taskFallback: '{executor} 任务',
+    noDescription: '暂无执行说明。', executor: '执行者', role: '角色', claim: 'Claim', claimedBy: '认领人', unclaimed: '尚未认领', unrestricted: '无限制', acceptance: '验收标准', latestResult: '最新结果',
+    reviewChannel: 'Review 记录', requestedBy: '由 {actor} 发起', openReview: '打开 Review', failureHistory: '失败记录',
+    addTask: '添加任务', addExecutionTask: '添加执行任务', blackboardPlanning: 'Blackboard / 规划', title: '标题', description: '描述', acceptanceCriteria: '验收标准', allowedRoles: '允许的角色', tags: '标签', cancel: '取消', createTask: '创建任务', agent: 'Agent', human: '人', either: '均可',
+    registerBlackboard: '注册 Blackboard', openNewWork: '开始新工作', definitionPublish: 'Definition / 发布', newWork: '新工作', definitionID: 'Definition ID', displayName: '显示名称', agentInstructions: 'Agent 指令', suggestedTags: '建议标签', back: '返回', publish: '发布', coordinationDefinition: '协作 Definition', selectDefinition: '选择已发布的 Definition', goal: '目标', constraints: '约束', openWork: '开始工作',
+    transportIdentity: '传输身份', trustedMode: '本地 / Trusted Mode', actorID: 'Actor ID', actorKind: 'Actor 类型', agentRole: 'Agent 角色', ignoredForHumans: '人类身份无需填写', trustedWarning: '仅应在本地信任边界内接受 Trusted Mode 请求头。', applyIdentity: '应用身份',
+    humanReview: '人工 Review', reviewDecision: 'Review / 决策', backToTask: '返回任务', reviewingTask: '正在 Review', noAcceptance: '没有提供验收标准。', submissionResult: '提交结果', noSubmission: '没有可用的提交内容。', feedback: '反馈', rejectPlaceholder: '拒绝时必须填写', reject: '拒绝', approve: '通过',
+    reviewThisResult: '检查这份结果', reviewActionBody: '对照任务目标和验收标准检查提交结果，然后在这里作出决定。',
+    statusOpen: '进行中', statusCompleted: '已完成', statusCancelled: '已取消', statusFailed: '已失败', statusPending: '待处理', statusWorking: '执行中', statusWaiting: '等待子任务', statusReview: '待 Review', statusSkipped: '已跳过',
+    statusApproved: '已通过', statusRejected: '已拒绝', actionReopen: '已重新打开', actionFailWorkItem: '工作因失败关闭', workflow: 'Workflow', blackboard: 'Blackboard',
+    preparingTask: '正在准备这项任务...', taskActionsUnavailable: '暂时无法读取任务操作', taskContextUnavailable: '未能读取最新的任务上下文。', retry: '重试', startTaskBody: '开始后，这项任务会由你负责，直到完成或暂时放下。', startTask: '开始处理', completeTask: '完成这项任务', completeTaskBody: '为接下来继续工作的人和 Agent 留下清楚的结果。', workResult: '完成了什么？', workResultPlaceholder: '描述这项任务的完成结果。', nextPath: '接下来工作应当走向哪里？', requestReview: '请另一位人类检查这份结果', reviewRequired: '这份结果将进入人工 Review。', putDownForNow: '暂时放下', putDownBody: '释放这项任务，让其他人或 Agent 之后可以继续处理。', submitResult: '完成任务', couldNotComplete: '我无法完成这项任务', failureActionBody: '记录这次未能完成的原因，并决定这项工作是否应该继续。', failureReason: '是什么阻碍了完成？', failureOutcome: '接下来应该怎么处理？', makeAvailableAgain: '让这项任务重新等待处理', makeAvailableAgainBody: '其他人或 Agent 可以再次尝试。', closeWorkAsFailed: '将整项工作关闭为失败', closeWorkAsFailedBody: '结束这个 WorkItem，并释放其他正在执行的任务。', retryGuidance: '下一次尝试需要知道什么？', recordAndReopen: '记录并重新开放', confirmFailWorkItem: '将工作关闭为失败',
+    beginBlackboard: '这件工作要从哪里开始？', beginBlackboardBody: '添加第一项任务；如果没有事情需要处理，也可以直接结束。', completeWithoutTasks: '没有事情需要处理', completionResult: '结束说明', completeWork: '完成工作',
+    plannedTask: '规划中的任务', plannedTaskNumber: '任务 {number}', removeTask: '移除任务', breakIntoTasks: '拆分为更小的任务', breakIntoTasksBody: '把当前任务变成一组具体、容易继续处理的子任务。', addAnotherTask: '再添加一项', confirmBreakdown: '创建子任务', addChildTask: '添加一个子任务', addChildTaskBody: '如果过程中发现了新的事项，可以继续补充到这里。', createChildTask: '创建子任务', noLongerNeeded: '这项工作不再需要', noLongerNeededBody: '将这个待处理任务移出当前计划，同时留下原因。', skipReason: '为什么不再需要？', skipTask: '跳过这项任务',
+  },
+} as const
+
+export type MessageKey = keyof typeof messages.en
+const localeKey = 'kairos-console-locale'
+
+function initialLocale(): Locale {
+  const stored = localStorage.getItem(localeKey)
+  if (stored === 'en' || stored === 'zh-CN') return stored
+  return navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'
+}
+
+const I18nContext = createContext<{
+  locale: Locale
+  setLocale: (locale: Locale) => void
+  t: (key: MessageKey, values?: Record<string, string | number>) => string
+  formatDate: (value: string) => string
+  formatTime: (value: string) => string
+} | null>(null)
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [locale, setLocale] = useState<Locale>(initialLocale)
+  useEffect(() => { localStorage.setItem(localeKey, locale); document.documentElement.lang = locale }, [locale])
+  const value = useMemo(() => ({
+    locale,
+    setLocale,
+    t: (key: MessageKey, values?: Record<string, string | number>) => {
+      let message: string = messages[locale][key]
+      Object.entries(values ?? {}).forEach(([name, replacement]) => { message = message.replace(`{${name}}`, String(replacement)) })
+      return message
+    },
+    formatDate: (value: string) => new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(value)),
+    formatTime: (value: string) => new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'zh-CN', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value)),
+  }), [locale])
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
+}
+
+export function useI18n() {
+  const context = useContext(I18nContext)
+  if (!context) throw new Error('useI18n must be used inside I18nProvider')
+  return context
+}
