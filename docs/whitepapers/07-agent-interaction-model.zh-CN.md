@@ -34,7 +34,7 @@ record progress
 submit result
 ```
 
-Agent 在执行前读取必要上下文并确认 Task。Claim 由 Agent 或 Bridge 建立，并在执行开始前形成唯一的执行责任。执行期间的进展和最终成果都记录在 Task 中。
+Agent 在执行前读取必要上下文并确认 Task。Agent 或 Bridge 在执行开始前建立带 lease 的 Claim，形成唯一执行责任。执行期间 Agent 通过 heartbeat 续租，并可以为每一段续租请求不同的时长；进展和最终成果都记录在 Task 中。lease 过期后 Agent 必须停止，不能复活旧 Claim 或继续提交。
 
 ## 2. 发现工作
 
@@ -159,6 +159,6 @@ Bridge 可以选择 Task、启动 Agent、提供上下文并回传进展与成�
 
 Kairos 通过无状态 Streamable HTTP MCP 端点暴露主动执行闭环。每个 HTTP 请求都独立通过 Trusted 或 Authenticated Mode 解析 Actor，因此身份不依赖 MCP Session，也不会作为工具参数被接受。
 
-MCP 接入面包含工作发现、Task 上下文、可读取终态的 WorkItem 上下文、Claim、提交、失败、Claim 释放与 Blackboard Task 创建。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行循环与幂等调用纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
+MCP 接入面包含工作发现、Task 上下文、可读取终态的 WorkItem 上下文、Claim 创建与 heartbeat、提交、失败、Claim 释放与 Blackboard Task 创建。`claim_task` 与 `heartbeat_claim` 接受可选的 `lease_seconds`，服务端返回实际批准的时长与 `lease_until`。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行与 heartbeat 循环及幂等调用纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
 
 > One execution protocol, two coordination modes.

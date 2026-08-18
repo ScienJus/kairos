@@ -19,8 +19,8 @@ Kairos gives every participant one durable view of the work:
 - both structured processes and open-ended collaboration use the same execution protocol.
 
 ```text
-find work → choose → claim → execute → submit → complete
-                                      └── Review → approve / reject
+find work → choose → claim → execute + heartbeat → submit → complete
+                                                  └── Review → approve / reject
 ```
 
 ## Choose a Coordination Mode
@@ -80,12 +80,12 @@ Every submission and Review round is preserved. When an executor retries a faile
 
 ## Human Interaction
 
-The planned human interface presents the same WorkItems through List and Kanban. Inside a WorkItem:
+The operations console currently provides a WorkItem List, a human-attention queue, and WorkItem detail views. Inside a WorkItem:
 
 - Workflow is shown as a flow graph with execution history.
 - Blackboard is shown as a dynamic checklist with hierarchy and suggested relations.
 
-Kanban is a view of complete WorkItems. It does not implement either coordination mode.
+Kanban remains planned as a view of complete WorkItems. It will not implement either coordination mode.
 
 ## Project Status
 
@@ -99,13 +99,14 @@ Available in this repository:
 - concurrency and idempotency protection;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
+- an operations console with WorkItem List, human attention, Workflow graph, Blackboard task map, and Definition editors;
+- agent Claim leases with flexible durations, heartbeat, expiry recovery, and fencing;
 - deterministic unit tests and randomized collaboration simulations.
 
 Still to be built:
 
 - the remaining Blackboard planning tools on MCP and a Bridge for automatic dispatch;
-- Claim heartbeat and recovery;
-- human List, Kanban, Flow Graph, and Checklist UI.
+- the remaining Kanban and operational-console workflows.
 
 For development, use Go 1.26.5 or later and run:
 
@@ -120,6 +121,7 @@ The server uses Trusted Mode and SQLite by default:
 ```bash
 KAIROS_SQLITE_PATH=kairos.db \
 KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
+KAIROS_AGENT_CLAIM_LEASE=60s \
 go run ./cmd/kairos-server
 ```
 
@@ -168,10 +170,10 @@ The real-SQLite Trusted and Authenticated HTTP flows are covered by `internal/ht
 
 The server exposes a stateless Streamable HTTP MCP endpoint at `/mcp`. It uses the same identity resolver as `/api/v1`: Trusted Mode accepts `X-Kairos-Actor-*` transport headers, while Authenticated Mode requires the issued `Authorization: Bearer <identity-token>`. Identity values never appear in tool arguments.
 
-The execution surface contains eight tools with compact `snake_case` structured results:
+The execution surface contains nine tools with compact `snake_case` structured results:
 
 - `find_work`, `get_task_context`, and `get_work_item_context` for discovery and inspection, including terminal WorkItems;
-- `claim_task`, `release_claim`, `submit_task`, and `fail_task` for the Claim lifecycle;
+- `claim_task`, `heartbeat_claim`, `release_claim`, `submit_task`, and `fail_task` for the Claim lifecycle;
 - `create_blackboard_task` for planning an empty or open Blackboard.
 
 Definition management, Identity management, and human Review decisions intentionally remain HTTP-only. Every MCP mutation requires a caller-generated `operation_id`; retry the same logical call with the same ID and use a new ID when any argument changes.
@@ -188,7 +190,9 @@ export KAIROS_ACTOR_ROLE=backend
 export KAIROS_IDENTITY_TOKEN='<issued-identity-token>'
 ```
 
-Restart the Codex task after changing project MCP configuration or these environment variables. The Skill guides an agent through discover → inspect → claim → execute → submit/fail/release → verify. Real-SQLite Trusted and Authenticated MCP flows are covered by `internal/mcpapi/mcpapi_test.go`.
+Agent Claims use leases; human Claims do not. `claim_task` and `heartbeat_claim` accept an optional `lease_seconds`, which the server clamps to 15 seconds through 30 minutes. An omitted value uses `KAIROS_AGENT_CLAIM_LEASE` (60 seconds by default). The background reaper returns expired Agent Claims to Pending, and an expired Claim cannot be revived or used to submit a result.
+
+Restart the Codex task after changing project MCP configuration or these environment variables. The Skill guides an agent through discover → inspect → claim → execute with heartbeat → submit/fail/release → verify. Real-SQLite Trusted and Authenticated MCP flows are covered by `internal/mcpapi/mcpapi_test.go`.
 
 ## Design Whitepapers
 

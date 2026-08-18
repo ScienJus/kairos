@@ -7,6 +7,24 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
+const DefaultClaimLease = 60 * time.Second
+const MinClaimLease = 15 * time.Second
+const MaxClaimLease = 30 * time.Minute
+
+func normalizeClaimLease(requested int64, fallback time.Duration) time.Duration {
+	d := fallback
+	if requested > 0 {
+		d = time.Duration(requested) * time.Second
+	}
+	if d < MinClaimLease {
+		return MinClaimLease
+	}
+	if d > MaxClaimLease {
+		return MaxClaimLease
+	}
+	return d
+}
+
 // Clock supplies deterministic timestamps to application operations.
 type Clock interface {
 	Now() time.Time

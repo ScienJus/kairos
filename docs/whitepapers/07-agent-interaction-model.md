@@ -34,7 +34,7 @@ record progress
 submit result
 ```
 
-Before execution, the agent reads necessary context and confirms the Task. The agent or Bridge creates a Claim before work begins, establishing unique execution responsibility. Progress and final results produced during execution are recorded on the Task.
+Before execution, the agent reads necessary context and confirms the Task. The agent or Bridge creates a leased Claim before work begins, establishing unique execution responsibility. During execution, the agent renews that lease with heartbeat calls and may request a different duration for each interval. Progress and final results produced during execution are recorded on the Task. If the lease expires, the agent must stop and cannot revive or submit through the old Claim.
 
 ## 2. Discovering Work
 
@@ -159,6 +159,6 @@ The Kairos agent interaction model is therefore independent of a specific Harnes
 
 Kairos exposes the proactive execution loop through a stateless Streamable HTTP MCP endpoint. Each HTTP request independently resolves the actor through Trusted or Authenticated Mode, so identity does not depend on an MCP session and is never accepted as a tool argument.
 
-The MCP surface contains work discovery, Task context, terminal-capable WorkItem context, Claim, submission, failure, Claim release, and Blackboard Task creation. Responses use compact `snake_case` execution views instead of exposing the full persistence model. Definition and Identity administration and human Review decisions stay outside the Agent surface. A repository-level Codex Skill supplies the execution loop and idempotency discipline to compatible harnesses, while `.codex/config.toml` connects Codex to the local project server.
+The MCP surface contains work discovery, Task context, terminal-capable WorkItem context, Claim creation and heartbeat, submission, failure, Claim release, and Blackboard Task creation. `claim_task` and `heartbeat_claim` accept an optional requested `lease_seconds`; the server returns the granted duration and `lease_until`. Responses use compact `snake_case` execution views instead of exposing the full persistence model. Definition and Identity administration and human Review decisions stay outside the Agent surface. A repository-level Codex Skill supplies the execution and heartbeat loop plus idempotency discipline to compatible harnesses, while `.codex/config.toml` connects Codex to the local project server.
 
 > One execution protocol, two coordination modes.

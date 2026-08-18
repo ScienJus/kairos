@@ -45,12 +45,13 @@ const (
 	ClaimEndRevoked            ClaimEndReason = "revoked"
 	ClaimEndTaskFailed         ClaimEndReason = "task_failed"
 	ClaimEndTaskDecomposed     ClaimEndReason = "task_decomposed"
+	ClaimEndExpired            ClaimEndReason = "expired"
 )
 
 // Valid reports whether the claim end reason is recognized.
 func (r ClaimEndReason) Valid() bool {
 	switch r {
-	case ClaimEndTaskCompleted, ClaimEndSubmittedForReview, ClaimEndReleased, ClaimEndRevoked, ClaimEndTaskFailed, ClaimEndTaskDecomposed:
+	case ClaimEndTaskCompleted, ClaimEndSubmittedForReview, ClaimEndReleased, ClaimEndRevoked, ClaimEndTaskFailed, ClaimEndTaskDecomposed, ClaimEndExpired:
 		return true
 	default:
 		return false
@@ -63,9 +64,12 @@ type Claim struct {
 	TaskID   TaskID
 	Executor ActorRef
 
-	ClaimedAt time.Time
-	EndedAt   *time.Time
-	EndReason ClaimEndReason
+	ClaimedAt       time.Time
+	LastHeartbeatAt time.Time
+	LeaseUntil      time.Time
+	LeaseSeconds    int64
+	EndedAt         *time.Time
+	EndReason       ClaimEndReason
 }
 
 // Active reports whether the Claim is still the Task's current execution responsibility.

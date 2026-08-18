@@ -48,7 +48,7 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	}
 	wantTools := []string{
 		"claim_task", "create_blackboard_task", "fail_task", "find_work",
-		"get_task_context", "get_work_item_context", "release_claim", "submit_task",
+		"get_task_context", "get_work_item_context", "heartbeat_claim", "release_claim", "submit_task",
 	}
 	gotTools := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {

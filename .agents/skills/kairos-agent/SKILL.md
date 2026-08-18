@@ -15,6 +15,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 4. For a Task candidate, call `get_task_context` before claiming. Read the complete Task, WorkItem, Definition instructions, previous failures, upstream Workflow results, and current Blackboard state.
 5. Call `claim_task` immediately before beginning execution. Do not work on a Task whose Claim was not acquired successfully.
 6. Perform the requested work outside Kairos using the available repository, browser, API, or other tools. Keep the Claim ID.
+   While working, run a background heartbeat loop. Call `heartbeat_claim` before the reported `lease_until` (normally around one third of the remaining lease) and pass `lease_seconds` when the expected next interval changes. Use a fresh `operation_id` for each new heartbeat request, and reuse it only for an identical retry. Stop work immediately if heartbeat reports an expired or conflicting Claim.
 7. Finish with exactly one lifecycle action:
    - Call `submit_task` with a durable result when acceptance criteria are met.
    - Call `fail_task` with `reopen` and a useful retry prompt when another attempt can succeed.

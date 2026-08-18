@@ -1,9 +1,12 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
 	"github.com/ScienJus/kairos/internal/identity"
@@ -32,6 +35,68 @@ type Service struct {
 	repository Repository
 	clock      Clock
 	ids        IDGenerator
+	claimLease time.Duration
+}
+
+// StartLeaseReaper periodically returns abandoned tasks to the pending queue.
+// The returned stop function waits for the worker to exit.
+func (s *Service) StartLeaseReaper(ctx context.Context, interval time.Duration) func() {
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			case <-ticker.C:
+				if err := s.ReapExpiredClaims(ctx); err != nil {
+					log.Printf("kairos: lease reaper: %v", err)
+				}
+			}
+		}
+	}()
+	return func() { close(stop); <-done }
+}
+
+// ReapExpiredClaims scans open WorkItems and expires stale active Claims.
+func (s *Service) ReapExpiredClaims(ctx context.Context) error {
+	return s.repository.Update(ctx, func(store WriteStore) error {
+		items, err := store.ListWorkItems()
+		if err != nil {
+			return err
+		}
+		now := s.clock.Now()
+		for _, item := range items {
+			if item.Status != domain.WorkItemStatusOpen {
+				continue
+			}
+			tasks, err := store.ListTasks(item.ID)
+			if err != nil {
+				return err
+			}
+			for i := range tasks {
+				if tasks[i].ActiveClaimID == nil {
+					continue
+				}
+				claims, err := store.ListClaims(tasks[i].ID)
+				if err != nil {
+					return err
+				}
+				if _, err := s.expireActiveClaim(store, &tasks[i], claims, now); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 
 // NewService creates an application Service.
@@ -45,7 +110,15 @@ func NewService(repository Repository, clock Clock, ids IDGenerator) (*Service, 
 	if ids == nil {
 		return nil, fmt.Errorf("%w: id generator is required", ErrInvalidCommand)
 	}
-	return &Service{repository: repository, clock: clock, ids: ids}, nil
+	return &Service{repository: repository, clock: clock, ids: ids, claimLease: DefaultClaimLease}, nil
+}
+
+func (s *Service) SetClaimLeaseDuration(duration time.Duration) error {
+	if duration <= 0 {
+		return invalidCommand("claim lease duration must be positive")
+	}
+	s.claimLease = duration
+	return nil
 }
 
 func (s *Service) newID(field string) (string, error) {

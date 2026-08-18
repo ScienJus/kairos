@@ -93,6 +93,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}/context", h.getTaskContext)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/claims", h.claimTask)
 	h.mux.HandleFunc("DELETE /api/v1/tasks/{task_id}/claims/{claim_id}", h.releaseClaim)
+	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/claims/{claim_id}/heartbeat", h.heartbeatClaim)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/submissions", h.submitTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/failures", h.failTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/skip", h.skipBlackboardTask)
@@ -507,8 +508,14 @@ func (h *Handler) claimTask(writer http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
+	var body struct {
+		LeaseSeconds int64 `json:"lease_seconds"`
+	}
+	if request.ContentLength != 0 && !decodeRequest(writer, request, &body) {
+		return
+	}
 	claim, err := h.service.ClaimTask(request.Context(), application.ClaimTaskCommand{
-		TaskID: domain.TaskID(request.PathValue("task_id")), Identity: actor, OperationID: operationID(request),
+		TaskID: domain.TaskID(request.PathValue("task_id")), Identity: actor, OperationID: operationID(request), LeaseSeconds: body.LeaseSeconds,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -537,6 +544,27 @@ func (h *Handler) releaseClaim(writer http.ResponseWriter, request *http.Request
 		return
 	}
 	writer.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) heartbeatClaim(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	var body struct {
+		LeaseSeconds int64 `json:"lease_seconds"`
+	}
+	if request.ContentLength != 0 && !decodeRequest(writer, request, &body) {
+		return
+	}
+	claim, err := h.service.HeartbeatClaim(request.Context(), application.HeartbeatClaimCommand{
+		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: domain.ClaimID(request.PathValue("claim_id")), Identity: actor, OperationID: operationID(request), LeaseSeconds: body.LeaseSeconds,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: claim})
 }
 
 type submitTaskRequest struct {

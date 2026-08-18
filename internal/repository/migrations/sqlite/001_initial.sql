@@ -52,6 +52,8 @@ CREATE INDEX task_relations_to_idx ON task_relations (work_item_id, to_task_id);
 CREATE TABLE claims (
     id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL REFERENCES tasks (id),
+    executor_kind TEXT NOT NULL CHECK (executor_kind IN ('agent', 'human')),
+    executor_id TEXT NOT NULL,
     active INTEGER NOT NULL CHECK (active IN (0, 1)),
     claimed_at_ns INTEGER NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload))

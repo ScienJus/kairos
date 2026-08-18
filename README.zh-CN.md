@@ -19,8 +19,8 @@ Kairos 为所有参与者提供一个持久、统一的工作视图：
 - 正式流程和开放式协作使用同一套执行协议。
 
 ```text
-发现工作 → 选择 → Claim → 执行 → 提交 → 完成
-                                  └── Review → 通过 / 驳回
+发现工作 → 选择 → Claim → 执行 + heartbeat → 提交 → 完成
+                                              └── Review → 通过 / 驳回
 ```
 
 ## 选择协作模式
@@ -80,12 +80,12 @@ Working
 
 ## 人类交互
 
-规划中的人类界面通过统一的 List 和 Kanban 展示 WorkItem。进入 WorkItem 后：
+当前 operations console 已提供 WorkItem List、人工关注队列和 WorkItem 详情。进入 WorkItem 后：
 
 - Workflow 显示为带执行历史的流程图。
 - Blackboard 显示为包含层级和建议关系的动态 Checklist。
 
-Kanban 展示完整 WorkItem，不承担两种模式的协调语义。
+Kanban 仍在规划中，将用于展示完整 WorkItem，不承担两种模式的协调语义。
 
 ## 项目状态
 
@@ -99,13 +99,14 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 并发与幂等保护；
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
+- 包含 WorkItem List、人工关注、Workflow 图、Blackboard Task Map 和 Definition 编辑器的 operations console；
+- 支持灵活时长、heartbeat、过期恢复和 fencing 的 Agent Claim lease；
 - 确定性单元测试和随机协作模拟测试。
 
 仍需实现：
 
 - 剩余的 Blackboard MCP 规划工具与用于自动派发的 Bridge；
-- Claim 保活与失联恢复；
-- 人类 List、Kanban、Flow Graph 和 Checklist UI。
+- 剩余的 Kanban 与控制台运营流程。
 
 开发需要 Go 1.26.5 或更高版本：
 
@@ -120,6 +121,7 @@ go test ./...
 ```bash
 KAIROS_SQLITE_PATH=kairos.db \
 KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
+KAIROS_AGENT_CLAIM_LEASE=60s \
 go run ./cmd/kairos-server
 ```
 
@@ -168,10 +170,10 @@ Definition 使用两组独立资源：
 
 服务在 `/mcp` 暴露无状态 Streamable HTTP MCP 端点，并与 `/api/v1` 复用同一套身份解析：Trusted Mode 接受传输层的 `X-Kairos-Actor-*` 请求头，Authenticated Mode 要求签发的 `Authorization: Bearer <identity-token>`。身份字段不会出现在工具参数中。
 
-执行面包含 8 个工具，并返回紧凑的 `snake_case` 结构化结果：
+执行面包含 9 个工具，并返回紧凑的 `snake_case` 结构化结果：
 
 - `find_work`、`get_task_context`、`get_work_item_context`：发现工作并读取 Task 或终态 WorkItem 上下文；
-- `claim_task`、`release_claim`、`submit_task`、`fail_task`：完整 Claim 生命周期；
+- `claim_task`、`heartbeat_claim`、`release_claim`、`submit_task`、`fail_task`：完整 Claim 生命周期；
 - `create_blackboard_task`：为空或已有内容的 Blackboard 规划 Task。
 
 Definition 管理、Identity 管理与人工 Review 决策仍然只通过 HTTP 暴露。每个 MCP 变更都必须携带调用方生成的 `operation_id`；重试同一逻辑请求时复用该 ID，任何参数变化后都使用新 ID。
@@ -188,7 +190,9 @@ export KAIROS_ACTOR_ROLE=backend
 export KAIROS_IDENTITY_TOKEN='<issued-identity-token>'
 ```
 
-项目 MCP 配置或这些环境变量变化后需要重启 Codex 任务。Skill 会指导 Agent 完成“发现 → 检查 → Claim → 执行 → 提交/失败/释放 → 验证”。真实 SQLite 的 Trusted 与 Authenticated MCP 闭环测试见 `internal/mcpapi/mcpapi_test.go`。
+只有 Agent Claim 使用 lease，Human Claim 不使用。`claim_task` 与 `heartbeat_claim` 接受可选的 `lease_seconds`，服务端会将其限制在 15 秒至 30 分钟之间；省略时使用 `KAIROS_AGENT_CLAIM_LEASE`，默认 60 秒。后台 reaper 将过期 Agent Claim 恢复为 Pending，过期 Claim 不能复活或继续提交结果。
+
+项目 MCP 配置或这些环境变量变化后需要重启 Codex 任务。Skill 会指导 Agent 完成“发现 → 检查 → Claim → 执行并 heartbeat → 提交/失败/释放 → 验证”。真实 SQLite 的 Trusted 与 Authenticated MCP 闭环测试见 `internal/mcpapi/mcpapi_test.go`。
 
 ## 设计白皮书
 

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -43,6 +44,9 @@ func TestSQLRepositoryContract(t *testing.T) {
 		t.Run("concurrent claim", func(t *testing.T) {
 			testConcurrentClaim(t, repository, openPeer(t), blackboard)
 		})
+		t.Run("claim lease columns", func(t *testing.T) {
+			testClaimLeaseColumns(t, repository, blackboard)
+		})
 		t.Run("concurrent blackboard appends", func(t *testing.T) {
 			testConcurrentBlackboardPlanning(t, repository, openPeer(t), blackboard)
 		})
@@ -64,6 +68,52 @@ func TestSQLRepositoryContract(t *testing.T) {
 			})
 		}
 	})
+}
+
+func testClaimLeaseColumns(t *testing.T, repository *SQLRepository, definition domain.BlackboardDefinition) {
+	t.Helper()
+	ctx := context.Background()
+	service := repositoryTestService(t, repository)
+	agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "lease-agent"}, Role: "generalist"}
+	human := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "lease-human"}}
+	workItem, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{Definition: definition.Binding(), Identity: agent, Title: "Lease columns", Goal: "Persist claim ownership"})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	agentTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: agent, Title: "Agent", Executor: domain.ExecutorAgent})
+	if err != nil {
+		t.Fatalf("create agent task: %v", err)
+	}
+	humanTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: agent, Title: "Human", Executor: domain.ExecutorHuman})
+	if err != nil {
+		t.Fatalf("create human task: %v", err)
+	}
+	agentClaim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: agentTask.ID, Identity: agent, LeaseSeconds: 300})
+	if err != nil {
+		t.Fatalf("claim agent task: %v", err)
+	}
+	humanClaim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: humanTask.ID, Identity: human})
+	if err != nil {
+		t.Fatalf("claim human task: %v", err)
+	}
+
+	assertColumns := func(id domain.ClaimID, wantKind, wantID string, wantLease bool) {
+		t.Helper()
+		var kind, executorID string
+		var heartbeat, until, seconds sql.NullInt64
+		query := rebind(repository.dialect, "SELECT executor_kind, executor_id, last_heartbeat_at_ns, lease_until_ns, lease_seconds FROM claims WHERE id = ?")
+		if err := repository.db.QueryRowContext(ctx, query, id).Scan(&kind, &executorID, &heartbeat, &until, &seconds); err != nil {
+			t.Fatalf("query claim columns: %v", err)
+		}
+		if kind != wantKind || executorID != wantID {
+			t.Fatalf("executor columns = %s/%s, want %s/%s", kind, executorID, wantKind, wantID)
+		}
+		if heartbeat.Valid != wantLease || until.Valid != wantLease || seconds.Valid != wantLease {
+			t.Fatalf("lease nullability = %v/%v/%v, want %v", heartbeat.Valid, until.Valid, seconds.Valid, wantLease)
+		}
+	}
+	assertColumns(agentClaim.ID, "agent", "lease-agent", true)
+	assertColumns(humanClaim.ID, "human", "lease-human", false)
 }
 
 func forEachSQLRepository(

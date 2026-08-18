@@ -49,6 +49,7 @@ Claim 具有两个基本性质：
 
 - **明确性**：Kairos 能够确定当前由哪个执行者对 Task 的执行和交付负责；
 - **唯一性**：同一个 Task 在同一时间只能存在一个有效 Claim。
+- **Agent 可恢复性**：Agent Claim 是可续期的 lease，Agent 失联后执行责任可以被回收。
 
 ```text
 Task A → 执行者 1    合法
@@ -60,6 +61,10 @@ Task A → 执行者 2    不合法
 唯一的执行责任可以避免重复工作与结果冲突，同时让进展和成果具有清晰的来源。
 
 > Claim 表示 Task 的独占执行责任，与任务采用何种分发方式无关。
+
+只有 Agent Claim 使用 lease。Agent 可以在领取 Task 和每次 heartbeat 时请求 lease 时长；服务端按策略限制并返回实际批准的 `lease_seconds` 与 `lease_until`。如果 `lease_until` 前没有收到 heartbeat，Kairos 会以 `expired` 结束 Claim、将 Task 恢复为 Pending，并允许新的执行者领取。旧 Claim ID 作为 fencing token，过期后不能复活，也不能继续提交结果。
+
+Human Claim 不使用 lease 或 heartbeat。它持续有效，直到提交、失败、主动释放或管理员撤销，从而避免将基础设施存活机制暴露给人类交互。
 
 Claim 只覆盖执行者正在处理 Task 的阶段。执行者提交 Task 进入人工 Review 时，当前 Claim 结束；等待 Review 期间 Task 不需要保活，也不能被新的执行者领取。Review 驳回后 Task 重新进入候选集合，由原执行者或其他执行者建立新的 Claim。
 

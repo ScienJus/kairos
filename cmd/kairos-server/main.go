@@ -42,6 +42,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	claimLease, err := time.ParseDuration(environment("KAIROS_AGENT_CLAIM_LEASE", "60s"))
+	if err != nil {
+		return fmt.Errorf("parse KAIROS_AGENT_CLAIM_LEASE: %w", err)
+	}
+	if err := service.SetClaimLeaseDuration(claimLease); err != nil {
+		return err
+	}
+	stopReaper := service.StartLeaseReaper(ctx, 15*time.Second)
+	defer stopReaper()
 	identityService, err := identity.NewService(repo, systemClock{}, identity.SecureTokenGenerator{})
 	if err != nil {
 		return err

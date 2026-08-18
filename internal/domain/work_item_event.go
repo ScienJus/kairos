@@ -15,18 +15,19 @@ const (
 	WorkItemEventWorkItemCancelled WorkItemEventType = "work_item.cancelled"
 	WorkItemEventWorkItemFailed    WorkItemEventType = "work_item.failed"
 
-	WorkItemEventTaskCreated    WorkItemEventType = "task.created"
-	WorkItemEventTaskUpdated    WorkItemEventType = "task.updated"
-	WorkItemEventTaskClaimed    WorkItemEventType = "task.claimed"
-	WorkItemEventTaskReleased   WorkItemEventType = "task.released"
-	WorkItemEventTaskRevoked    WorkItemEventType = "task.revoked"
-	WorkItemEventTaskSubmitted  WorkItemEventType = "task.submitted"
-	WorkItemEventTaskCompleted  WorkItemEventType = "task.completed"
-	WorkItemEventTaskSkipped    WorkItemEventType = "task.skipped"
-	WorkItemEventTaskFailed     WorkItemEventType = "task.failed"
-	WorkItemEventTaskReopened   WorkItemEventType = "task.reopened"
-	WorkItemEventTaskDecomposed WorkItemEventType = "task.decomposed"
-	WorkItemEventRelationAdded  WorkItemEventType = "task_relation.added"
+	WorkItemEventTaskCreated      WorkItemEventType = "task.created"
+	WorkItemEventTaskUpdated      WorkItemEventType = "task.updated"
+	WorkItemEventTaskClaimed      WorkItemEventType = "task.claimed"
+	WorkItemEventTaskReleased     WorkItemEventType = "task.released"
+	WorkItemEventTaskRevoked      WorkItemEventType = "task.revoked"
+	WorkItemEventTaskSubmitted    WorkItemEventType = "task.submitted"
+	WorkItemEventTaskCompleted    WorkItemEventType = "task.completed"
+	WorkItemEventTaskSkipped      WorkItemEventType = "task.skipped"
+	WorkItemEventTaskFailed       WorkItemEventType = "task.failed"
+	WorkItemEventTaskReopened     WorkItemEventType = "task.reopened"
+	WorkItemEventTaskDecomposed   WorkItemEventType = "task.decomposed"
+	WorkItemEventTaskClaimExpired WorkItemEventType = "task.claim_expired"
+	WorkItemEventRelationAdded    WorkItemEventType = "task_relation.added"
 
 	WorkItemEventReviewRequested WorkItemEventType = "review.requested"
 	WorkItemEventReviewApproved  WorkItemEventType = "review.approved"
@@ -61,6 +62,7 @@ func (t WorkItemEventType) workItemScoped() (bool, bool) {
 		WorkItemEventTaskFailed,
 		WorkItemEventTaskReopened,
 		WorkItemEventTaskDecomposed,
+		WorkItemEventTaskClaimExpired,
 		WorkItemEventRelationAdded,
 		WorkItemEventReviewRequested,
 		WorkItemEventReviewApproved,

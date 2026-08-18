@@ -122,11 +122,19 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input claimTaskInput) (*mcp.CallToolResult, claimOutput, error) {
 		claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{
-			TaskID:      domain.TaskID(input.TaskID),
-			Identity:    actor,
-			OperationID: input.OperationID,
+			TaskID:       domain.TaskID(input.TaskID),
+			Identity:     actor,
+			OperationID:  input.OperationID,
+			LeaseSeconds: input.LeaseSeconds,
 		})
 		return successResult(fmt.Sprintf("Claimed Task %s with Claim %s.", claim.TaskID, claim.ID)), claimOutput{Claim: claimViewFrom(claim)}, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "heartbeat_claim", Title: "Heartbeat claim", Description: "Extend an active claim lease before it expires. Reuse operation_id when retrying the same call.", Annotations: mutationAnnotations(false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input heartbeatClaimInput) (*mcp.CallToolResult, claimOutput, error) {
+		claim, err := service.HeartbeatClaim(ctx, application.HeartbeatClaimCommand{TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor, OperationID: input.OperationID, LeaseSeconds: input.LeaseSeconds})
+		return successResult(fmt.Sprintf("Heartbeated Claim %s.", input.ClaimID)), claimOutput{Claim: claimViewFrom(claim)}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -227,8 +235,16 @@ type workItemContextInput struct {
 }
 
 type claimTaskInput struct {
-	TaskID      string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
-	OperationID string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
+	TaskID       string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
+	OperationID  string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
+	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
+}
+
+type heartbeatClaimInput struct {
+	TaskID       string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
+	ClaimID      string `json:"claim_id" jsonschema:"Active claim owned by the current actor."`
+	OperationID  string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
+	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
 }
 
 type workflowTransitionInput struct {

@@ -49,6 +49,7 @@ A Claim has two essential properties:
 
 - **Explicitness**: Kairos can determine which executor currently owns execution and delivery of the Task.
 - **Uniqueness**: a Task can have only one active Claim at a time.
+- **Recoverability for agents**: an Agent Claim is a renewable lease, so execution responsibility can be recovered after the agent disappears.
 
 ```text
 Task A → Executor 1    valid
@@ -60,6 +61,10 @@ Task A → Executor 2    invalid
 Unique execution responsibility prevents duplicated work and conflicting results while giving progress and deliverables a clear source.
 
 > A Claim represents exclusive execution responsibility for a Task, independently of how the Task was distributed.
+
+Only Agent Claims use leases. An agent may request a lease duration when claiming and on every heartbeat; the server applies policy bounds and returns the granted `lease_seconds` and `lease_until`. If no heartbeat arrives before `lease_until`, Kairos ends the Claim with `expired`, returns the Task to Pending, and allows a new executor to Claim it. The old Claim ID acts as a fencing token and cannot be revived or used for submission after expiry.
+
+Human Claims do not use leases or heartbeat. They remain active until submission, failure, explicit release, or administrative revocation. This keeps infrastructure liveness out of the human interaction model.
 
 A Claim covers only the period during which the executor is working on the Task. When a submission enters human Review, the current Claim ends. The Task requires no liveness during Review and cannot be claimed by another executor. If Review rejects the result, the Task returns to the candidate set and either the original or another executor creates a new Claim.
 

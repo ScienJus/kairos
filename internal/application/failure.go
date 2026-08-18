@@ -46,6 +46,11 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 		if err != nil {
 			return fmt.Errorf("list claims for task %q: %w", task.ID, err)
 		}
+		if expired, err := s.expireActiveClaim(store, &task, claims, s.clock.Now()); err != nil {
+			return err
+		} else if expired {
+			return conflict("claim %q lease has expired", command.ClaimID)
+		}
 		claimIndex := -1
 		for i := range claims {
 			if claims[i].ID == command.ClaimID {

@@ -149,7 +149,7 @@ func (s *sqlStore) ListTaskRelations(workItemID domain.WorkItemID) ([]domain.Tas
 
 func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
 	rows, err := s.query(
-		"SELECT payload FROM claims WHERE task_id = ? ORDER BY claimed_at_ns, id",
+		"SELECT payload, executor_kind, executor_id, last_heartbeat_at_ns, lease_until_ns, lease_seconds FROM claims WHERE task_id = ? ORDER BY claimed_at_ns, id",
 		taskID,
 	)
 	if err != nil {
@@ -159,12 +159,25 @@ func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
 	var result []domain.Claim
 	for rows.Next() {
 		var payload string
-		if err := rows.Scan(&payload); err != nil {
+		var executorKind, executorID string
+		var heartbeat, lease sql.NullInt64
+		var leaseSeconds sql.NullInt64
+		if err := rows.Scan(&payload, &executorKind, &executorID, &heartbeat, &lease, &leaseSeconds); err != nil {
 			return nil, normalizeError(err)
 		}
 		value, err := decodeJSON[domain.Claim](payload)
 		if err != nil {
 			return nil, err
+		}
+		value.Executor = domain.ActorRef{Kind: domain.ActorKind(executorKind), ID: domain.ActorID(executorID)}
+		if heartbeat.Valid {
+			value.LastHeartbeatAt = time.Unix(0, heartbeat.Int64).UTC()
+		}
+		if lease.Valid {
+			value.LeaseUntil = time.Unix(0, lease.Int64).UTC()
+		}
+		if leaseSeconds.Valid {
+			value.LeaseSeconds = leaseSeconds.Int64
 		}
 		result = append(result, value)
 	}
@@ -584,10 +597,11 @@ func (s *sqlStore) CreateClaim(value domain.Claim) error {
 	if err != nil {
 		return err
 	}
+	heartbeat, lease, leaseSeconds := claimLeaseColumns(value)
 	_, err = s.exec(`
-		INSERT INTO claims (id, task_id, active, claimed_at_ns, payload)
-		VALUES (?, ?, ?, ?, ?)`,
-		value.ID, value.TaskID, value.Active(), value.ClaimedAt.UnixNano(), payload,
+		INSERT INTO claims (id, task_id, executor_kind, executor_id, active, claimed_at_ns, last_heartbeat_at_ns, lease_until_ns, lease_seconds, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		value.ID, value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), value.ClaimedAt.UnixNano(), heartbeat, lease, leaseSeconds, payload,
 	)
 	return err
 }
@@ -600,16 +614,24 @@ func (s *sqlStore) SaveClaim(value domain.Claim) error {
 	if err != nil {
 		return err
 	}
+	heartbeat, lease, leaseSeconds := claimLeaseColumns(value)
 	result, err := s.exec(`
 		UPDATE claims
-		SET task_id = ?, active = ?, claimed_at_ns = ?, payload = ?
+		SET task_id = ?, executor_kind = ?, executor_id = ?, active = ?, claimed_at_ns = ?, last_heartbeat_at_ns = ?, lease_until_ns = ?, lease_seconds = ?, payload = ?
 		WHERE id = ?`,
-		value.TaskID, value.Active(), value.ClaimedAt.UnixNano(), payload, value.ID,
+		value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), value.ClaimedAt.UnixNano(), heartbeat, lease, leaseSeconds, payload, value.ID,
 	)
 	if err != nil {
 		return err
 	}
 	return s.requireUpdated(result, "claims", value.ID)
+}
+
+func claimLeaseColumns(value domain.Claim) (any, any, any) {
+	if value.Executor.Kind != domain.ActorAgent {
+		return nil, nil, nil
+	}
+	return value.LastHeartbeatAt.UnixNano(), value.LeaseUntil.UnixNano(), value.LeaseSeconds
 }
 
 func (s *sqlStore) AppendWorkItemEvent(value domain.WorkItemEvent) error {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
 )
@@ -116,9 +117,10 @@ func errorsIsForbidden(err error) bool {
 
 // ClaimTaskCommand establishes execution responsibility for one pending Task.
 type ClaimTaskCommand struct {
-	TaskID      domain.TaskID
-	Identity    Identity
-	OperationID string
+	TaskID       domain.TaskID
+	Identity     Identity
+	OperationID  string
+	LeaseSeconds int64
 }
 
 // ClaimTask atomically claims one pending Task.
@@ -142,6 +144,15 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 		}
 		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
+		}
+		if task.ActiveClaimID != nil {
+			claims, err := store.ListClaims(task.ID)
+			if err != nil {
+				return fmt.Errorf("list claims for task %q: %w", task.ID, err)
+			}
+			if _, err := s.expireActiveClaim(store, &task, claims, s.clock.Now()); err != nil {
+				return fmt.Errorf("expire claim: %w", err)
+			}
 		}
 		if task.Status != domain.TaskStatusPending || task.ActiveClaimID != nil {
 			return conflict("task %q is not claimable", task.ID)
@@ -170,6 +181,14 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 			TaskID:    task.ID,
 			Executor:  command.Identity.Actor,
 			ClaimedAt: now,
+		}
+		if command.Identity.Actor.Kind == domain.ActorAgent {
+			lease := normalizeClaimLease(command.LeaseSeconds, s.claimLease)
+			claim.LastHeartbeatAt = now
+			claim.LeaseUntil = now.Add(lease)
+			claim.LeaseSeconds = int64(lease / time.Second)
+		} else if command.LeaseSeconds != 0 {
+			return invalidCommand("lease_seconds is only valid for agent claims")
 		}
 		task.Status = domain.TaskStatusWorking
 		task.ActiveClaimID = &claimID
