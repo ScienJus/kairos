@@ -105,7 +105,7 @@ Available in this repository:
 
 Still to be built:
 
-- the remaining Blackboard planning tools on MCP and a Bridge for automatic dispatch;
+- a Bridge for automatic dispatch;
 - the remaining Kanban and operational-console workflows.
 
 For development, use Go 1.26.5 or later and run:
@@ -170,11 +170,12 @@ The real-SQLite Trusted and Authenticated HTTP flows are covered by `internal/ht
 
 The server exposes a stateless Streamable HTTP MCP endpoint at `/mcp`. It uses the same identity resolver as `/api/v1`: Trusted Mode accepts `X-Kairos-Actor-*` transport headers, while Authenticated Mode requires the issued `Authorization: Bearer <identity-token>`. Identity values never appear in tool arguments.
 
-The execution surface contains nine tools with compact `snake_case` structured results:
+The execution surface contains fourteen tools with compact `snake_case` structured results:
 
 - `find_work`, `get_task_context`, and `get_work_item_context` for discovery and inspection, including terminal WorkItems;
 - `claim_task`, `heartbeat_claim`, `release_claim`, `submit_task`, and `fail_task` for the Claim lifecycle;
 - `create_blackboard_task` for planning an empty or open Blackboard.
+- `add_blackboard_relation`, `decompose_blackboard_task`, `add_blackboard_child_task`, `skip_blackboard_task`, and `complete_blackboard` for dynamic Blackboard planning.
 
 Definition management, Identity management, and human Review decisions intentionally remain HTTP-only. Every MCP mutation requires a caller-generated `operation_id`; retry the same logical call with the same ID and use a new ID when any argument changes.
 

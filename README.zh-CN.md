@@ -105,7 +105,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 
 仍需实现：
 
-- 剩余的 Blackboard MCP 规划工具与用于自动派发的 Bridge；
+- 用于自动派发的 Bridge；
 - 剩余的 Kanban 与控制台运营流程。
 
 开发需要 Go 1.26.5 或更高版本：
@@ -170,11 +170,12 @@ Definition 使用两组独立资源：
 
 服务在 `/mcp` 暴露无状态 Streamable HTTP MCP 端点，并与 `/api/v1` 复用同一套身份解析：Trusted Mode 接受传输层的 `X-Kairos-Actor-*` 请求头，Authenticated Mode 要求签发的 `Authorization: Bearer <identity-token>`。身份字段不会出现在工具参数中。
 
-执行面包含 9 个工具，并返回紧凑的 `snake_case` 结构化结果：
+执行面包含 14 个工具，并返回紧凑的 `snake_case` 结构化结果：
 
 - `find_work`、`get_task_context`、`get_work_item_context`：发现工作并读取 Task 或终态 WorkItem 上下文；
 - `claim_task`、`heartbeat_claim`、`release_claim`、`submit_task`、`fail_task`：完整 Claim 生命周期；
 - `create_blackboard_task`：为空或已有内容的 Blackboard 规划 Task。
+- `add_blackboard_relation`、`decompose_blackboard_task`、`add_blackboard_child_task`、`skip_blackboard_task`、`complete_blackboard`：动态规划 Blackboard。
 
 Definition 管理、Identity 管理与人工 Review 决策仍然只通过 HTTP 暴露。每个 MCP 变更都必须携带调用方生成的 `operation_id`；重试同一逻辑请求时复用该 ID，任何参数变化后都使用新 ID。
 

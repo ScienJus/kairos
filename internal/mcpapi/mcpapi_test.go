@@ -47,8 +47,10 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 		t.Fatalf("list tools: %v", err)
 	}
 	wantTools := []string{
-		"claim_task", "create_blackboard_task", "fail_task", "find_work",
-		"get_task_context", "get_work_item_context", "heartbeat_claim", "release_claim", "submit_task",
+		"add_blackboard_child_task", "add_blackboard_relation", "claim_task", "complete_blackboard",
+		"create_blackboard_task", "decompose_blackboard_task", "fail_task", "find_work",
+		"get_task_context", "get_work_item_context", "heartbeat_claim", "release_claim",
+		"skip_blackboard_task", "submit_task",
 	}
 	gotTools := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
@@ -69,8 +71,8 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal formatted tool definitions: %v", err)
 	}
-	if len(prettyToolPayload) > 52_000 {
-		t.Fatalf("formatted tool definitions are %d bytes, want at most 52000", len(prettyToolPayload))
+	if len(prettyToolPayload) > 70_000 {
+		t.Fatalf("formatted tool definitions are %d bytes, want at most 70000", len(prettyToolPayload))
 	}
 
 	find := callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{})
@@ -95,6 +97,15 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 		WorkItemID: workItemID, OperationID: "plan-task-2",
 		Title: "Exercise failure recovery", Executor: "agent", AllowedRoles: []string{"backend"}, Tags: []string{"mcp"},
 	})
+	relation := callTool[relationOutput](t, ctx, session, "add_blackboard_relation", addBlackboardRelationInput{WorkItemID: workItemID, FromTaskID: created.Task.ID, ToTaskID: retryTask.Task.ID, OperationID: "relation-1"})
+	if relation.Relation.FromTaskID != created.Task.ID || relation.Relation.ToTaskID != retryTask.Task.ID {
+		t.Fatalf("relation = %+v", relation.Relation)
+	}
+	skippable := callTool[taskOutput](t, ctx, session, "create_blackboard_task", createBlackboardTaskInput{WorkItemID: workItemID, OperationID: "plan-task-3", Title: "Obsolete task", Executor: "agent", AllowedRoles: []string{"backend"}, Tags: []string{"mcp"}})
+	skipped := callTool[taskOutput](t, ctx, session, "skip_blackboard_task", skipBlackboardTaskInput{TaskID: skippable.Task.ID, OperationID: "skip-task-1", Reason: "Covered by the main lifecycle task."})
+	if skipped.Task.Status != string(domain.TaskStatusSkipped) {
+		t.Fatalf("skipped task = %+v", skipped.Task)
+	}
 
 	find = callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{Tags: []string{"mcp"}})
 	if len(find.Candidates) != 2 || find.Candidates[0].Task == nil || find.Candidates[1].Task == nil ||
@@ -118,7 +129,7 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	if taskContext.Task.Status != string(domain.TaskStatusWorking) || taskContext.Blackboard == nil {
 		t.Fatalf("task context = %+v", taskContext)
 	}
-	if len(taskContext.Blackboard.Tasks) != 1 || taskContext.Blackboard.Tasks[0].ID != retryTask.Task.ID {
+	if len(taskContext.Blackboard.Tasks) != 2 || taskContext.Blackboard.Tasks[0].ID != retryTask.Task.ID || taskContext.Blackboard.Tasks[1].ID != skippable.Task.ID {
 		t.Fatalf("blackboard context duplicated current Task: %+v", taskContext.Blackboard.Tasks)
 	}
 	if !taskContext.Blackboard.CanDecompose {
@@ -171,7 +182,7 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	workItemContext := callTool[workItemContextOutput](t, ctx, session, "get_work_item_context", workItemContextInput{
 		WorkItemID: workItemID,
 	})
-	if workItemContext.WorkItem.Status != string(domain.WorkItemStatusCompleted) || workItemContext.WorkItem.Result == "" || len(workItemContext.Tasks) != 2 {
+	if workItemContext.WorkItem.Status != string(domain.WorkItemStatusCompleted) || workItemContext.WorkItem.Result == "" || len(workItemContext.Tasks) != 3 {
 		t.Fatalf("completed work item context = %+v", workItemContext)
 	}
 	find = callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{Tags: []string{"mcp"}})
@@ -229,6 +240,46 @@ func TestAuthenticatedMCPRequiresBearerAndUsesManagedIdentity(t *testing.T) {
 	})
 	if claimed.Claim.Executor.ID != "authenticated-agent" || claimed.Claim.Executor.Kind != string(domain.ActorAgent) {
 		t.Fatalf("authenticated claim executor = %+v", claimed.Claim.Executor)
+	}
+}
+
+func TestMCPBlackboardPlanningTools(t *testing.T) {
+	ctx := context.Background()
+	service, _ := newMCPFixture(t)
+	handler, err := New(service, identity.TrustedResolver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	session := connectMCP(t, ctx, server.URL, http.Header{identity.HeaderActorID: {"planner"}, identity.HeaderActorKind: {"agent"}, identity.HeaderActorRole: {"backend"}})
+	t.Cleanup(func() { _ = session.Close() })
+	find := callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{})
+	workItemID := find.Candidates[0].WorkItem.ID
+	parent := callTool[taskOutput](t, ctx, session, "create_blackboard_task", createBlackboardTaskInput{WorkItemID: workItemID, OperationID: "parent-1", Title: "Aggregate", Executor: "agent", AllowedRoles: []string{"backend"}})
+	claim := callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{TaskID: parent.Task.ID, OperationID: "parent-claim-1"})
+	decomposed := callTool[decompositionOutput](t, ctx, session, "decompose_blackboard_task", decomposeBlackboardTaskInput{TaskID: parent.Task.ID, ClaimID: claim.Claim.ID, OperationID: "decompose-1", Children: []createBlackboardTaskInput{{Title: "Child one", Executor: "agent", AllowedRoles: []string{"backend"}}, {Title: "Child two", Executor: "agent", AllowedRoles: []string{"backend"}}}})
+	if decomposed.Parent.Status != string(domain.TaskStatusWaitingChildren) || len(decomposed.Children) != 2 {
+		t.Fatalf("decomposition = %+v", decomposed)
+	}
+	child := callTool[taskOutput](t, ctx, session, "add_blackboard_child_task", addBlackboardChildTaskInput{ParentTaskID: parent.Task.ID, OperationID: "child-append-1", Task: createBlackboardTaskInput{Title: "Child three", Executor: "agent", AllowedRoles: []string{"backend"}}})
+	if child.Task.ParentTaskID == nil || *child.Task.ParentTaskID != parent.Task.ID {
+		t.Fatalf("child = %+v", child.Task)
+	}
+
+	secondService, _ := newMCPFixture(t)
+	secondHandler, err := New(secondService, identity.TrustedResolver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondServer := httptest.NewServer(secondHandler)
+	t.Cleanup(secondServer.Close)
+	secondSession := connectMCP(t, ctx, secondServer.URL, http.Header{identity.HeaderActorID: {"planner"}, identity.HeaderActorKind: {"agent"}, identity.HeaderActorRole: {"backend"}})
+	t.Cleanup(func() { _ = secondSession.Close() })
+	empty := callTool[findWorkOutput](t, ctx, secondSession, "find_work", findWorkInput{})
+	completed := callTool[workItemOutput](t, ctx, secondSession, "complete_blackboard", completeBlackboardInput{WorkItemID: empty.Candidates[0].WorkItem.ID, OperationID: "complete-empty-1", Result: "No execution task was required."})
+	if completed.WorkItem.Status != string(domain.WorkItemStatusCompleted) {
+		t.Fatalf("completed = %+v", completed.WorkItem)
 	}
 }
 

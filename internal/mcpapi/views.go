@@ -3,6 +3,7 @@ package mcpapi
 import (
 	"github.com/ScienJus/kairos/internal/application"
 	"github.com/ScienJus/kairos/internal/domain"
+	"time"
 )
 
 type definitionView struct {
@@ -37,10 +38,12 @@ type actorView struct {
 }
 
 type claimView struct {
-	ID        string    `json:"id"`
-	TaskID    string    `json:"task_id"`
-	Executor  actorView `json:"executor"`
-	EndReason string    `json:"end_reason,omitempty"`
+	ID           string    `json:"id"`
+	TaskID       string    `json:"task_id"`
+	Executor     actorView `json:"executor"`
+	EndReason    string    `json:"end_reason,omitempty"`
+	LeaseSeconds int64     `json:"lease_seconds,omitempty"`
+	LeaseUntil   string    `json:"lease_until,omitempty"`
 }
 
 type submissionView struct {
@@ -193,6 +196,21 @@ type taskOutput struct {
 	Task taskSummaryView `json:"task"`
 }
 
+type relationOutput struct {
+	Relation relationView `json:"relation"`
+}
+type decompositionOutput struct {
+	Parent   taskSummaryView   `json:"parent"`
+	Children []taskSummaryView `json:"children"`
+}
+type workItemOutput struct {
+	WorkItem workItemView `json:"work_item"`
+}
+
+func relationViewFrom(value domain.TaskRelation) relationView {
+	return relationView{FromTaskID: string(value.FromTaskID), ToTaskID: string(value.ToTaskID)}
+}
+
 type releasedOutput struct {
 	Released bool `json:"released"`
 }
@@ -313,10 +331,14 @@ func claimViews(values []domain.Claim) []claimView {
 }
 
 func claimViewFrom(value domain.Claim) claimView {
-	return claimView{
+	result := claimView{
 		ID: string(value.ID), TaskID: string(value.TaskID), Executor: actorViewFrom(value.Executor),
-		EndReason: string(value.EndReason),
+		EndReason: string(value.EndReason), LeaseSeconds: value.LeaseSeconds,
 	}
+	if !value.LeaseUntil.IsZero() {
+		result.LeaseUntil = value.LeaseUntil.UTC().Format(time.RFC3339Nano)
+	}
+	return result
 }
 
 func submissionViews(values []domain.TaskSubmission) []submissionView {

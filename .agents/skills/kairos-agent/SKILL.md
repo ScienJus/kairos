@@ -12,6 +12,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 1. Call `find_work` with relevant tags and a reasonable limit.
 2. Select one eligible candidate at a time unless the user explicitly requests parallel execution.
 3. If the candidate kind is `empty_blackboard`, read its WorkItem goal, context, constraints, acceptance criteria, and Definition instructions. Call `create_blackboard_task` to add a concrete executable Task, then call `find_work` again.
+   If no Task is needed because the goal is already satisfied, call `complete_blackboard` with the durable result instead.
 4. For a Task candidate, call `get_task_context` before claiming. Read the complete Task, WorkItem, Definition instructions, previous failures, upstream Workflow results, and current Blackboard state.
 5. Call `claim_task` immediately before beginning execution. Do not work on a Task whose Claim was not acquired successfully.
 6. Perform the requested work outside Kairos using the available repository, browser, API, or other tools. Keep the Claim ID.
@@ -36,6 +37,8 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 For a non-terminal Workflow Task, use the choice groups returned by `get_task_context`. Pass exactly one legal `transition.choice_group_id` to `submit_task` and only skip IDs listed as skippable. Do not invent runtime Workflow edges.
 
 For Blackboard Tasks, omit `transition`. Use `create_blackboard_task` only for open Blackboard WorkItems returned by Kairos or already present in Task context.
+
+Use `decompose_blackboard_task` when a claimed Task must become an aggregate of concrete children. While that aggregate remains open, use `add_blackboard_child_task` for newly discovered work. Use `add_blackboard_relation` for suggested ordering, and `skip_blackboard_task` with a durable reason when an unclaimed pending Task has lost value.
 
 ## Boundaries
 

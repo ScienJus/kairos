@@ -218,6 +218,35 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		return successResult(fmt.Sprintf("Created Task %s in WorkItem %s.", task.ID, task.WorkItemID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
 	})
 
+	mcp.AddTool(server, &mcp.Tool{Name: "add_blackboard_relation", Title: "Add blackboard relation", Description: "Add a suggested dependency relation between two tasks in an open Blackboard.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input addBlackboardRelationInput) (*mcp.CallToolResult, relationOutput, error) {
+		relation, err := service.AddBlackboardRelation(ctx, application.AddBlackboardRelationCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), FromTaskID: domain.TaskID(input.FromTaskID), ToTaskID: domain.TaskID(input.ToTaskID), Identity: actor, OperationID: input.OperationID})
+		return successResult(fmt.Sprintf("Added relation from Task %s to Task %s.", input.FromTaskID, input.ToTaskID)), relationOutput{Relation: relationViewFrom(relation)}, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "decompose_blackboard_task", Title: "Decompose blackboard task", Description: "Turn an actively claimed Blackboard task into an aggregate and create its initial child tasks.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input decomposeBlackboardTaskInput) (*mcp.CallToolResult, decompositionOutput, error) {
+		children := make([]application.BlackboardTaskSpec, 0, len(input.Children))
+		for _, child := range input.Children {
+			children = append(children, child.spec())
+		}
+		result, err := service.DecomposeBlackboardTask(ctx, application.DecomposeBlackboardTaskCommand{TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor, OperationID: input.OperationID, Children: children})
+		return successResult(fmt.Sprintf("Decomposed Task %s into %d children.", input.TaskID, len(result.Children))), decompositionOutput{Parent: taskSummaryViewFrom(result.Parent), Children: taskSummaryViews(result.Children)}, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "add_blackboard_child_task", Title: "Add blackboard child task", Description: "Append one child task while a Blackboard aggregate remains open.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input addBlackboardChildTaskInput) (*mcp.CallToolResult, taskOutput, error) {
+		task, err := service.AddBlackboardChildTask(ctx, application.AddBlackboardChildTaskCommand{ParentTaskID: domain.TaskID(input.ParentTaskID), Identity: actor, OperationID: input.OperationID, Task: input.Task.spec()})
+		return successResult(fmt.Sprintf("Added child Task %s.", task.ID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "skip_blackboard_task", Title: "Skip blackboard task", Description: "Skip an obsolete unclaimed pending Blackboard task with a durable reason.", Annotations: mutationAnnotations(true)}, func(ctx context.Context, _ *mcp.CallToolRequest, input skipBlackboardTaskInput) (*mcp.CallToolResult, taskOutput, error) {
+		task, err := service.SkipBlackboardTask(ctx, application.SkipBlackboardTaskCommand{TaskID: domain.TaskID(input.TaskID), Identity: actor, OperationID: input.OperationID, Reason: input.Reason})
+		return successResult(fmt.Sprintf("Skipped Task %s.", input.TaskID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "complete_blackboard", Title: "Complete blackboard", Description: "Complete an empty open Blackboard with a durable result when no task is needed.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input completeBlackboardInput) (*mcp.CallToolResult, workItemOutput, error) {
+		workItem, err := service.CompleteBlackboardWorkItem(ctx, application.CompleteBlackboardWorkItemCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID, Result: input.Result})
+		return successResult(fmt.Sprintf("Completed Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
+	})
+
 	return server
 }
 
@@ -288,6 +317,38 @@ type createBlackboardTaskInput struct {
 	Executor           string   `json:"executor" jsonschema:"Required executor kind: agent, human, or either."`
 	AllowedRoles       []string `json:"allowed_roles,omitempty" jsonschema:"Agent roles allowed to execute the task; empty means unrestricted."`
 	Tags               []string `json:"tags,omitempty" jsonschema:"Searchable task tags."`
+}
+
+func (input createBlackboardTaskInput) spec() application.BlackboardTaskSpec {
+	return application.BlackboardTaskSpec{Title: input.Title, Description: input.Description, AcceptanceCriteria: input.AcceptanceCriteria, Executor: domain.ExecutorRequirement(input.Executor), AllowedRoles: input.AllowedRoles, Tags: input.Tags}
+}
+
+type addBlackboardRelationInput struct {
+	WorkItemID  string `json:"work_item_id"`
+	FromTaskID  string `json:"from_task_id"`
+	ToTaskID    string `json:"to_task_id"`
+	OperationID string `json:"operation_id"`
+}
+type decomposeBlackboardTaskInput struct {
+	TaskID      string                      `json:"task_id"`
+	ClaimID     string                      `json:"claim_id"`
+	OperationID string                      `json:"operation_id"`
+	Children    []createBlackboardTaskInput `json:"children"`
+}
+type addBlackboardChildTaskInput struct {
+	ParentTaskID string                    `json:"parent_task_id"`
+	OperationID  string                    `json:"operation_id"`
+	Task         createBlackboardTaskInput `json:"task"`
+}
+type skipBlackboardTaskInput struct {
+	TaskID      string `json:"task_id"`
+	OperationID string `json:"operation_id"`
+	Reason      string `json:"reason"`
+}
+type completeBlackboardInput struct {
+	WorkItemID  string `json:"work_item_id"`
+	OperationID string `json:"operation_id"`
+	Result      string `json:"result"`
 }
 
 func workflowTaskIDs(values []string) []domain.WorkflowTaskID {
