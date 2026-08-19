@@ -12,15 +12,16 @@ import (
 type HumanAttentionKind string
 
 const (
-	HumanAttentionReview HumanAttentionKind = "review"
-	HumanAttentionTask   HumanAttentionKind = "human_task"
+	HumanAttentionReview     HumanAttentionKind = "review"
+	HumanAttentionTask       HumanAttentionKind = "human_task"
+	HumanAttentionAcceptance HumanAttentionKind = "work_item_acceptance"
 )
 
 // HumanAttentionItem is one lightweight homepage entry that needs a person.
 type HumanAttentionItem struct {
 	Kind     HumanAttentionKind
 	WorkItem domain.WorkItem
-	Task     domain.Task
+	Task     *domain.Task
 }
 
 // ListHumanAttention returns pending Reviews and unclaimed Tasks assigned to a human.
@@ -35,7 +36,11 @@ func (s *Service) ListHumanAttention(ctx context.Context, identity Identity) ([]
 			return fmt.Errorf("list work items: %w", err)
 		}
 		for _, workItem := range workItems {
-			if workItem.Status != domain.WorkItemStatusOpen {
+			if workItem.Status != domain.WorkItemStatusOpen && workItem.Status != domain.WorkItemStatusAwaitingHumanAcceptance {
+				continue
+			}
+			if workItem.Status == domain.WorkItemStatusAwaitingHumanAcceptance {
+				items = append(items, HumanAttentionItem{Kind: HumanAttentionAcceptance, WorkItem: normalizeWorkItemCollections(workItem)})
 				continue
 			}
 			tasks, err := store.ListTasks(workItem.ID)
@@ -50,7 +55,8 @@ func (s *Service) ListHumanAttention(ctx context.Context, identity Identity) ([]
 					kind = HumanAttentionTask
 				}
 				if kind != "" {
-					items = append(items, HumanAttentionItem{Kind: kind, WorkItem: normalizeWorkItemCollections(workItem), Task: normalizeTaskCollections(task)})
+					taskCopy := normalizeTaskCollections(task)
+					items = append(items, HumanAttentionItem{Kind: kind, WorkItem: normalizeWorkItemCollections(workItem), Task: &taskCopy})
 				}
 			}
 		}
@@ -63,7 +69,15 @@ func (s *Service) ListHumanAttention(ctx context.Context, identity Identity) ([]
 		if items[left].Kind != items[right].Kind {
 			return items[left].Kind == HumanAttentionReview
 		}
-		return items[left].Task.UpdatedAt.After(items[right].Task.UpdatedAt)
+		leftUpdated := items[left].WorkItem.UpdatedAt
+		rightUpdated := items[right].WorkItem.UpdatedAt
+		if items[left].Task != nil {
+			leftUpdated = items[left].Task.UpdatedAt
+		}
+		if items[right].Task != nil {
+			rightUpdated = items[right].Task.UpdatedAt
+		}
+		return leftUpdated.After(rightUpdated)
 	})
 	return items, nil
 }

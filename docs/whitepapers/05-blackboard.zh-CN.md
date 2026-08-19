@@ -144,6 +144,6 @@ Blackboard 的自主性来自持续规划，因此无需通过预配置的 optio
                WorkItem 完成
 ```
 
-新的发现可以随时扩展 Task Graph，目标已经满足时则可以将剩余的低价值 Task 标记为 Skipped。最后一个 Task 完成或跳过后，WorkItem 自动完成。空 Blackboard 也可以由协作者直接确认完成。
+新的发现可以随时扩展 Task Graph，目标已经满足时则可以将剩余的低价值 Task 标记为 Skipped。最后一个 Task 完成或跳过后，WorkItem 按 `acceptance_mode` 处理：`none` 自动完成；`agent` 暂停在 Agent 验收候选，Agent 可以继续创建 Task 或确认完成；`human` 进入人工验收状态。空 Blackboard 也可以由协作者直接确认完成。
 
 > Blackboard grows a shared plan while people and agents execute the work.

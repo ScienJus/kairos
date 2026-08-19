@@ -110,7 +110,9 @@ type Task struct {
 	AcceptanceCriteria string
 
 	// Executor restricts whether a human, an agent, or either may execute the Task. [Both]
-	Executor ExecutorRequirement
+	Executor   ExecutorRequirement
+	SkippedBy  *ActorRef
+	SkipReason string
 
 	// AllowedRoles formally restrict which Agent roles may execute the Task.
 	// Workflow uses this as part of candidate eligibility. Blackboard usually
@@ -308,6 +310,14 @@ func (t Task) Validate(mode CoordinationMode) error {
 		}
 	} else if t.CompletedAt != nil {
 		return invalid("completed_at", "must be nil unless the task is completed or skipped")
+	}
+	if t.Status != TaskStatusSkipped && (t.SkippedBy != nil || strings.TrimSpace(t.SkipReason) != "") {
+		return invalid("skipped_by", "is only valid for skipped tasks")
+	}
+	if t.SkippedBy != nil {
+		if err := t.SkippedBy.Validate(); err != nil {
+			return err
+		}
 	}
 
 	if t.Status == TaskStatusFailed {

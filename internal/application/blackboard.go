@@ -41,8 +41,11 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 			return conflict("work item %q is not a blackboard", workItem.ID)
 		}
-		if workItem.Status != domain.WorkItemStatusOpen {
+		if workItem.Status != domain.WorkItemStatusOpen && workItem.Status != domain.WorkItemStatusAwaitingAgentAcceptance {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
+		}
+		if workItem.Status == domain.WorkItemStatusAwaitingAgentAcceptance {
+			workItem.Status = domain.WorkItemStatusOpen
 		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
@@ -248,6 +251,9 @@ func (s *Service) SkipBlackboardTask(ctx context.Context, command SkipBlackboard
 		}
 		now := s.clock.Now()
 		task.Status = domain.TaskStatusSkipped
+		actor := command.Identity.Actor
+		task.SkippedBy = &actor
+		task.SkipReason = strings.TrimSpace(command.Reason)
 		task.CompletedAt = &now
 		task.UpdatedAt = now
 		task.Version++
@@ -261,7 +267,6 @@ func (s *Service) SkipBlackboardTask(ctx context.Context, command SkipBlackboard
 		if err := store.SaveTask(task); err != nil {
 			return fmt.Errorf("save skipped task: %w", err)
 		}
-		actor := command.Identity.Actor
 		if err := s.appendEvent(store, workItem.ID, &task.ID, domain.WorkItemEventTaskSkipped, string(task.ID), &actor, strings.TrimSpace(command.Reason)); err != nil {
 			return err
 		}

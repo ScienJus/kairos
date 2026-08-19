@@ -246,7 +246,7 @@ func (s *sqlStore) ListOpenTasks() ([]application.WorkCandidate, error) {
 			return nil, err
 		}
 		result = append(result, application.WorkCandidate{
-			Kind: application.WorkCandidateTask, WorkItem: workItem, Task: task,
+			Kind: application.WorkCandidateTask, WorkItem: workItem, Task: &task,
 		})
 	}
 	return result, normalizeError(rows.Err())
@@ -407,6 +407,9 @@ func (s *sqlStore) createDefinition(
 }
 
 func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
+	if value.AcceptanceMode == "" {
+		value.AcceptanceMode = domain.WorkItemAcceptanceNone
+	}
 	if err := value.Validate(); err != nil {
 		return err
 	}
@@ -416,13 +419,14 @@ func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
 	}
 	_, err = s.exec(`
 		INSERT INTO work_items
-			(id, definition_id, definition_version, mode, status, version, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			(id, definition_id, definition_version, mode, status, acceptance_mode, version, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID,
 		value.Definition.ID,
 		value.Definition.Version,
 		value.Definition.Mode,
 		value.Status,
+		value.AcceptanceMode,
 		value.Version,
 		payload,
 	)
@@ -430,6 +434,9 @@ func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
 }
 
 func (s *sqlStore) SaveWorkItem(value domain.WorkItem) error {
+	if value.AcceptanceMode == "" {
+		value.AcceptanceMode = domain.WorkItemAcceptanceNone
+	}
 	if err := value.Validate(); err != nil {
 		return err
 	}
@@ -442,9 +449,9 @@ func (s *sqlStore) SaveWorkItem(value domain.WorkItem) error {
 	}
 	result, err := s.exec(`
 		UPDATE work_items
-		SET status = ?, version = ?, payload = ?
+		SET status = ?, acceptance_mode = ?, version = ?, payload = ?
 		WHERE id = ? AND version = ?`,
-		value.Status, value.Version, payload, value.ID, value.Version-1,
+		value.Status, value.AcceptanceMode, value.Version, payload, value.ID, value.Version-1,
 	)
 	if err != nil {
 		return err

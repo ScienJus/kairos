@@ -60,6 +60,7 @@ Blackboard 将规划留给协作者，不要求预先固定 Task Graph。
 - **动态 Review**：执行者提交成果时可以自主请求人工 Review。
 - **持续扩展**：如果还需要后续工作，执行者会在结束当前 Task 前创建新的 Task。
 - **自动完成**：最后一个 Task 结束后 WorkItem 自动完成，空 Blackboard 也可以直接完成。
+- **可选验收**：WorkItem 可选择无需验收、Agent 验收或人工验收。
 
 ## 共享执行语义
 

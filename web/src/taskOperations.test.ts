@@ -52,7 +52,7 @@ describe('Task state refresh', () => {
     const invalidateQueries = vi.fn(() => new Promise<void>(resolve => releases.push(resolve)))
     const refresh = refreshTaskState({ invalidateQueries } as unknown as QueryClient, identity, 'task-1', 'work-1')
 
-    expect(invalidateQueries).toHaveBeenCalledTimes(2)
+    expect(invalidateQueries).toHaveBeenCalledTimes(3)
     let completed = false
     void refresh.then(() => { completed = true })
     await Promise.resolve()
@@ -61,8 +61,9 @@ describe('Task state refresh', () => {
     releases.forEach(release => release())
     await refresh
     expect(completed).toBe(true)
-    expect(invalidateQueries).toHaveBeenCalledTimes(2)
-    expect(invalidateQueries).toHaveBeenNthCalledWith(1, { queryKey: ['task-context', identity, 'task-1'] })
-    expect(invalidateQueries).toHaveBeenNthCalledWith(2, { queryKey: ['work-item', identity, 'work-1'] })
+    expect(invalidateQueries).toHaveBeenCalledTimes(3)
+    expect(invalidateQueries).toHaveBeenNthCalledWith(1, { queryKey: ['task-detail', identity, 'task-1'] })
+    expect(invalidateQueries).toHaveBeenNthCalledWith(2, { queryKey: ['task-context', identity, 'task-1'] })
+    expect(invalidateQueries).toHaveBeenNthCalledWith(3, { queryKey: ['work-item', identity, 'work-1'] })
   })
 })

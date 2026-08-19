@@ -12,6 +12,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 1. Call `find_work` with a reasonable limit. In Workflow mode, role and graph eligibility determine candidates; tags are descriptive metadata and do not filter executable Workflow Tasks. In Blackboard mode, tags may narrow discovery.
 2. Select one eligible candidate at a time unless the user explicitly requests parallel execution.
 3. If the candidate kind is `empty_blackboard`, read its WorkItem goal, context, constraints, acceptance criteria, and Definition instructions. Call `create_blackboard_task` to add a concrete executable Task, then call `find_work` again.
+   If the candidate kind is `work_item_acceptance`, review the converged WorkItem and create another Task if needed; otherwise call `complete_blackboard` with the final result.
    If no Task is needed because the goal is already satisfied, call `complete_blackboard` with the durable result instead.
 4. For a Task candidate, call `get_task_context` before claiming. Read the complete Task, WorkItem, Definition instructions, previous failures, upstream Workflow results, and current Blackboard state.
 5. Call `claim_task` immediately before beginning execution. Do not work on a Task whose Claim was not acquired successfully.

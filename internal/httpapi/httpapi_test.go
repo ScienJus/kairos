@@ -156,6 +156,10 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if len(candidates) != 1 || candidates[0].WorkItem.ID != workflowWorkItem.ID || candidates[0].Task.WorkflowTaskID == nil {
 		t.Fatalf("new Workflow candidates = %+v, want its instantiated start task", candidates)
 	}
+	detail := requestDataAs[application.TaskDetail](t, client, http.MethodGet, server.URL+"/api/v1/tasks/"+string(candidates[0].Task.ID), nil, "", http.StatusOK, trustedTestIdentity{ID: "operator", Kind: domain.ActorHuman})
+	if detail.Task.ID != candidates[0].Task.ID || detail.Task.AllowedRoles == nil || detail.Task.Tags == nil || detail.Task.Reviews == nil || detail.Task.Submissions == nil || detail.Task.Failures == nil || detail.Task.TransitionDecisions == nil || detail.History.Claims == nil || detail.History.Submissions == nil || detail.History.Reviews == nil || detail.History.Failures == nil || detail.History.TransitionDecisions == nil {
+		t.Fatalf("human task detail or empty collection contract: %#v", detail)
+	}
 
 	err = repo.View(ctx, func(store application.ReadStore) error {
 		stored, err := store.GetWorkItem(workItem.ID)

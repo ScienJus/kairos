@@ -22,6 +22,7 @@ export async function refreshWorkItemState(queryClient: QueryClient, identity: I
 
 export async function refreshTaskState(queryClient: QueryClient, identity: Identity, taskID: string, workItemID: string) {
   await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['task-detail', identity, taskID] }),
     queryClient.invalidateQueries({ queryKey: ['task-context', identity, taskID] }),
     queryClient.invalidateQueries({ queryKey: ['work-item', identity, workItemID] }),
   ])

@@ -47,14 +47,16 @@ Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes
 | Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`, `GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
 | WorkItems | `GET/POST /api/v1/work-items`, `GET /api/v1/work-items/{id}/context` |
 | Discovery | `GET /api/v1/work` |
-| Task execution | `/api/v1/tasks/{id}/context`, `/claims`, `/submissions`, `/failures`, `/reviews` |
+| Task detail and execution | `GET /api/v1/tasks/{id}`, `/context`, `/claims`, `/submissions`, `/failures`, `/reviews` |
 | Blackboard planning | WorkItem Tasks, relations, completion; Task decomposition, children, and skipping |
 | Human attention | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities`, token rotation and revocation routes |
 
-Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates.
+Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. Blackboard WorkItems support `acceptance_mode`: `none` (default, automatic completion after Task convergence), `agent` (an Agent acceptance candidate), or `human` (human acceptance state).
 
 `GET /api/v1/work-items/{id}/context` remains available after terminal completion and returns the aggregate result, normalized Task and relation collections, complete Claim history in `Claims`, and the currently live subset in `ActiveClaims`. A completed Task's executor can be resolved through `Submission.ClaimID -> Claims[].ID -> Executor`.
+
+`GET /api/v1/tasks/{id}` is a viewer-facing Task Detail endpoint and does not require the current identity to be able to execute the Task. It returns backend-projected `Responsibility`, `Outcome`, `CurrentReview`, normalized `History`, and identity-specific `Capabilities`. `GET /api/v1/tasks/{id}/context` remains an executor context protected by execution authorization; clients must not use it to load ordinary detail or human Review operations.
 
 ## Claim Leases
 

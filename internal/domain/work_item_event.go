@@ -9,11 +9,12 @@ import (
 type WorkItemEventType string
 
 const (
-	WorkItemEventWorkItemCreated   WorkItemEventType = "work_item.created"
-	WorkItemEventWorkItemUpdated   WorkItemEventType = "work_item.updated"
-	WorkItemEventWorkItemCompleted WorkItemEventType = "work_item.completed"
-	WorkItemEventWorkItemCancelled WorkItemEventType = "work_item.cancelled"
-	WorkItemEventWorkItemFailed    WorkItemEventType = "work_item.failed"
+	WorkItemEventWorkItemCreated     WorkItemEventType = "work_item.created"
+	WorkItemEventWorkItemUpdated     WorkItemEventType = "work_item.updated"
+	WorkItemEventWorkItemCompleted   WorkItemEventType = "work_item.completed"
+	WorkItemEventWorkItemCancelled   WorkItemEventType = "work_item.cancelled"
+	WorkItemEventWorkItemFailed      WorkItemEventType = "work_item.failed"
+	WorkItemEventAcceptanceRequested WorkItemEventType = "work_item.acceptance_requested"
 
 	WorkItemEventTaskCreated      WorkItemEventType = "task.created"
 	WorkItemEventTaskUpdated      WorkItemEventType = "task.updated"
@@ -49,7 +50,8 @@ func (t WorkItemEventType) workItemScoped() (bool, bool) {
 		WorkItemEventWorkItemUpdated,
 		WorkItemEventWorkItemCompleted,
 		WorkItemEventWorkItemCancelled,
-		WorkItemEventWorkItemFailed:
+		WorkItemEventWorkItemFailed,
+		WorkItemEventAcceptanceRequested:
 		return true, true
 	case WorkItemEventTaskCreated,
 		WorkItemEventTaskUpdated,

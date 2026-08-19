@@ -242,7 +242,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		return successResult(fmt.Sprintf("Skipped Task %s.", input.TaskID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
 	})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "complete_blackboard", Title: "Complete blackboard", Description: "Complete an empty open Blackboard with a durable result when no task is needed.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input completeBlackboardInput) (*mcp.CallToolResult, workItemOutput, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "complete_blackboard", Title: "Complete blackboard", Description: "Complete an empty Blackboard or accept a converged Blackboard with a durable result.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input completeBlackboardInput) (*mcp.CallToolResult, workItemOutput, error) {
 		workItem, err := service.CompleteBlackboardWorkItem(ctx, application.CompleteBlackboardWorkItemCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID, Result: input.Result})
 		return successResult(fmt.Sprintf("Completed Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
 	})

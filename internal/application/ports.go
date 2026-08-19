@@ -39,15 +39,16 @@ type IDGenerator interface {
 type WorkCandidateKind string
 
 const (
-	WorkCandidateTask            WorkCandidateKind = "task"
-	WorkCandidateEmptyBlackboard WorkCandidateKind = "empty_blackboard"
+	WorkCandidateTask               WorkCandidateKind = "task"
+	WorkCandidateEmptyBlackboard    WorkCandidateKind = "empty_blackboard"
+	WorkCandidateWorkItemAcceptance WorkCandidateKind = "work_item_acceptance"
 )
 
 // WorkCandidate combines a discoverable opportunity with its WorkItem.
 type WorkCandidate struct {
 	Kind       WorkCandidateKind
 	WorkItem   domain.WorkItem
-	Task       domain.Task
+	Task       *domain.Task
 	Definition DefinitionExecutionContext
 }
 

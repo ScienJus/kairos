@@ -71,6 +71,21 @@ func TestGetWorkflowTaskExecutionContext(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("submit task: %v", err)
 	}
+	detail, err := service.GetTaskDetail(context.Background(), GetTaskDetailQuery{
+		TaskID: task.ID, Identity: Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}},
+	})
+	if err != nil {
+		t.Fatalf("human get completed agent task detail: %v", err)
+	}
+	if detail.Responsibility.Kind != "executed_by" || detail.Responsibility.Actor == nil || detail.Responsibility.Actor.ID != agent.Actor.ID {
+		t.Fatalf("completed task responsibility: %#v", detail.Responsibility)
+	}
+	if detail.Capabilities.CanClaim || detail.Capabilities.CanSubmit || detail.Capabilities.CanReview {
+		t.Fatalf("completed task capabilities: %#v", detail.Capabilities)
+	}
+	if detail.History.Reviews == nil || detail.History.Failures == nil {
+		t.Fatalf("empty histories must be normalized: %#v", detail.History)
+	}
 	integration := workflowTasksByDefinition(repository.tasksFor(workItem.ID))["integration"]
 	if _, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: integration.ID, Identity: agent}); err != nil {
 		t.Fatalf("claim integration: %v", err)
@@ -303,6 +318,92 @@ func TestFindWorkDiscoversEmptyBlackboard(t *testing.T) {
 	}
 }
 
+func TestBlackboardAcceptanceModes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "acceptor"}, Role: "generalist"}
+	for _, mode := range []domain.WorkItemAcceptanceMode{domain.WorkItemAcceptanceNone, domain.WorkItemAcceptanceAgent, domain.WorkItemAcceptanceHuman} {
+		t.Run(string(mode), func(t *testing.T) {
+			repository := newTestRepository()
+			repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+			service := newTestService(t, repository)
+			workItem, err := service.CreateWorkItem(ctx, CreateWorkItemCommand{Definition: domain.DefinitionBinding{ID: "blackboard", Version: 1, Mode: domain.CoordinationModeBlackboard}, Identity: agent, Title: "Acceptance", Goal: "Test acceptance", AcceptanceMode: mode})
+			if err != nil {
+				t.Fatalf("create work item: %v", err)
+			}
+			task, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: agent, Title: "Finish", Executor: domain.ExecutorAgent})
+			if err != nil {
+				t.Fatalf("create task: %v", err)
+			}
+			claim, err := service.ClaimTask(ctx, ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+			if err != nil {
+				t.Fatalf("claim task: %v", err)
+			}
+			if _, err := service.SubmitTask(ctx, SubmitTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Result: "done"}); err != nil {
+				t.Fatalf("submit task: %v", err)
+			}
+			got := repository.workItems[workItem.ID]
+			switch mode {
+			case domain.WorkItemAcceptanceNone:
+				if got.Status != domain.WorkItemStatusCompleted {
+					t.Fatalf("status = %s", got.Status)
+				}
+			case domain.WorkItemAcceptanceAgent:
+				if got.Status != domain.WorkItemStatusAwaitingAgentAcceptance {
+					t.Fatalf("status = %s", got.Status)
+				}
+				candidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent})
+				if err != nil || len(candidates) != 1 || candidates[0].Kind != WorkCandidateWorkItemAcceptance {
+					t.Fatalf("acceptance candidates = %#v, err=%v", candidates, err)
+				}
+			case domain.WorkItemAcceptanceHuman:
+				if got.Status != domain.WorkItemStatusAwaitingHumanAcceptance {
+					t.Fatalf("status = %s", got.Status)
+				}
+				attention, err := service.ListHumanAttention(ctx, Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}})
+				if err != nil || len(attention) != 1 || attention[0].Kind != HumanAttentionAcceptance || attention[0].WorkItem.ID != workItem.ID {
+					t.Fatalf("human acceptance attention = %#v, err=%v", attention, err)
+				}
+				candidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent})
+				if err != nil || len(candidates) != 0 {
+					t.Fatalf("human acceptance candidates = %#v, err=%v", candidates, err)
+				}
+			}
+		})
+	}
+}
+
+func TestProjectTaskLifecycleUsesStateSpecificResponsibility(t *testing.T) {
+	now := time.Now().UTC()
+	actor := domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}
+	claim := domain.Claim{ID: "claim-1", Executor: actor, ClaimedAt: now}
+	task := domain.Task{ID: "task-1", Status: domain.TaskStatusSkipped, CompletedAt: &now, SkippedBy: &actor, SkipReason: "obsolete"}
+	responsibility, outcome := projectTaskLifecycle(task, []domain.Claim{claim})
+	if responsibility.Kind != "skipped_by" || responsibility.Actor == nil || responsibility.Actor.ID != "planner" || outcome.Kind != "skipped" || outcome.Reason != "obsolete" {
+		t.Fatalf("skipped projection: %#v %#v", responsibility, outcome)
+	}
+	task.Status = domain.TaskStatusWorking
+	claimID := domain.ClaimID("claim-1")
+	task.ActiveClaimID = &claimID
+	responsibility, outcome = projectTaskLifecycle(task, []domain.Claim{claim})
+	if responsibility.Kind != "claimed_by" || responsibility.Actor == nil || outcome.Kind != "active" {
+		t.Fatalf("working projection: %#v %#v", responsibility, outcome)
+	}
+
+	task = domain.Task{ID: "task-1", Status: domain.TaskStatusInReview, TransitionDecisions: []domain.TransitionDecision{{DecidedBy: actor}}}
+	responsibility, outcome = projectTaskLifecycle(task, nil)
+	if responsibility.Kind != "skip_requested_by" || responsibility.Actor == nil || responsibility.Actor.ID != actor.ID || outcome.Kind != "in_review" {
+		t.Fatalf("skip review projection: %#v %#v", responsibility, outcome)
+	}
+
+	task = domain.Task{ID: "task-1", Status: domain.TaskStatusCompleted, CompletedAt: &now, DecomposedAt: &now}
+	claim.EndReason = domain.ClaimEndTaskDecomposed
+	responsibility, outcome = projectTaskLifecycle(task, []domain.Claim{claim})
+	if responsibility.Kind != "decomposed_by" || outcome.Kind != "completed" {
+		t.Fatalf("completed decomposition projection: %#v %#v", responsibility, outcome)
+	}
+}
+
 func TestBlackboardPlanningAndAutomaticCompletion(t *testing.T) {
 	t.Parallel()
 
@@ -357,10 +458,14 @@ func TestBlackboardPlanningAndAutomaticCompletion(t *testing.T) {
 		t.Fatal("add cyclic relation: got nil error")
 	}
 
-	if _, err := service.SkipBlackboardTask(context.Background(), SkipBlackboardTaskCommand{
+	skippedFirst, err := service.SkipBlackboardTask(context.Background(), SkipBlackboardTaskCommand{
 		TaskID: first.ID, Identity: identity, Reason: "Covered by existing logs",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("skip first task: %v", err)
+	}
+	if skippedFirst.SkippedBy == nil || *skippedFirst.SkippedBy != identity.Actor || skippedFirst.SkipReason != "Covered by existing logs" {
+		t.Fatalf("blackboard skip decision: %#v", skippedFirst)
 	}
 	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusOpen {
 		t.Fatalf("blackboard completed with pending task: got %s", got)
@@ -1057,6 +1162,9 @@ func TestWorkflowSkipIntentAdvancesConsecutiveOptionalTasks(t *testing.T) {
 	if byDefinition["docs"].Status != domain.TaskStatusSkipped || byDefinition["examples"].Status != domain.TaskStatusSkipped {
 		t.Fatalf("skipped optional tasks: docs=%s examples=%s", byDefinition["docs"].Status, byDefinition["examples"].Status)
 	}
+	if byDefinition["docs"].SkippedBy == nil || *byDefinition["docs"].SkippedBy != agent.Actor || byDefinition["docs"].SkipReason != "Skipped by upstream intent" {
+		t.Fatalf("workflow skip decision: %#v", byDefinition["docs"])
+	}
 	if byDefinition["integration"].Status != domain.TaskStatusPending {
 		t.Fatalf("integration task: got %q, want pending", byDefinition["integration"].Status)
 	}
@@ -1622,7 +1730,7 @@ func (r *testRepository) ListOpenTasks() ([]WorkCandidate, error) {
 	for _, task := range r.tasks {
 		workItem := r.workItems[task.WorkItemID]
 		if workItem.Status == domain.WorkItemStatusOpen {
-			result = append(result, WorkCandidate{Kind: WorkCandidateTask, WorkItem: workItem, Task: task})
+			result = append(result, WorkCandidate{Kind: WorkCandidateTask, WorkItem: workItem, Task: &task})
 		}
 	}
 	return result, nil

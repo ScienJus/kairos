@@ -16,8 +16,8 @@ export function HomePage({ identity, homeView, navigate, onCreate }: {
     const priority = (status: string) => status === 'open' ? 0 : 1
     return priority(left.Status) - priority(right.Status)
   }), [workItems.data])
-  const activeWork = orderedWork.filter(item => item.Status === 'open')
-  const settledWork = orderedWork.filter(item => item.Status !== 'open').sort((left, right) => new Date(right.CompletedAt ?? right.UpdatedAt).getTime() - new Date(left.CompletedAt ?? left.UpdatedAt).getTime())
+  const activeWork = orderedWork.filter(item => item.Status === 'open' || item.Status === 'awaiting_agent_acceptance' || item.Status === 'awaiting_human_acceptance')
+  const settledWork = orderedWork.filter(item => item.Status !== 'open' && item.Status !== 'awaiting_agent_acceptance' && item.Status !== 'awaiting_human_acceptance').sort((left, right) => new Date(right.CompletedAt ?? right.UpdatedAt).getTime() - new Date(left.CompletedAt ?? left.UpdatedAt).getTime())
   const humanAttention = attention.data ?? []
   const error = workItems.error ?? attention.error
 
@@ -36,7 +36,7 @@ export function HomePage({ identity, homeView, navigate, onCreate }: {
     {homeView === 'human' && <div className="attention-list">
       {attention.isLoading && humanAttention.length === 0 && <LoadingRows />}
       {!attention.isLoading && humanAttention.length === 0 && <div className="attention-empty"><Check size={22} /><strong>{t('nothingNeedsYou')}</strong><p>{t('nothingNeedsYouBody')}</p></div>}
-      {humanAttention.map(item => <button className="attention-entry" key={item.Task.ID} onClick={() => navigate({ workItemID: item.WorkItem.ID, taskID: item.Task.ID, homeView: 'human' })}><div><span>{item.WorkItem.Title}</span><strong>{item.Task.Title}</strong></div><span className={`attention-kind ${item.Kind === 'review' ? 'review' : 'human'}`}>{t(item.Kind === 'review' ? 'reviewNeeded' : 'humanTask')}</span><ArrowRight size={17} /></button>)}
+      {humanAttention.map(item => <button className="attention-entry" key={`${item.Kind}-${item.WorkItem.ID}-${item.Task?.ID ?? ''}`} onClick={() => navigate({ workItemID: item.WorkItem.ID, taskID: item.Task?.ID ?? null, homeView: 'human' })}><div><span>{item.WorkItem.Title}</span><strong>{item.Task?.Title ?? item.WorkItem.Goal}</strong></div><span className={`attention-kind ${item.Kind === 'review' ? 'review' : 'human'}`}>{t(item.Kind === 'review' ? 'reviewNeeded' : item.Kind === 'work_item_acceptance' ? 'workAcceptanceNeeded' : 'humanTask')}</span><ArrowRight size={17} /></button>)}
     </div>}
   </section>
 }

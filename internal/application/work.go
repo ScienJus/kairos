@@ -42,11 +42,11 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 			if candidate.Kind != WorkCandidateTask {
 				continue
 			}
-			if candidate.WorkItem.Status != domain.WorkItemStatusOpen || candidate.Task.Status != domain.TaskStatusPending {
+			if candidate.WorkItem.Status != domain.WorkItemStatusOpen || candidate.Task == nil || candidate.Task.Status != domain.TaskStatusPending {
 				continue
 			}
 			if candidate.WorkItem.CoordinationMode() == domain.CoordinationModeWorkflow {
-				eligible, err := workflowTaskEligible(store, candidate.WorkItem, candidate.Task)
+				eligible, err := workflowTaskEligible(store, candidate.WorkItem, *candidate.Task)
 				if err != nil {
 					return err
 				}
@@ -54,7 +54,7 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 					continue
 				}
 			}
-			if err := identityCanExecute(query.Identity, candidate.Task); err != nil {
+			if err := identityCanExecute(query.Identity, *candidate.Task); err != nil {
 				if errorsIsForbidden(err) {
 					continue
 				}
@@ -92,6 +92,23 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 				WorkItem:   workItem,
 				Definition: definitionExecutionContext(definition.DefinitionMetadata),
 			})
+			if query.Limit > 0 && len(result) == query.Limit {
+				break
+			}
+		}
+		workItems, err := store.ListWorkItems()
+		if err != nil {
+			return fmt.Errorf("list work items for acceptance: %w", err)
+		}
+		for _, workItem := range workItems {
+			if workItem.Status != domain.WorkItemStatusAwaitingAgentAcceptance || workItem.CoordinationMode() != domain.CoordinationModeBlackboard || !containsAll(workItem.Tags, query.Tags) {
+				continue
+			}
+			definition, err := store.GetBlackboardDefinition(workItem.Definition.ID, workItem.Definition.Version)
+			if err != nil {
+				return fmt.Errorf("get acceptance definition: %w", err)
+			}
+			result = append(result, WorkCandidate{Kind: WorkCandidateWorkItemAcceptance, WorkItem: workItem, Definition: definitionExecutionContext(definition.DefinitionMetadata)})
 			if query.Limit > 0 && len(result) == query.Limit {
 				break
 			}

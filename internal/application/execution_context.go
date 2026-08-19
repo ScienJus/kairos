@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
 )
@@ -50,13 +51,27 @@ type BlackboardExecutionContext struct {
 // TaskExecutionContext contains the durable context needed to execute one Task.
 // Task owns its complete Submission, Review, Failure, and Transition histories.
 type TaskExecutionContext struct {
-	WorkItem   domain.WorkItem
-	Task       domain.Task
-	Claims     []domain.Claim
-	Definition DefinitionExecutionContext
+	WorkItem       domain.WorkItem
+	Task           domain.Task
+	Claims         []domain.Claim
+	Definition     DefinitionExecutionContext
+	Responsibility TaskResponsibility
+	Outcome        TaskOutcome
 
 	Workflow   *WorkflowExecutionContext
 	Blackboard *BlackboardExecutionContext
+}
+
+type TaskResponsibility struct {
+	Kind  string
+	Actor *domain.ActorRef
+}
+
+type TaskOutcome struct {
+	Kind       string
+	Actor      *domain.ActorRef
+	Reason     string
+	OccurredAt *time.Time
 }
 
 // GetTaskExecutionContextQuery identifies the Task and requesting executor.
@@ -153,6 +168,7 @@ func (s *Service) GetTaskExecutionContext(
 		return TaskExecutionContext{}, err
 	}
 	result.WorkItem = normalizeWorkItemCollections(result.WorkItem)
+	result.Responsibility, result.Outcome = projectTaskLifecycle(result.Task, result.Claims)
 	result.Task = normalizeTaskCollections(result.Task)
 	if result.Claims == nil {
 		result.Claims = []domain.Claim{}
@@ -169,6 +185,60 @@ func (s *Service) GetTaskExecutionContext(
 		}
 	}
 	return result, nil
+}
+
+func projectTaskLifecycle(task domain.Task, claims []domain.Claim) (TaskResponsibility, TaskOutcome) {
+	findClaimActor := func(id domain.ClaimID) *domain.ActorRef {
+		for _, claim := range claims {
+			if claim.ID == id {
+				actor := claim.Executor
+				return &actor
+			}
+		}
+		return nil
+	}
+	if task.Status == domain.TaskStatusSkipped {
+		return TaskResponsibility{Kind: "skipped_by", Actor: task.SkippedBy}, TaskOutcome{Kind: "skipped", Actor: task.SkippedBy, Reason: task.SkipReason, OccurredAt: task.CompletedAt}
+	}
+	if task.Status == domain.TaskStatusWorking && task.ActiveClaimID != nil {
+		return TaskResponsibility{Kind: "claimed_by", Actor: findClaimActor(*task.ActiveClaimID)}, TaskOutcome{Kind: "active"}
+	}
+	if task.Status == domain.TaskStatusInReview {
+		if len(task.Submissions) > 0 {
+			submission := task.Submissions[len(task.Submissions)-1]
+			return TaskResponsibility{Kind: "submitted_by", Actor: findClaimActor(submission.ClaimID)}, TaskOutcome{Kind: "in_review"}
+		}
+		if len(task.TransitionDecisions) > 0 {
+			actor := task.TransitionDecisions[len(task.TransitionDecisions)-1].DecidedBy
+			return TaskResponsibility{Kind: "skip_requested_by", Actor: &actor}, TaskOutcome{Kind: "in_review"}
+		}
+		return TaskResponsibility{Kind: "review_requested_by"}, TaskOutcome{Kind: "in_review"}
+	}
+	if task.Status == domain.TaskStatusFailed && len(task.Failures) > 0 {
+		failure := task.Failures[len(task.Failures)-1]
+		return TaskResponsibility{Kind: "failed_by", Actor: findClaimActor(failure.ClaimID)}, TaskOutcome{Kind: "failed", Reason: failure.Reason, OccurredAt: &failure.FailedAt}
+	}
+	if task.Status == domain.TaskStatusWaitingChildren {
+		for _, claim := range claims {
+			if claim.EndReason == domain.ClaimEndTaskDecomposed {
+				actor := claim.Executor
+				return TaskResponsibility{Kind: "decomposed_by", Actor: &actor}, TaskOutcome{Kind: "waiting_children", OccurredAt: task.DecomposedAt}
+			}
+		}
+	}
+	if task.Status == domain.TaskStatusCompleted {
+		if len(task.Submissions) > 0 {
+			submission := task.Submissions[len(task.Submissions)-1]
+			return TaskResponsibility{Kind: "executed_by", Actor: findClaimActor(submission.ClaimID)}, TaskOutcome{Kind: "completed", OccurredAt: task.CompletedAt}
+		}
+		for _, claim := range claims {
+			if claim.EndReason == domain.ClaimEndTaskDecomposed {
+				actor := claim.Executor
+				return TaskResponsibility{Kind: "decomposed_by", Actor: &actor}, TaskOutcome{Kind: "completed", OccurredAt: task.CompletedAt}
+			}
+		}
+	}
+	return TaskResponsibility{Kind: "unclaimed"}, TaskOutcome{Kind: "pending"}
 }
 
 func workflowUpstreamTasks(

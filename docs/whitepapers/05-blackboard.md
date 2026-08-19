@@ -144,6 +144,6 @@ Check WorkItem objective before ending current Task
                     WorkItem Completed
 ```
 
-New findings can expand the Task Graph at any point. When the objective is already satisfied, remaining low-value Tasks can be marked Skipped. The WorkItem completes automatically when its final Task completes or is skipped. A collaborator can also explicitly complete an empty Blackboard.
+New findings can expand the Task Graph at any point. When the objective is already satisfied, remaining low-value Tasks can be marked Skipped. After the final Task completes or is skipped, `acceptance_mode` controls the WorkItem: `none` completes automatically; `agent` exposes an Agent acceptance candidate that may add more Tasks or complete the WorkItem; `human` enters human acceptance and is shown in the human-attention queue. A collaborator can also explicitly complete an empty Blackboard.
 
 > Blackboard grows a shared plan while people and agents execute the work.

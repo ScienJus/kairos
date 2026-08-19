@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { I18nProvider } from './i18n'
 import { TaskDetail } from './TaskDetail'
-import type { Claim, Identity, Task, TaskExecutionContext, WorkItem } from './types'
+import type { Claim, Identity, Task, TaskDetailView, TaskExecutionContext, WorkItem } from './types'
 
 const identity: Identity = { id: 'human-1', kind: 'human', role: '' }
 const claim: Claim = {
@@ -36,10 +36,25 @@ function makeWorkItem(): WorkItem {
 }
 
 function execution(task: Task, claims: Claim[] = []): TaskExecutionContext {
-  return { WorkItem: makeWorkItem(), Task: task, Claims: claims, Workflow: null, Blackboard: { Tasks: [task], Relations: [], CanDecompose: false } }
+  const actor = task.SkippedBy ?? claims[0]?.Executor ?? null
+  const kind = task.Status === 'skipped' ? 'skipped_by' : task.Status === 'completed' ? 'executed_by' : task.Status === 'working' ? 'claimed_by' : 'unclaimed'
+  return { WorkItem: makeWorkItem(), Task: task, Claims: claims, Responsibility: { Kind: kind, Actor: actor }, Outcome: { Kind: task.Status, Actor: actor, Reason: task.SkipReason }, Workflow: null, Blackboard: { Tasks: [task], Relations: [], CanDecompose: false } }
+}
+
+function detail(task: Task, claims: Claim[] = []): TaskDetailView {
+  const actor = task.SkippedBy ?? claims[0]?.Executor ?? null
+  const kind = task.Status === 'skipped' ? 'skipped_by' : task.Status === 'completed' ? 'executed_by' : task.Status === 'working' ? 'claimed_by' : 'unclaimed'
+  const ownsClaim = claims.some(item => !item.EndedAt && item.Executor.Kind === identity.kind && item.Executor.ID === identity.id)
+  const canExecute = task.Executor === 'human' || task.Executor === 'either'
+  return {
+    Task: task, Responsibility: { Kind: kind, Actor: actor }, Outcome: { Kind: task.Status, Actor: actor, Reason: task.SkipReason }, CurrentReview: task.Reviews.at(-1) ?? null,
+    History: { Claims: claims, Submissions: task.Submissions, Reviews: task.Reviews, Failures: task.Failures, TransitionDecisions: task.TransitionDecisions },
+    Capabilities: { CanClaim: task.Status === 'pending' && canExecute, CanSubmit: task.Status === 'working' && ownsClaim, CanRelease: task.Status === 'working' && ownsClaim, CanFail: task.Status === 'working' && ownsClaim, CanReview: task.Status === 'in_review', CanSkip: task.Status === 'pending', CanDecompose: false, CanAddChild: task.Status === 'waiting_children' },
+  }
 }
 
 function renderTask(task: Task, activeClaim: Claim | null = null, mode = 'blackboard', executionClaim: Claim | null = null) {
+  vi.spyOn(api, 'getTaskDetail').mockResolvedValue(detail(task, activeClaim ? [activeClaim] : executionClaim ? [executionClaim] : []))
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(<QueryClientProvider client={queryClient}><I18nProvider><TaskDetail task={task} activeClaim={activeClaim} executionClaim={executionClaim} identity={identity} mode={mode} /></I18nProvider></QueryClientProvider>)
 }
@@ -61,12 +76,34 @@ describe('Task detail operations', () => {
       Status: 'completed', ActiveClaimID: null, CompletedAt: '2026-08-17T09:00:00Z',
       Submissions: [{ ID: 'submission-1', TaskID: 'task-1', ClaimID: endedClaim.ID, Result: 'Done', SubmittedAt: '2026-08-17T09:00:00Z' }],
     })
-    vi.spyOn(api, 'getTaskContext').mockResolvedValue(execution(task, [endedClaim]))
+    const getExecutionContext = vi.spyOn(api, 'getTaskContext').mockResolvedValue(execution(task, [endedClaim]))
 
     renderTask(task, null, 'blackboard', endedClaim)
 
     expect(await screen.findByText('Executed by')).toBeInTheDocument()
-    expect(screen.getByText('codex-backend')).toBeInTheDocument()
+    expect(await screen.findByText('codex-backend')).toBeInTheDocument()
+    expect(screen.queryByText('Unclaimed')).not.toBeInTheDocument()
+    expect(getExecutionContext).not.toHaveBeenCalled()
+  })
+
+  it('shows the skip decision instead of an unclaimed executor', async () => {
+    const task = makeTask({ Status: 'skipped', ActiveClaimID: null, CompletedAt: '2026-08-17T09:00:00Z', SkippedBy: { Kind: 'agent', ID: 'planner-1' }, SkipReason: 'Covered by another task' })
+    vi.spyOn(api, 'getTaskContext').mockResolvedValue(execution(task))
+
+    renderTask(task)
+
+    expect(await screen.findByText('Skipped by')).toBeInTheDocument()
+    expect(await screen.findByText('planner-1')).toBeInTheDocument()
+    expect(await screen.findByText('Covered by another task')).toBeInTheDocument()
+    expect(screen.queryByText('Unclaimed')).not.toBeInTheDocument()
+  })
+
+  it('uses lifecycle-specific responsibility labels and does not call a missing skip actor unclaimed', async () => {
+    const task = makeTask({ Status: 'skipped', ActiveClaimID: null, SkippedBy: null })
+    renderTask(task)
+
+    expect(await screen.findByText('Skipped by')).toBeInTheDocument()
+    expect(screen.getByText('Not recorded')).toBeInTheDocument()
     expect(screen.queryByText('Unclaimed')).not.toBeInTheDocument()
   })
 
@@ -153,14 +190,15 @@ describe('Task detail operations', () => {
       Status: 'in_review', ActiveClaimID: null,
       Reviews: [{ ID: 'review-1', TaskID: 'task-1', SubmissionID: null, Status: 'pending', RequestedBy: 'agent-1', RequestedAt: '2026-08-17T08:00:00Z', DecidedBy: null, DecidedAt: null, Feedback: '' }],
     })
+    vi.spyOn(api, 'getTaskContext').mockResolvedValue(execution(reviewTask))
     const { unmount } = renderTask(reviewTask)
-    expect(screen.getByRole('button', { name: 'Review this result' })).toHaveAttribute('aria-expanded', 'true')
+    expect(await screen.findByRole('button', { name: 'Review this result' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
     unmount()
 
     const agentTask = makeTask({ Status: 'pending', ActiveClaimID: null, Executor: 'agent' })
     renderTask(agentTask)
-    expect(screen.getByRole('button', { name: 'This is no longer needed' })).toHaveAttribute('aria-expanded', 'true')
+    expect(await screen.findByRole('button', { name: 'This is no longer needed' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('textbox', { name: 'Why is it no longer needed?' })).toBeInTheDocument()
   })
 })

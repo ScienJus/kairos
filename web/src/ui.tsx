@@ -12,7 +12,7 @@ export function splitValues(value: FormDataEntryValue | null) {
 export function Status({ value }: { value: string }) {
   const { t } = useI18n()
   const labels: Record<string, MessageKey> = {
-    open: 'statusOpen', completed: 'statusCompleted', cancelled: 'statusCancelled', failed: 'statusFailed',
+    open: 'statusOpen', completed: 'statusCompleted', cancelled: 'statusCancelled', failed: 'statusFailed', awaiting_agent_acceptance: 'statusAwaitingAgentAcceptance', awaiting_human_acceptance: 'statusAwaitingHumanAcceptance',
     pending: 'statusPending', working: 'statusWorking', waiting_children: 'statusWaiting', in_review: 'statusReview', skipped: 'statusSkipped', not_reached: 'statusNotReached',
   }
   const key = labels[value]

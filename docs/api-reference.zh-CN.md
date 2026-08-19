@@ -47,14 +47,16 @@ go run ./cmd/kairos-server
 | Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`、`GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
 | WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context` |
 | 工作发现 | `GET /api/v1/work` |
-| Task 执行 | `/api/v1/tasks/{id}/context`、`/claims`、`/submissions`、`/failures`、`/reviews` |
+| Task 详情与执行 | `GET /api/v1/tasks/{id}`、`/context`、`/claims`、`/submissions`、`/failures`、`/reviews` |
 | Blackboard 规划 | WorkItem Task、relation、completion；Task decomposition、children 与 skipping |
 | 人工关注 | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities` 及 Token 轮换、撤销路由 |
 
-Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。
+Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。Blackboard WorkItem 可设置 `acceptance_mode`：`none`（默认，Task 收敛后自动完成）、`agent`（返回 Agent 验收候选）或 `human`（进入人工验收状态）。
 
 `GET /api/v1/work-items/{id}/context` 在 WorkItem 终态后仍可读取，返回聚合结果、规范化的 Task 与 relation 集合、`Claims` 中的完整 Claim 历史，以及 `ActiveClaims` 中当前仍存活的子集。完成态 Task 的执行人可通过 `Submission.ClaimID -> Claims[].ID -> Executor` 关联。
+
+`GET /api/v1/tasks/{id}` 是面向查看者的 Task Detail，不要求当前身份能够执行该 Task。它返回后端计算的 `Responsibility`、`Outcome`、`CurrentReview`、规范化 `History` 和当前身份的 `Capabilities`。`GET /api/v1/tasks/{id}/context` 仍是受执行权限保护的执行者上下文；客户端不得使用它加载普通详情或人工 Review。
 
 ## Claim Lease
 

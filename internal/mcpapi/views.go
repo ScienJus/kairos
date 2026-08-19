@@ -23,6 +23,7 @@ type workItemView struct {
 	ID                 string                `json:"id"`
 	Definition         definitionBindingView `json:"definition"`
 	Status             string                `json:"status"`
+	AcceptanceMode     string                `json:"acceptance_mode"`
 	Title              string                `json:"title"`
 	Goal               string                `json:"goal"`
 	Context            string                `json:"context,omitempty"`
@@ -166,12 +167,25 @@ type findWorkOutput struct {
 }
 
 type taskContextOutput struct {
-	WorkItem   workItemView           `json:"work_item"`
-	Task       taskView               `json:"task"`
-	Claims     []claimView            `json:"claims"`
-	Definition definitionView         `json:"definition"`
-	Workflow   *workflowContextView   `json:"workflow,omitempty"`
-	Blackboard *blackboardContextView `json:"blackboard,omitempty"`
+	WorkItem       workItemView           `json:"work_item"`
+	Task           taskView               `json:"task"`
+	Claims         []claimView            `json:"claims"`
+	Definition     definitionView         `json:"definition"`
+	Workflow       *workflowContextView   `json:"workflow,omitempty"`
+	Blackboard     *blackboardContextView `json:"blackboard,omitempty"`
+	Responsibility responsibilityView     `json:"responsibility"`
+	Outcome        outcomeView            `json:"outcome"`
+}
+
+type responsibilityView struct {
+	Kind  string     `json:"kind"`
+	Actor *actorView `json:"actor,omitempty"`
+}
+type outcomeView struct {
+	Kind       string     `json:"kind"`
+	Actor      *actorView `json:"actor,omitempty"`
+	Reason     string     `json:"reason,omitempty"`
+	OccurredAt string     `json:"occurred_at,omitempty"`
 }
 
 type workItemContextOutput struct {
@@ -224,8 +238,8 @@ func findWorkView(candidates []application.WorkCandidate) findWorkOutput {
 			WorkItem:   workItemViewFrom(candidate.WorkItem),
 			Definition: definitionViewFrom(candidate.Definition),
 		}
-		if candidate.Kind == application.WorkCandidateTask {
-			task := taskSummaryViewFrom(candidate.Task)
+		if candidate.Kind == application.WorkCandidateTask && candidate.Task != nil {
+			task := taskSummaryViewFrom(*candidate.Task)
 			view.Task = &task
 		}
 		result.Candidates = append(result.Candidates, view)
@@ -239,6 +253,11 @@ func taskContextView(value application.TaskExecutionContext) taskContextOutput {
 		Task:       taskViewFrom(value.Task),
 		Claims:     claimViews(value.Claims),
 		Definition: definitionViewFrom(value.Definition),
+	}
+	result.Responsibility = responsibilityView{Kind: value.Responsibility.Kind, Actor: actorViewPtr(value.Responsibility.Actor)}
+	result.Outcome = outcomeView{Kind: value.Outcome.Kind, Actor: actorViewPtr(value.Outcome.Actor), Reason: value.Outcome.Reason}
+	if value.Outcome.OccurredAt != nil {
+		result.Outcome.OccurredAt = value.Outcome.OccurredAt.UTC().Format(time.RFC3339Nano)
 	}
 	if value.Workflow != nil {
 		workflow := workflowContextView{
@@ -286,7 +305,7 @@ func workItemViewFrom(value domain.WorkItem) workItemView {
 	return workItemView{
 		ID:         string(value.ID),
 		Definition: definitionBindingView{ID: string(value.Definition.ID), Version: value.Definition.Version, Mode: string(value.Definition.Mode)},
-		Status:     string(value.Status), Title: value.Title, Goal: value.Goal, Context: value.Context,
+		Status:     string(value.Status), AcceptanceMode: string(value.AcceptanceMode), Title: value.Title, Goal: value.Goal, Context: value.Context,
 		Constraints: value.Constraints, AcceptanceCriteria: value.AcceptanceCriteria,
 		Tags: stringSlice(value.Tags), Result: value.Result,
 	}
@@ -423,6 +442,14 @@ func workflowTaskDefinitionViews(values []domain.WorkflowTaskDefinition) []workf
 
 func actorViewFrom(value domain.ActorRef) actorView {
 	return actorView{Kind: string(value.Kind), ID: string(value.ID)}
+}
+
+func actorViewPtr(value *domain.ActorRef) *actorView {
+	if value == nil {
+		return nil
+	}
+	view := actorViewFrom(*value)
+	return &view
 }
 
 func latestResult(task domain.Task) string {

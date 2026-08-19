@@ -91,6 +91,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/relations", h.addBlackboardRelation)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/completion", h.completeBlackboardWorkItem)
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}/context", h.getTaskContext)
+	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}", h.getTaskDetail)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/claims", h.claimTask)
 	h.mux.HandleFunc("DELETE /api/v1/tasks/{task_id}/claims/{claim_id}", h.releaseClaim)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/claims/{claim_id}/heartbeat", h.heartbeatClaim)
@@ -100,6 +101,19 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/decomposition", h.decomposeBlackboardTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/children", h.addBlackboardChildTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/reviews/{review_id}/decision", h.decideReview)
+}
+
+func (h *Handler) getTaskDetail(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	detail, err := h.service.GetTaskDetail(request.Context(), application.GetTaskDetailQuery{TaskID: domain.TaskID(request.PathValue("task_id")), Identity: actor})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: detail})
 }
 
 func (h *Handler) listHumanAttention(writer http.ResponseWriter, request *http.Request) {
@@ -353,14 +367,15 @@ func (h *Handler) findWork(writer http.ResponseWriter, request *http.Request) {
 }
 
 type createWorkItemRequest struct {
-	DefinitionID       domain.DefinitionID     `json:"definition_id"`
-	Mode               domain.CoordinationMode `json:"mode"`
-	Title              string                  `json:"title"`
-	Goal               string                  `json:"goal"`
-	Context            string                  `json:"context"`
-	Constraints        string                  `json:"constraints"`
-	AcceptanceCriteria string                  `json:"acceptance_criteria"`
-	Tags               []string                `json:"tags"`
+	DefinitionID       domain.DefinitionID           `json:"definition_id"`
+	Mode               domain.CoordinationMode       `json:"mode"`
+	Title              string                        `json:"title"`
+	Goal               string                        `json:"goal"`
+	Context            string                        `json:"context"`
+	Constraints        string                        `json:"constraints"`
+	AcceptanceCriteria string                        `json:"acceptance_criteria"`
+	AcceptanceMode     domain.WorkItemAcceptanceMode `json:"acceptance_mode"`
+	Tags               []string                      `json:"tags"`
 }
 
 func (h *Handler) createWorkItem(writer http.ResponseWriter, request *http.Request) {
@@ -376,7 +391,7 @@ func (h *Handler) createWorkItem(writer http.ResponseWriter, request *http.Reque
 		Definition: domain.DefinitionBinding{ID: body.DefinitionID, Mode: body.Mode},
 		Identity:   actor, OperationID: operationID(request),
 		Title: body.Title, Goal: body.Goal, Context: body.Context,
-		Constraints: body.Constraints, AcceptanceCriteria: body.AcceptanceCriteria, Tags: body.Tags,
+		Constraints: body.Constraints, AcceptanceCriteria: body.AcceptanceCriteria, AcceptanceMode: body.AcceptanceMode, Tags: body.Tags,
 	})
 	if err != nil {
 		writeError(writer, err)

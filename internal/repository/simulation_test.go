@@ -255,9 +255,11 @@ func (s *collaborationSimulation) executeRandomTask(
 			s.record("%s discovered empty blackboard and added task %q", agent.identity.Actor.ID, "Plan the implementation")
 			return true
 		}
-		if !s.agentAccepts(candidate.Task, agent) {
+		if candidate.Task == nil || !s.agentAccepts(*candidate.Task, agent) {
 			continue
 		}
+		task := *candidate.Task
+		candidate.Task = &task
 		ready = append(ready, candidate)
 	}
 	if len(ready) == 0 {
@@ -294,7 +296,7 @@ func (s *collaborationSimulation) executeRandomTask(
 		s.fail("get context for %s: %v", candidate.Task.ID, err)
 	}
 	if slices.Contains(candidate.Task.Tags, "planning") && !s.planExpanded {
-		s.expandBlackboardPlan(candidate.WorkItem.ID, agent.identity, candidate.Task, claim.ID)
+		s.expandBlackboardPlan(candidate.WorkItem.ID, agent.identity, *candidate.Task, claim.ID)
 		return true
 	}
 	transition := s.randomWorkflowTransition(executionContext)

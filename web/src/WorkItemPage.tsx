@@ -1,6 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Bot, UserRound, X, XCircle } from 'lucide-react'
 import { APIError } from './api'
+import { api } from './api'
 import { useI18n } from './i18n'
 import { useWorkItemData, useWorkflowDefinitionData } from './pageData'
 import type { HomeView, RouteState } from './route'
@@ -24,6 +26,8 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
   const selectedTaskClaim = selectedTask ? context.data?.ActiveClaims.find(claim => claim.TaskID === selectedTask.ID) ?? null : null
   const selectedTaskExecutionClaim = selectedTask?.Submissions.at(-1)?.ClaimID ? context.data?.Claims.find(claim => claim.ID === selectedTask.Submissions.at(-1)?.ClaimID) ?? null : null
   const pendingReviews = context.data?.Tasks.flatMap(task => (task.Reviews ?? []).filter(review => review.Status === 'pending')) ?? []
+  const queryClient = useQueryClient()
+  const accept = useMutation({ mutationFn: (result: string) => api.completeBlackboard(identity, workItemID, result), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['work-item', identity, workItemID] }); queryClient.invalidateQueries({ queryKey: ['human-attention', identity] }) } })
 
   useEffect(() => {
     if (context.data && selectedTaskID && !selectedTask) navigate({ workItemID, taskID: null, homeView }, true)
@@ -47,6 +51,7 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
         <div className="work-hero"><button className="back-button" onClick={() => navigate({ workItemID: null, taskID: null, homeView })}><ArrowLeft size={17} />{t('putDown')}</button><div className="hero-title"><div><Status value={context.data.WorkItem.Status} /><h1>{context.data.WorkItem.Title}</h1></div></div>
           <p className="goal">{context.data.WorkItem.Goal}</p>{pendingReviews.length > 0 && <button className="review-summary" onClick={() => { const task = context.data.Tasks.find(item => (item.Reviews ?? []).some(review => review.Status === 'pending')); if (task) navigate({ workItemID, taskID: task.ID, homeView }) }}>{t('waitingReviews', { count: pendingReviews.length })}</button>}</div>
         {(context.data.WorkItem.AcceptanceCriteria || context.data.WorkItem.Context || context.data.WorkItem.Constraints) && <details className="work-brief"><summary>{t('readBrief')}</summary><div className="brief-grid">{context.data.WorkItem.Context && <Brief label={t('context')} value={context.data.WorkItem.Context} />}{context.data.WorkItem.AcceptanceCriteria && <Brief label={t('doneWhen')} value={context.data.WorkItem.AcceptanceCriteria} />}{context.data.WorkItem.Constraints && <Brief label={t('keepInMind')} value={context.data.WorkItem.Constraints} />}</div></details>}
+        {context.data.WorkItem.Status === 'awaiting_human_acceptance' && <HumanAcceptance onAccept={result => accept.mutate(result)} pending={accept.isPending} />}
         <div className="task-section"><div className="section-heading"><div><h2>{t(context.data.WorkItem.Definition.Mode === 'workflow' ? 'workflowTitle' : 'blackboardTitle')}</h2><p>{t(context.data.WorkItem.Definition.Mode === 'workflow' ? 'workflowBody' : 'blackboardBody')}</p></div>{context.data.WorkItem.Definition.Mode === 'blackboard' && context.data.WorkItem.Status === 'open' && context.data.Tasks.length > 0 && <CreateTask identity={identity} workItemID={workItemID} />}</div>
           {context.data.WorkItem.Definition.Mode === 'blackboard' && context.data.WorkItem.Status === 'open' && context.data.Tasks.length === 0 && <EmptyBlackboardActions identity={identity} workItemID={workItemID} />}
           <TaskMap mode={context.data.WorkItem.Definition.Mode} tasks={context.data.Tasks} relations={context.data.Relations} workflowDefinition={workflowDefinition.data} selectedTaskID={selectedTaskID} onSelect={taskID => navigate({ workItemID, taskID, homeView })} />
@@ -62,4 +67,8 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
 }
 
 function Brief({ label, value }: { label: string; value: string }) { return <div className="brief"><span>{label}</span><p>{value || '—'}</p></div> }
+function HumanAcceptance({ onAccept, pending }: { onAccept: (result: string) => void; pending: boolean }) {
+  const { t } = useI18n(); const [result, setResult] = useState('')
+  return <div className="empty-planning"><h3>{t('humanAcceptance')}</h3><p>{t('humanAcceptanceBody')}</p><textarea rows={3} value={result} onChange={event => setResult(event.target.value)} /><button className="quiet-button" disabled={!result.trim() || pending} onClick={() => onAccept(result)}>{t('approveAcceptance')}</button></div>
+}
 function PanelPlaceholder({ loading }: { loading: boolean }) { const { t } = useI18n(); return <div className="panel-placeholder"><div className="target-reticle"><i /><span /></div><strong>{t(loading ? 'acquiring' : 'noWork')}</strong></div> }

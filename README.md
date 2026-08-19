@@ -60,6 +60,7 @@ Supported collaboration capabilities:
 - **Dynamic Review**: an executor can request human Review when submitting a result.
 - **Continuous expansion**: an executor creates follow-up Tasks before ending the current Task when more work is needed.
 - **Automatic completion**: the WorkItem completes when its final Task ends; an empty Blackboard can also complete directly.
+- **Optional acceptance**: a WorkItem may require no acceptance, agent acceptance, or human acceptance after Tasks converge.
 
 ## Shared Execution Semantics
 

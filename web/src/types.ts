@@ -1,10 +1,10 @@
-export type WorkItemStatus = 'open' | 'completed' | 'cancelled' | 'failed'
+export type WorkItemStatus = 'open' | 'completed' | 'cancelled' | 'failed' | 'awaiting_agent_acceptance' | 'awaiting_human_acceptance'
 export type TaskStatus = 'pending' | 'working' | 'waiting_children' | 'in_review' | 'completed' | 'skipped' | 'failed'
 export type Mode = 'blackboard' | 'workflow'
 
 export interface DefinitionBinding { ID: string; Version: number; Mode: Mode }
 export interface WorkItem {
-  ID: string; Definition: DefinitionBinding; Status: WorkItemStatus; Title: string; Goal: string
+  ID: string; Definition: DefinitionBinding; Status: WorkItemStatus; AcceptanceMode?: 'none' | 'agent' | 'human'; Title: string; Goal: string
   Context: string; Constraints: string; AcceptanceCriteria: string; Tags: string[]; Result: string
   Version: number; CreatedAt: string; UpdatedAt: string; CompletedAt: string | null
 }
@@ -18,6 +18,7 @@ export interface Task {
   ID: string; WorkItemID: string; Status: TaskStatus; ActiveClaimID: string | null; ParentTaskID: string | null
   WorkflowTaskID?: string | null
   Title: string; Description: string; AcceptanceCriteria: string; Executor: 'agent' | 'human' | 'either'
+  SkippedBy?: ActorRef | null; SkipReason?: string
   AllowedRoles: string[]; Tags: string[]; Reviews: Review[]; Submissions: Submission[]; Failures: Failure[]; TransitionDecisions: unknown[]
   Position: number; CreatedAt: string; UpdatedAt: string; CompletedAt: string | null
   ReviewPolicy?: 'none' | 'executor_decides' | 'required' | null
@@ -31,8 +32,14 @@ export interface WorkflowChoiceOption {
 }
 export interface TaskExecutionContext {
   WorkItem: WorkItem; Task: Task; Claims: Claim[]
+  Responsibility?: { Kind: string; Actor: ActorRef | null }; Outcome?: { Kind: string; Actor: ActorRef | null; Reason?: string; OccurredAt?: string }
   Workflow: { UpstreamTasks: Task[]; ChoiceGroups: WorkflowChoiceOption[] } | null
   Blackboard: { Tasks: Task[]; Relations: TaskRelation[]; CanDecompose: boolean } | null
+}
+export interface TaskCapabilities { CanClaim: boolean; CanSubmit: boolean; CanRelease: boolean; CanFail: boolean; CanReview: boolean; CanSkip: boolean; CanDecompose: boolean; CanAddChild: boolean }
+export interface TaskDetailView {
+  Task: Task; Responsibility: { Kind: string; Actor: ActorRef | null }; Outcome: { Kind: string; Actor: ActorRef | null; Reason?: string; OccurredAt?: string }
+  CurrentReview: Review | null; History: { Claims: Claim[]; Submissions: Submission[]; Reviews: Review[]; Failures: Failure[]; TransitionDecisions: unknown[] }; Capabilities: TaskCapabilities
 }
 export interface TaskRelation { WorkItemID: string; FromTaskID: string; ToTaskID: string }
 export interface BlackboardTaskDecomposition { Parent: Task; Children: Task[] }
@@ -52,7 +59,7 @@ export interface WorkflowDefinition extends Definition {
   Graph: { StartTaskIDs: string[]; Tasks: WorkflowTaskDefinition[]; Relations: WorkflowRelationDefinition[]; MaxTaskExecutions: number }
 }
 export interface Identity { id: string; kind: 'human'; role: '' }
-export interface HumanAttentionItem { Kind: 'review' | 'human_task'; WorkItem: WorkItem; Task: Task }
+export interface HumanAttentionItem { Kind: 'review' | 'human_task' | 'work_item_acceptance'; WorkItem: WorkItem; Task: Task | null }
 
 export interface TaskDraftInput {
   title: string; description: string; acceptance_criteria: string
@@ -83,5 +90,5 @@ export interface CreateWorkflowDefinitionInput extends CreateDefinitionInput {
 }
 export interface CreateWorkItemInput {
   definition_id: string; mode: Mode; title: string; goal: string
-  context: string; constraints: string; acceptance_criteria: string; tags: string[]
+  context: string; constraints: string; acceptance_criteria: string; acceptance_mode: 'none' | 'agent' | 'human'; tags: string[]
 }

@@ -315,6 +315,13 @@ func (s *Service) resolveWorkflowActivationInput(
 	} else if skipDecision != nil {
 		skipDecision.AppliedAt = &now
 	}
+	if task.Status == domain.TaskStatusSkipped {
+		actor := decision.DecidedBy
+		task.SkippedBy = &actor
+		if skipDecision != nil {
+			task.SkipReason = skipDecision.Reason
+		}
+	}
 	activation.ResolvedAt = &now
 	if err := activation.Validate(); err != nil {
 		return false, err

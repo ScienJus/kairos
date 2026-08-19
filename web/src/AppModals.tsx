@@ -36,7 +36,7 @@ export function CreateWorkModal({ open, onOpenChange, identity, definition, onCr
     mutation.mutate({
       definition_id: id, mode: mode as CreateWorkItemInput['mode'],
       title: formValue(data, 'title'), goal: formValue(data, 'goal'), context: formValue(data, 'context'),
-      constraints: formValue(data, 'constraints'), acceptance_criteria: formValue(data, 'acceptance'), tags: splitValues(data.get('tags')),
+      constraints: formValue(data, 'constraints'), acceptance_criteria: formValue(data, 'acceptance'), acceptance_mode: (formValue(data, 'acceptance_mode') || 'none') as CreateWorkItemInput['acceptance_mode'], tags: splitValues(data.get('tags')),
     })
   }
 
@@ -49,6 +49,7 @@ export function CreateWorkModal({ open, onOpenChange, identity, definition, onCr
       <label className="wide">{t('context')}<textarea name="context" rows={2} /></label>
       <label>{t('constraints')}<textarea name="constraints" rows={2} /></label>
       <label>{t('acceptanceCriteria')}<textarea name="acceptance" rows={2} /></label>
+      {(!definition || definition.mode === 'blackboard') && <label className="wide">{t('acceptanceMode')}<select name="acceptance_mode" defaultValue="none"><option value="none">{t('acceptanceNone')}</option><option value="agent">{t('acceptanceAgent')}</option><option value="human">{t('acceptanceHuman')}</option></select></label>}
       <label className="wide">{t('tags')}<input name="tags" placeholder="development, backend" /></label>
       {mutation.error && <FormError error={mutation.error} />}
       <div className="form-actions"><button type="button" onClick={() => onOpenChange(false)}>{t('cancel')}</button><button className="primary-button" disabled={mutation.isPending || (!definition && availableDefinitions.length === 0)}>{t('openWork')}</button></div>

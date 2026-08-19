@@ -20,6 +20,7 @@ type CreateWorkItemCommand struct {
 	Context            string
 	Constraints        string
 	AcceptanceCriteria string
+	AcceptanceMode     domain.WorkItemAcceptanceMode
 	Tags               []string
 }
 
@@ -31,6 +32,15 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 	}
 	if strings.TrimSpace(string(command.Definition.ID)) == "" || !command.Definition.Mode.Valid() {
 		return domain.WorkItem{}, invalidCommand("definition id and mode are required")
+	}
+	if command.AcceptanceMode == "" {
+		command.AcceptanceMode = domain.WorkItemAcceptanceNone
+	}
+	if command.Definition.Mode == domain.CoordinationModeWorkflow && command.AcceptanceMode != domain.WorkItemAcceptanceNone {
+		return domain.WorkItem{}, invalidCommand("acceptance mode is only supported for blackboards")
+	}
+	if !command.AcceptanceMode.Valid() {
+		return domain.WorkItem{}, invalidCommand("unsupported acceptance mode %q", command.AcceptanceMode)
 	}
 
 	var created domain.WorkItem
@@ -83,6 +93,7 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 			Context:            strings.TrimSpace(command.Context),
 			Constraints:        strings.TrimSpace(command.Constraints),
 			AcceptanceCriteria: strings.TrimSpace(command.AcceptanceCriteria),
+			AcceptanceMode:     command.AcceptanceMode,
 			Tags:               append([]string(nil), command.Tags...),
 			CreatedAt:          now,
 			UpdatedAt:          now,
@@ -237,6 +248,20 @@ func (s *Service) completeWorkItemIfDone(
 			return nil
 		}
 	}
+	if workItem.CoordinationMode() == domain.CoordinationModeBlackboard && workItem.AcceptanceMode != domain.WorkItemAcceptanceNone {
+		now := s.clock.Now()
+		if workItem.AcceptanceMode == domain.WorkItemAcceptanceAgent {
+			workItem.Status = domain.WorkItemStatusAwaitingAgentAcceptance
+		} else {
+			workItem.Status = domain.WorkItemStatusAwaitingHumanAcceptance
+		}
+		workItem.UpdatedAt = now
+		workItem.Version++
+		if err := store.SaveWorkItem(*workItem); err != nil {
+			return fmt.Errorf("save work item awaiting agent acceptance: %w", err)
+		}
+		return s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventAcceptanceRequested, string(workItem.ID), actor, string(workItem.Status))
+	}
 
 	if workItem.CoordinationMode() == domain.CoordinationModeWorkflow {
 		definition, err := store.GetWorkflowDefinition(workItem.Definition.ID, workItem.Definition.Version)
@@ -341,15 +366,18 @@ func (s *Service) CompleteBlackboardWorkItem(ctx context.Context, command Comple
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 			return conflict("work item %q is not a blackboard", workItem.ID)
 		}
-		if workItem.Status != domain.WorkItemStatusOpen {
+		if workItem.Status != domain.WorkItemStatusOpen && workItem.Status != domain.WorkItemStatusAwaitingAgentAcceptance && workItem.Status != domain.WorkItemStatusAwaitingHumanAcceptance {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
 		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}
-		if len(tasks) != 0 {
+		if len(tasks) != 0 && workItem.Status != domain.WorkItemStatusAwaitingAgentAcceptance && workItem.Status != domain.WorkItemStatusAwaitingHumanAcceptance {
 			return conflict("non-empty blackboard %q completes from its task states", workItem.ID)
+		}
+		if workItem.Status == domain.WorkItemStatusAwaitingHumanAcceptance && command.Identity.Actor.Kind != domain.ActorHuman {
+			return forbidden("human acceptance is required for work item %q", workItem.ID)
 		}
 
 		actor := command.Identity.Actor

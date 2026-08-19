@@ -1,4 +1,4 @@
-import type { BlackboardTaskDecomposition, Claim, CreateDefinitionInput, CreateWorkflowDefinitionInput, CreateWorkItemInput, DecomposeTaskInput, Definition, FailTaskInput, HumanAttentionItem, Identity, Mode, ReviewDecisionInput, Submission, SubmitTaskInput, Task, TaskDraftInput, TaskExecutionContext, WorkflowDefinition, WorkItem, WorkItemContext } from './types'
+import type { BlackboardTaskDecomposition, Claim, CreateDefinitionInput, CreateWorkflowDefinitionInput, CreateWorkItemInput, DecomposeTaskInput, Definition, FailTaskInput, HumanAttentionItem, Identity, Mode, ReviewDecisionInput, Submission, SubmitTaskInput, Task, TaskDetailView, TaskDraftInput, TaskExecutionContext, WorkflowDefinition, WorkItem, WorkItemContext } from './types'
 
 const identityKey = 'kairos-console-identity'
 
@@ -43,6 +43,7 @@ export const api = {
   listHumanAttention: (identity: Identity) => request<HumanAttentionItem[]>('/api/v1/human-attention', identity),
   getWorkItem: (identity: Identity, id: string) => request<WorkItemContext>(`/api/v1/work-items/${id}/context`, identity),
   getTaskContext: (identity: Identity, id: string) => request<TaskExecutionContext>(`/api/v1/tasks/${id}/context`, identity),
+  getTaskDetail: (identity: Identity, id: string) => request<TaskDetailView>(`/api/v1/tasks/${id}`, identity),
   listBlackboardDefinitions: (identity: Identity) => request<Definition[]>('/api/v1/definitions/blackboards', identity),
   listWorkflowDefinitions: (identity: Identity) => request<WorkflowDefinition[]>('/api/v1/definitions/workflows', identity),
   getWorkflowDefinition: (identity: Identity, id: string, version: number) => request<WorkflowDefinition>(`/api/v1/definitions/workflows/${encodeURIComponent(id)}/versions/${version}`, identity),
