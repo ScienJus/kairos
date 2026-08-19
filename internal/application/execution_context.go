@@ -41,9 +41,10 @@ type WorkflowExecutionContext struct {
 // BlackboardExecutionContext contains the other Tasks in the current shared
 // space. The Task being executed is available separately on TaskExecutionContext.
 type BlackboardExecutionContext struct {
-	Tasks        []domain.Task
-	Relations    []domain.TaskRelation
-	CanDecompose bool
+	CurrentTaskID domain.TaskID
+	Tasks         []domain.Task
+	Relations     []domain.TaskRelation
+	CanDecompose  bool
 }
 
 // TaskExecutionContext contains the durable context needed to execute one Task.
@@ -142,7 +143,7 @@ func (s *Service) GetTaskExecutionContext(
 			if task.ActiveClaimID != nil {
 				canDecompose = validateBlackboardTaskDecomposition(workItem, task, claims, query.Identity, *task.ActiveClaimID) == nil
 			}
-			result.Blackboard = &BlackboardExecutionContext{Tasks: otherTasks, Relations: relations, CanDecompose: canDecompose}
+			result.Blackboard = &BlackboardExecutionContext{CurrentTaskID: task.ID, Tasks: otherTasks, Relations: relations, CanDecompose: canDecompose}
 		default:
 			return invalidCommand("work item %q has invalid coordination mode", workItem.ID)
 		}

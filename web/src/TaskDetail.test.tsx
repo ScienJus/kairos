@@ -39,9 +39,9 @@ function execution(task: Task, claims: Claim[] = []): TaskExecutionContext {
   return { WorkItem: makeWorkItem(), Task: task, Claims: claims, Workflow: null, Blackboard: { Tasks: [task], Relations: [], CanDecompose: false } }
 }
 
-function renderTask(task: Task, activeClaim: Claim | null = null, mode = 'blackboard') {
+function renderTask(task: Task, activeClaim: Claim | null = null, mode = 'blackboard', executionClaim: Claim | null = null) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><I18nProvider><TaskDetail task={task} activeClaim={activeClaim} identity={identity} mode={mode} /></I18nProvider></QueryClientProvider>)
+  return render(<QueryClientProvider client={queryClient}><I18nProvider><TaskDetail task={task} activeClaim={activeClaim} executionClaim={executionClaim} identity={identity} mode={mode} /></I18nProvider></QueryClientProvider>)
 }
 
 beforeEach(() => {
@@ -55,6 +55,21 @@ afterEach(() => {
 })
 
 describe('Task detail operations', () => {
+  it('shows the executor from the completed task submission claim', async () => {
+    const endedClaim = { ...claim, Executor: { Kind: 'agent' as const, ID: 'codex-backend' }, EndedAt: '2026-08-17T09:00:00Z', EndReason: 'submitted' }
+    const task = makeTask({
+      Status: 'completed', ActiveClaimID: null, CompletedAt: '2026-08-17T09:00:00Z',
+      Submissions: [{ ID: 'submission-1', TaskID: 'task-1', ClaimID: endedClaim.ID, Result: 'Done', SubmittedAt: '2026-08-17T09:00:00Z' }],
+    })
+    vi.spyOn(api, 'getTaskContext').mockResolvedValue(execution(task, [endedClaim]))
+
+    renderTask(task, null, 'blackboard', endedClaim)
+
+    expect(await screen.findByText('Executed by')).toBeInTheDocument()
+    expect(screen.getByText('codex-backend')).toBeInTheDocument()
+    expect(screen.queryByText('Unclaimed')).not.toBeInTheDocument()
+  })
+
   it('renders safely when optional task collections are empty', async () => {
     const task = makeTask({ Status: 'pending', ActiveClaimID: null, Reviews: [], Tags: [], Submissions: [], Failures: [] })
     vi.spyOn(api, 'getTaskContext').mockResolvedValue(execution(task))

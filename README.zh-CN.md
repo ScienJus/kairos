@@ -114,86 +114,20 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 go test ./...
 ```
 
-## HTTP API
+## 运行 Kairos
 
-服务默认使用 Trusted Mode 和 SQLite：
-
-```bash
-KAIROS_SQLITE_PATH=kairos.db \
-KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
-KAIROS_AGENT_CLAIM_LEASE=60s \
-go run ./cmd/kairos-server
-```
-
-除 `/healthz` 外，请求需要携带身份头：
-
-```text
-X-Kairos-Actor-Id: codex-backend
-X-Kairos-Actor-Role: backend
-```
-
-Actor ID 同时是稳定身份和可读名称，不应随意改名。`X-Kairos-Actor-Kind` 默认为 `agent`，人工 Review 时设置为 `human`。Trusted Mode 仅适用于调用方和传输层均可信的环境；服务会无条件信任这些请求头。变更请求可通过 `Idempotency-Key` 获得持久幂等语义。
-
-共享环境应使用 Authenticated Mode。Admin Token 至少需要 32 个字符，用于保护身份管理 API：
+构建 operations console 与嵌入式服务，然后访问 `http://127.0.0.1:8080`：
 
 ```bash
-KAIROS_AUTH_MODE=authenticated \
-KAIROS_ADMIN_TOKEN='<high-entropy-admin-token>' \
-KAIROS_SQLITE_PATH=kairos.db \
-go run ./cmd/kairos-server
+make build
+./bin/kairos-server
 ```
 
-管理员通过 `Authorization: Bearer <admin-token>` 调用：
+默认使用 SQLite 与 Trusted Mode。共享部署应使用 Authenticated Mode。仅用于开发的服务启动方式、HTTP 路由、身份配置、MCP 传输与响应契约见 [API 参考](docs/api-reference.zh-CN.md)。
 
-- `POST /api/v1/identities`：创建一对一的 `Token → Actor ID → Role`，明文 Token 仅在响应中返回一次；
-- `GET /api/v1/identities` 和 `GET /api/v1/identities/{kind}/{id}`：读取不含 Token Hash 的身份信息；
-- `POST /api/v1/identities/{kind}/{id}/token`：轮换 Token，旧 Token 立即失效；
-- `DELETE /api/v1/identities/{kind}/{id}/token`：撤销 Token，但保留 Actor 历史。
+## MCP 与 Agent 集成
 
-业务请求使用签发的 `Authorization: Bearer <identity-token>`。Authenticated Mode 忽略全部 `X-Kairos-Actor-*` 请求头，ID、Kind 和 Role 只来自服务端身份记录。Agent 必须具有且只具有一个 Role；Human 的 Role 为空。Role 与 Actor ID 一起保持稳定，需要另一 Role 时创建新的 Actor Identity。
-
-`/api/v1` 已暴露 Definition 管理、WorkItem 创建、Blackboard 规划、工作发现、Task 与 WorkItem 执行上下文、Claim、提交、失败、拆分、跳过和 Review 决策。终态 WorkItem 仍可通过 `GET /api/v1/work-items/{work_item_id}/context` 读取，其中包含聚合结果与 Task 摘要。Definition 版本不可变；创建时由调用方显式提供 `version`。
-
-Definition 使用两组独立资源：
-
-| | Workflow | Blackboard |
-| --- | --- | --- |
-| 创建与列表 | `/definitions/workflows` | `/definitions/blackboards` |
-| 版本读取 | `/definitions/workflows/{id}/versions/{version}` | `/definitions/blackboards/{id}/versions/{version}` |
-| Definition 内容 | 发布时必须包含合法的正式 Task Graph | 只包含共享元数据与协作指引 |
-| 创建 WorkItem 后 | 立即实例化 Graph 的起始 Task | 保持为空，作为规划候选被发现 |
-| 后续规划 | 运行时按正式关系和选择组推进 | 协作者动态创建 Task、层级和建议关系 |
-
-真实 SQLite 的 Trusted 与 Authenticated HTTP 闭环测试见 `internal/httpapi/httpapi_test.go` 和 `internal/httpapi/authenticated_test.go`。
-
-## MCP 与 Codex Skill
-
-服务在 `/mcp` 暴露无状态 Streamable HTTP MCP 端点，并与 `/api/v1` 复用同一套身份解析：Trusted Mode 接受传输层的 `X-Kairos-Actor-*` 请求头，Authenticated Mode 要求签发的 `Authorization: Bearer <identity-token>`。身份字段不会出现在工具参数中。
-
-执行面包含 14 个工具，并返回紧凑的 `snake_case` 结构化结果：
-
-- `find_work`、`get_task_context`、`get_work_item_context`：发现工作并读取 Task 或终态 WorkItem 上下文；
-- `claim_task`、`heartbeat_claim`、`release_claim`、`submit_task`、`fail_task`：完整 Claim 生命周期；
-- `create_blackboard_task`：为空或已有内容的 Blackboard 规划 Task。
-- `add_blackboard_relation`、`decompose_blackboard_task`、`add_blackboard_child_task`、`skip_blackboard_task`、`complete_blackboard`：动态规划 Blackboard。
-
-Definition 管理、Identity 管理与人工 Review 决策仍然只通过 HTTP 暴露。每个 MCP 变更都必须携带调用方生成的 `operation_id`；重试同一逻辑请求时复用该 ID，任何参数变化后都使用新 ID。
-
-仓库级 Codex Skill 位于 `.agents/skills/kairos-agent`，项目级 Codex MCP 配置位于 `.codex/config.toml`，默认连接 `http://127.0.0.1:8080/mcp`。从可信仓库启动 Codex 前，配置一种传输身份：
-
-```bash
-# Trusted Mode
-export KAIROS_ACTOR_ID=codex-backend
-export KAIROS_ACTOR_KIND=agent
-export KAIROS_ACTOR_ROLE=backend
-
-# 或 Authenticated Mode
-export KAIROS_IDENTITY_TOKEN='<issued-identity-token>'
-```
-
-只有 Agent Claim 使用 lease，Human Claim 不使用。`claim_task` 与 `heartbeat_claim` 接受可选的 `lease_seconds`，服务端会将其限制在 15 秒至 30 分钟之间；省略时使用 `KAIROS_AGENT_CLAIM_LEASE`，默认 60 秒。后台 reaper 将过期 Agent Claim 恢复为 Pending，过期 Claim 不能复活或继续提交结果。
-
-项目 MCP 配置或这些环境变量变化后需要重启 Codex 任务。Skill 会指导 Agent 完成“发现 → 检查 → Claim → 执行并 heartbeat → 提交/失败/释放 → 验证”。真实 SQLite 的 Trusted 与 Authenticated MCP 闭环测试见 `internal/mcpapi/mcpapi_test.go`。
+Kairos 提供面向执行的 MCP 接入面，并在 `.agents/skills/kairos-agent` 提供仓库级 Codex Skill。Skill 为兼容 Harness 提供持久的“发现 → Claim → heartbeat → 提交”执行循环。集成与配置细节见 [API 参考](docs/api-reference.zh-CN.md)。
 
 ## 设计白皮书
 
@@ -205,3 +139,4 @@ export KAIROS_IDENTITY_TOKEN='<issued-identity-token>'
 6. [人类交互模型](docs/whitepapers/06-human-interaction-model.zh-CN.md)
 7. [Agent 交互模型](docs/whitepapers/07-agent-interaction-model.zh-CN.md)
 8. [Agent 身份模型](docs/whitepapers/08-agent-identity-model.zh-CN.md)
+9. [API 参考](docs/api-reference.zh-CN.md)

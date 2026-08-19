@@ -1,8 +1,14 @@
 [mcp_servers.kairos]
 url = "http://127.0.0.1:8080/mcp"
-bearer_token_env_var = "KAIROS_IDENTITY_TOKEN"
 env_http_headers = { "X-Kairos-Actor-Id" = "KAIROS_ACTOR_ID", "X-Kairos-Actor-Kind" = "KAIROS_ACTOR_KIND", "X-Kairos-Actor-Role" = "KAIROS_ACTOR_ROLE" }
 enabled = true
 required = false
 default_tools_approval_mode = "writes"
 tool_timeout_sec = 60
+
+# For Authenticated Mode, use a separate server entry instead of combining
+# Bearer authentication with Trusted actor headers:
+# [mcp_servers.kairos_authenticated]
+# url = "http://127.0.0.1:8080/mcp"
+# bearer_token_env_var = "KAIROS_IDENTITY_TOKEN"
+# enabled = true

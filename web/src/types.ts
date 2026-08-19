@@ -16,6 +16,7 @@ export interface Submission { ID: string; TaskID: string; ClaimID: string; Resul
 export interface Failure { ID: string; TaskID: string; ClaimID: string; Action: string; Reason: string; RetryPrompt: string; FailedAt: string }
 export interface Task {
   ID: string; WorkItemID: string; Status: TaskStatus; ActiveClaimID: string | null; ParentTaskID: string | null
+  WorkflowTaskID?: string | null
   Title: string; Description: string; AcceptanceCriteria: string; Executor: 'agent' | 'human' | 'either'
   AllowedRoles: string[]; Tags: string[]; Reviews: Review[]; Submissions: Submission[]; Failures: Failure[]; TransitionDecisions: unknown[]
   Position: number; CreatedAt: string; UpdatedAt: string; CompletedAt: string | null
@@ -36,7 +37,7 @@ export interface TaskExecutionContext {
 export interface TaskRelation { WorkItemID: string; FromTaskID: string; ToTaskID: string }
 export interface BlackboardTaskDecomposition { Parent: Task; Children: Task[] }
 export interface DefinitionContext { Name: string; Description: string; AgentInstructions: string; SuggestedTags: string[] }
-export interface WorkItemContext { WorkItem: WorkItem; Definition: DefinitionContext; Tasks: Task[]; Relations: TaskRelation[]; ActiveClaims: Claim[] }
+export interface WorkItemContext { WorkItem: WorkItem; Definition: DefinitionContext; Tasks: Task[]; Relations: TaskRelation[]; Claims: Claim[]; ActiveClaims: Claim[] }
 export interface Definition {
   ID: string; Version: number; Name: string; Description: string; AgentInstructions: string
   SuggestedTags: string[]; Status: 'draft' | 'published' | 'archived'; Graph?: unknown

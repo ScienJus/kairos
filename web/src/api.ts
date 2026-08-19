@@ -45,6 +45,7 @@ export const api = {
   getTaskContext: (identity: Identity, id: string) => request<TaskExecutionContext>(`/api/v1/tasks/${id}/context`, identity),
   listBlackboardDefinitions: (identity: Identity) => request<Definition[]>('/api/v1/definitions/blackboards', identity),
   listWorkflowDefinitions: (identity: Identity) => request<WorkflowDefinition[]>('/api/v1/definitions/workflows', identity),
+  getWorkflowDefinition: (identity: Identity, id: string, version: number) => request<WorkflowDefinition>(`/api/v1/definitions/workflows/${encodeURIComponent(id)}/versions/${version}`, identity),
   listDefinitions: async (identity: Identity) => {
     const [blackboards, workflows] = await Promise.all([
       request<Definition[]>('/api/v1/definitions/blackboards', identity),

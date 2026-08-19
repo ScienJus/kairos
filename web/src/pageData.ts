@@ -15,3 +15,11 @@ export function useWorkItemData(identity: Identity, workItemID: string | null) {
     enabled: Boolean(workItemID),
   })
 }
+
+export function useWorkflowDefinitionData(identity: Identity, definitionID: string | null, version: number | null) {
+  return useQuery({
+    queryKey: ['workflow-definition', identity, definitionID, version],
+    queryFn: () => api.getWorkflowDefinition(identity, definitionID!, version!),
+    enabled: Boolean(definitionID && version),
+  })
+}

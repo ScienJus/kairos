@@ -19,7 +19,7 @@ function taskDraftInput(draft: TaskDraft) {
 
 function shortID(id: string) { return id.slice(0, 8).toUpperCase() }
 
-export function TaskDetail({ task, activeClaim, identity, mode }: { task: Task; activeClaim: Claim | null; identity: Identity; mode: string }) {
+export function TaskDetail({ task, activeClaim, executionClaim, identity, mode }: { task: Task; activeClaim: Claim | null; executionClaim?: Claim | null; identity: Identity; mode: string }) {
   const { t, formatTime } = useI18n()
   const canHumanExecute = task.Executor === 'human' || task.Executor === 'either'
   const ownsClaim = activeClaim?.Executor.Kind === identity.kind && activeClaim.Executor.ID === identity.id
@@ -33,6 +33,8 @@ export function TaskDetail({ task, activeClaim, identity, mode }: { task: Task; 
   const operationTask = execution.data?.Task ?? task
   const operationClaim = execution.data?.Claims.find(item => !item.EndedAt && item.Executor.Kind === identity.kind && item.Executor.ID === identity.id) ?? activeClaim
   const operationOwnsClaim = operationClaim?.Executor.Kind === identity.kind && operationClaim.Executor.ID === identity.id
+  const displayedClaim = activeClaim ?? executionClaim
+  const claimLabel = task.Status === 'completed' ? t('executedBy') : t('claimedBy')
   const defaultOperation: TaskOperation | null = hasPendingReview ? 'review'
     : operationTask.Status === 'pending' ? (canHumanExecute ? 'start' : mode === 'blackboard' ? 'skip' : null)
       : operationTask.Status === 'working' && operationOwnsClaim ? (canHumanExecute ? 'complete' : canDecompose ? 'decompose' : null)
@@ -42,7 +44,7 @@ export function TaskDetail({ task, activeClaim, identity, mode }: { task: Task; 
   const latestResult = task.Submissions?.at(-1)?.Result
   const reviewStatus = (status: Review['Status']) => t(status === 'approved' ? 'statusApproved' : status === 'rejected' ? 'statusRejected' : 'statusPending')
   return <div className="task-detail"><div className="task-identity"><span>TASK / {shortID(task.ID)}</span><Status value={task.Status} /><h3>{task.Title}</h3><p>{task.Description || t('noDescription')}</p>{(task.Tags?.length ?? 0) > 0 && <div className="task-tags detail" aria-label={t('tags')}>{task.Tags?.map(tag => <span key={tag}>{tag}</span>)}</div>}</div>
-    <dl className="spec-list"><div><dt>{t('executor')}</dt><dd>{t(task.Executor)}</dd></div>{mode !== 'blackboard' && <div><dt>{t('role')}</dt><dd>{task.AllowedRoles?.join(', ') || t('unrestricted')}</dd></div>}<div><dt>{t('claimedBy')}</dt><dd>{activeClaim?.Executor.ID || t('unclaimed')}</dd></div></dl>
+    <dl className="spec-list"><div><dt>{t('executor')}</dt><dd>{t(task.Executor)}</dd></div>{mode !== 'blackboard' && <div><dt>{t('role')}</dt><dd>{task.AllowedRoles?.join(', ') || t('unrestricted')}</dd></div>}<div><dt>{claimLabel}</dt><dd>{displayedClaim?.Executor.ID || t('unclaimed')}</dd></div></dl>
     <div className="detail-block"><span>{t('acceptance')}</span><p>{task.AcceptanceCriteria || '—'}</p></div>
     {latestResult && <div className="result-block"><div><ShieldCheck size={16} /><span>{t('latestResult')}</span></div><pre>{latestResult}</pre></div>}
     {(task.Reviews?.length ?? 0) > 0 && <div className="timeline"><span>{t('reviewChannel')}</span>{task.Reviews?.map(item => <div className="timeline-item" key={item.ID}><i /><div><div><strong>{reviewStatus(item.Status)}</strong><time>{formatTime(item.RequestedAt)}</time></div><p>{item.Feedback || t('requestedBy', { actor: item.RequestedBy })}</p></div></div>)}</div>}

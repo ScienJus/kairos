@@ -49,7 +49,7 @@ The coordination mode determines where candidate Tasks come from:
 
 | Mode | Candidate Tasks |
 | --- | --- |
-| Workflow | Required Tasks whose prerequisites are satisfied, plus optional Tasks that were retained |
+| Workflow | Required Tasks whose prerequisites are satisfied, plus optional Tasks that were retained; role and graph state decide eligibility, not tags |
 | Blackboard | Tasks matching tags and query context |
 
 Candidate results provide enough information to compare work, including the WorkItem summary, Task objective, coordination mode, tags, and current eligibility reason. An agent can load full context before creating a Claim.
@@ -81,7 +81,7 @@ Definition Context applies to every WorkItem in the same collaboration space. Wo
 
 An agent can load more history and results on demand. Default context should prioritize information directly relevant to the current Task.
 
-Workflow Context supplies upstream runtime Tasks ordered by distance, currently legal Choice Groups, direct targets, and optional Tasks that can be decided in this progression. The agent submits the Task IDs it wants to skip, and Kairos partitions relations and unfolds paths according to the Workflow Definition. Blackboard Context supplies the current shared Tasks and suggested relations.
+Workflow Context supplies controlled upstream runtime Task summaries ordered by distance, including durable results, currently legal Choice Groups, direct targets, and optional Tasks that can be decided in this progression. The agent submits the Task IDs it wants to skip, and Kairos partitions relations and unfolds paths according to the Workflow Definition. Blackboard Context supplies the current shared Tasks and suggested relations. Full Task context remains restricted to the target Task's role and active Claim.
 
 ## 4. Execution and Submission
 
@@ -159,6 +159,6 @@ The Kairos agent interaction model is therefore independent of a specific Harnes
 
 Kairos exposes the proactive execution loop through a stateless Streamable HTTP MCP endpoint. Each HTTP request independently resolves the actor through Trusted or Authenticated Mode, so identity does not depend on an MCP session and is never accepted as a tool argument.
 
-The MCP surface contains work discovery, Task context, terminal-capable WorkItem context, Claim creation and heartbeat, submission, failure, Claim release, and Blackboard Task creation. `claim_task` and `heartbeat_claim` accept an optional requested `lease_seconds`; the server returns the granted duration and `lease_until`. Responses use compact `snake_case` execution views instead of exposing the full persistence model. Definition and Identity administration and human Review decisions stay outside the Agent surface. A repository-level Codex Skill supplies the execution and heartbeat loop plus idempotency discipline to compatible harnesses, while `.codex/config.toml` connects Codex to the local project server.
+The MCP surface contains work discovery, Task context, terminal-capable WorkItem context, Claim creation and heartbeat, submission, failure, Claim release, and Blackboard Task creation. `claim_task` and `heartbeat_claim` accept an optional requested `lease_seconds`; the server returns the granted duration and `lease_until`. In Blackboard task context, the top-level `task` is the current task; `blackboard.tasks` intentionally excludes it and exposes `blackboard.current_task_id` for correlation. Responses use compact `snake_case` execution views instead of exposing the full persistence model. Definition and Identity administration and human Review decisions stay outside the Agent surface. A repository-level Codex Skill supplies the execution and heartbeat loop plus idempotency discipline to compatible harnesses, while `.codex/config.toml` connects Codex to the local project server.
 
 > One execution protocol, two coordination modes.

@@ -336,10 +336,23 @@ type decomposeBlackboardTaskInput struct {
 	Children    []createBlackboardTaskInput `json:"children"`
 }
 type addBlackboardChildTaskInput struct {
-	ParentTaskID string                    `json:"parent_task_id"`
-	OperationID  string                    `json:"operation_id"`
-	Task         createBlackboardTaskInput `json:"task"`
+	ParentTaskID string                 `json:"parent_task_id"`
+	OperationID  string                 `json:"operation_id"`
+	Task         addBlackboardChildSpec `json:"task"`
 }
+type addBlackboardChildSpec struct {
+	Title              string   `json:"title" jsonschema:"Short executable task title."`
+	Description        string   `json:"description,omitempty"`
+	AcceptanceCriteria string   `json:"acceptance_criteria,omitempty"`
+	Executor           string   `json:"executor"`
+	AllowedRoles       []string `json:"allowed_roles,omitempty"`
+	Tags               []string `json:"tags,omitempty"`
+}
+
+func (input addBlackboardChildSpec) spec() application.BlackboardTaskSpec {
+	return application.BlackboardTaskSpec{Title: input.Title, Description: input.Description, AcceptanceCriteria: input.AcceptanceCriteria, Executor: domain.ExecutorRequirement(input.Executor), AllowedRoles: input.AllowedRoles, Tags: input.Tags}
+}
+
 type skipBlackboardTaskInput struct {
 	TaskID      string `json:"task_id"`
 	OperationID string `json:"operation_id"`

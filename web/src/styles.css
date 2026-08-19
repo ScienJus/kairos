@@ -415,6 +415,8 @@ body { background: var(--bg); }
 .check-row.checked .check-content strong { color: var(--muted); text-decoration: line-through; text-decoration-color: #aeb6b2; }
 
 .workflow-graph { width: 100%; height: 360px; overflow: hidden; background: #fbfcf9; border: 1px solid var(--border); border-radius: 6px; }
+.status-not_reached { color: var(--faint); }
+.status-node-not_reached { opacity: .58; border-style: dashed !important; cursor: default !important; }
 .react-flow__background { color: #dce4e3; }
 .react-flow__edge-path { stroke: #77969a; stroke-width: 1.5; }
 .react-flow__arrowhead { fill: #77969a; }

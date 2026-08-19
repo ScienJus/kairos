@@ -223,12 +223,12 @@ func TestCreateWorkflowWorkItemAndClaimByRole(t *testing.T) {
 		t.Fatalf("frontend candidates: got %d, want 0", len(frontendWork))
 	}
 
-	candidates, err := service.FindWork(context.Background(), FindWorkQuery{Identity: backend, Tags: []string{"backend"}})
+	candidates, err := service.FindWork(context.Background(), FindWorkQuery{Identity: backend, Tags: []string{"unrelated-visual-label"}})
 	if err != nil {
 		t.Fatalf("find backend work: %v", err)
 	}
 	if len(candidates) != 1 {
-		t.Fatalf("backend candidates: got %d, want 1", len(candidates))
+		t.Fatalf("workflow candidates must ignore tags: got %d, want 1", len(candidates))
 	}
 	if candidates[0].Definition.Name == "" {
 		t.Fatalf("backend candidate is missing Definition context: %#v", candidates[0])

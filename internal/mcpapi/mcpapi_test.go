@@ -129,6 +129,9 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	if taskContext.Task.Status != string(domain.TaskStatusWorking) || taskContext.Blackboard == nil {
 		t.Fatalf("task context = %+v", taskContext)
 	}
+	if taskContext.Blackboard.CurrentTaskID != created.Task.ID {
+		t.Fatalf("blackboard current_task_id = %q, want %q", taskContext.Blackboard.CurrentTaskID, created.Task.ID)
+	}
 	if len(taskContext.Blackboard.Tasks) != 2 || taskContext.Blackboard.Tasks[0].ID != retryTask.Task.ID || taskContext.Blackboard.Tasks[1].ID != skippable.Task.ID {
 		t.Fatalf("blackboard context duplicated current Task: %+v", taskContext.Blackboard.Tasks)
 	}
@@ -262,7 +265,7 @@ func TestMCPBlackboardPlanningTools(t *testing.T) {
 	if decomposed.Parent.Status != string(domain.TaskStatusWaitingChildren) || len(decomposed.Children) != 2 {
 		t.Fatalf("decomposition = %+v", decomposed)
 	}
-	child := callTool[taskOutput](t, ctx, session, "add_blackboard_child_task", addBlackboardChildTaskInput{ParentTaskID: parent.Task.ID, OperationID: "child-append-1", Task: createBlackboardTaskInput{Title: "Child three", Executor: "agent", AllowedRoles: []string{"backend"}}})
+	child := callTool[taskOutput](t, ctx, session, "add_blackboard_child_task", addBlackboardChildTaskInput{ParentTaskID: parent.Task.ID, OperationID: "child-append-1", Task: addBlackboardChildSpec{Title: "Child three", Executor: "agent", AllowedRoles: []string{"backend"}}})
 	if child.Task.ParentTaskID == nil || *child.Task.ParentTaskID != parent.Task.ID {
 		t.Fatalf("child = %+v", child.Task)
 	}

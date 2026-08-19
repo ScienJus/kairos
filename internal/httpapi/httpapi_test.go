@@ -139,6 +139,9 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if workItemContext.ActiveClaims == nil || len(workItemContext.ActiveClaims) != 0 {
 		t.Fatalf("completed WorkItem active claims = %#v, want non-nil empty slice", workItemContext.ActiveClaims)
 	}
+	if len(workItemContext.Claims) != 1 || workItemContext.Claims[0].ID != claim.ID || workItemContext.Claims[0].Executor.ID != claim.Executor.ID {
+		t.Fatalf("completed WorkItem claim history = %#v, want claim %q by %q", workItemContext.Claims, claim.ID, claim.Executor.ID)
+	}
 
 	candidates = requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work", nil, "", http.StatusOK)
 	if candidates == nil || len(candidates) != 0 {

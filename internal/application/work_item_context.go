@@ -84,6 +84,7 @@ type WorkItemExecutionContext struct {
 	Definition   DefinitionExecutionContext
 	Tasks        []domain.Task
 	Relations    []domain.TaskRelation
+	Claims       []domain.Claim
 	ActiveClaims []domain.Claim
 }
 
@@ -130,16 +131,18 @@ func (s *Service) GetWorkItemExecutionContext(
 		if relations == nil {
 			relations = []domain.TaskRelation{}
 		}
+		claims := []domain.Claim{}
 		activeClaims := []domain.Claim{}
 		for _, task := range tasks {
-			if task.ActiveClaimID == nil {
-				continue
-			}
-			claims, err := store.ListClaims(task.ID)
+			taskClaims, err := store.ListClaims(task.ID)
 			if err != nil {
 				return fmt.Errorf("list claims for task %q: %w", task.ID, err)
 			}
-			for _, claim := range claims {
+			claims = append(claims, taskClaims...)
+			if task.ActiveClaimID == nil {
+				continue
+			}
+			for _, claim := range taskClaims {
 				if claim.ID == *task.ActiveClaimID && claim.Active() {
 					activeClaims = append(activeClaims, claim)
 					break
@@ -148,7 +151,7 @@ func (s *Service) GetWorkItemExecutionContext(
 		}
 		result = WorkItemExecutionContext{
 			WorkItem: normalizeWorkItemCollections(workItem), Definition: normalizeDefinitionContext(definition),
-			Tasks: normalizeTasks(tasks), Relations: relations, ActiveClaims: activeClaims,
+			Tasks: normalizeTasks(tasks), Relations: relations, Claims: claims, ActiveClaims: activeClaims,
 		}
 		return nil
 	})

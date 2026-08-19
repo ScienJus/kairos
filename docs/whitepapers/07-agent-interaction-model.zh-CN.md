@@ -49,7 +49,7 @@ executor = agent | either
 
 | 模式 | 候选 Task |
 | --- | --- |
-| Workflow | 前置关系已满足的 required Task，以及决定保留的 optional Task |
+| Workflow | 前置关系已满足的 required Task，以及决定保留的 optional Task；候选由 role 与图状态决定，不由 tags 过滤 |
 | Blackboard | 符合 tags 和查询上下文的 Task |
 
 候选结果提供足够的信息帮助 Agent 比较工作，包括 WorkItem 摘要、Task 目标、协调模式、tags 和当前可执行原因。Agent 可以进一步读取完整上下文后再建立 Claim。
@@ -81,7 +81,7 @@ Definition Context 对同一协作空间中的全部 WorkItem 生效。Workflow 
 
 Agent 可以按需读取更多历史和成果。默认上下文应优先提供与当前 Task 直接相关的信息。
 
-Workflow Context 提供按距离排列的上游运行时 Task、当前合法的 Choice Group、直接目标和本次可判断的 optional Task。Agent 提交需要跳过的 Task ID，Kairos 根据 Workflow Definition 负责关系分区和路径展开。Blackboard Context 提供当前共享的 Task 与建议关系。
+Workflow Context 提供按距离排列的受控上游运行时 Task 摘要（包括 durable result）、当前合法的 Choice Group、直接目标和本次可判断的 optional Task。Agent 提交需要跳过的 Task ID，Kairos 根据 Workflow Definition 负责关系分区和路径展开。Blackboard Context 提供当前共享的 Task 与建议关系，并支持 tags 筛选。直接读取其他 Task 的完整上下文仍受目标 Task 的 role 与 active Claim 限制。
 
 ## 4. 执行与提交
 
@@ -159,6 +159,6 @@ Bridge 可以选择 Task、启动 Agent、提供上下文并回传进展与成�
 
 Kairos 通过无状态 Streamable HTTP MCP 端点暴露主动执行闭环。每个 HTTP 请求都独立通过 Trusted 或 Authenticated Mode 解析 Actor，因此身份不依赖 MCP Session，也不会作为工具参数被接受。
 
-MCP 接入面包含工作发现、Task 上下文、可读取终态的 WorkItem 上下文、Claim 创建与 heartbeat、提交、失败、Claim 释放与 Blackboard Task 创建。`claim_task` 与 `heartbeat_claim` 接受可选的 `lease_seconds`，服务端返回实际批准的时长与 `lease_until`。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行与 heartbeat 循环及幂等调用纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
+MCP 接入面包含工作发现、Task 上下文、可读取终态的 WorkItem 上下文、Claim 创建与 heartbeat、提交、失败、Claim 释放与 Blackboard Task 创建。`claim_task` 与 `heartbeat_claim` 接受可选的 `lease_seconds`，服务端返回实际批准的时长与 `lease_until`。Blackboard Task 上下文中的顶层 `task` 是当前任务；`blackboard.tasks` 会有意排除当前任务，并通过 `blackboard.current_task_id` 提供关联。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行与 heartbeat 循环及幂等调用纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
 
 > One execution protocol, two coordination modes.

@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { ArrowLeft, Bot, UserRound, X, XCircle } from 'lucide-react'
 import { APIError } from './api'
 import { useI18n } from './i18n'
-import { useWorkItemData } from './pageData'
+import { useWorkItemData, useWorkflowDefinitionData } from './pageData'
 import type { HomeView, RouteState } from './route'
 import { TaskDetail, CreateTask, EmptyBlackboardActions } from './TaskDetail'
 import { TaskMap } from './TaskMap'
@@ -18,8 +18,11 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
 }) {
   const { t } = useI18n()
   const context = useWorkItemData(identity, workItemID)
+  const workflowBinding = context.data?.WorkItem.Definition.Mode === 'workflow' ? context.data.WorkItem.Definition : null
+  const workflowDefinition = useWorkflowDefinitionData(identity, workflowBinding?.ID ?? null, workflowBinding?.Version ?? null)
   const selectedTask = context.data?.Tasks.find(task => task.ID === selectedTaskID) ?? null
   const selectedTaskClaim = selectedTask ? context.data?.ActiveClaims.find(claim => claim.TaskID === selectedTask.ID) ?? null : null
+  const selectedTaskExecutionClaim = selectedTask?.Submissions.at(-1)?.ClaimID ? context.data?.Claims.find(claim => claim.ID === selectedTask.Submissions.at(-1)?.ClaimID) ?? null : null
   const pendingReviews = context.data?.Tasks.flatMap(task => (task.Reviews ?? []).filter(review => review.Status === 'pending')) ?? []
 
   useEffect(() => {
@@ -46,14 +49,14 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
         {(context.data.WorkItem.AcceptanceCriteria || context.data.WorkItem.Context || context.data.WorkItem.Constraints) && <details className="work-brief"><summary>{t('readBrief')}</summary><div className="brief-grid">{context.data.WorkItem.Context && <Brief label={t('context')} value={context.data.WorkItem.Context} />}{context.data.WorkItem.AcceptanceCriteria && <Brief label={t('doneWhen')} value={context.data.WorkItem.AcceptanceCriteria} />}{context.data.WorkItem.Constraints && <Brief label={t('keepInMind')} value={context.data.WorkItem.Constraints} />}</div></details>}
         <div className="task-section"><div className="section-heading"><div><h2>{t(context.data.WorkItem.Definition.Mode === 'workflow' ? 'workflowTitle' : 'blackboardTitle')}</h2><p>{t(context.data.WorkItem.Definition.Mode === 'workflow' ? 'workflowBody' : 'blackboardBody')}</p></div>{context.data.WorkItem.Definition.Mode === 'blackboard' && context.data.WorkItem.Status === 'open' && context.data.Tasks.length > 0 && <CreateTask identity={identity} workItemID={workItemID} />}</div>
           {context.data.WorkItem.Definition.Mode === 'blackboard' && context.data.WorkItem.Status === 'open' && context.data.Tasks.length === 0 && <EmptyBlackboardActions identity={identity} workItemID={workItemID} />}
-          <TaskMap mode={context.data.WorkItem.Definition.Mode} tasks={context.data.Tasks} relations={context.data.Relations} selectedTaskID={selectedTaskID} onSelect={taskID => navigate({ workItemID, taskID, homeView })} />
+          <TaskMap mode={context.data.WorkItem.Definition.Mode} tasks={context.data.Tasks} relations={context.data.Relations} workflowDefinition={workflowDefinition.data} selectedTaskID={selectedTaskID} onSelect={taskID => navigate({ workItemID, taskID, homeView })} />
         </div>
       </>}
     </section>
 
     {selectedTask && <><button className="inspector-backdrop" aria-label={t('closeTask')} onClick={() => navigate({ workItemID, taskID: null, homeView })} /><aside className="task-panel mobile-task">
       <div className="panel-header"><div><span className="eyebrow">{t('selectedTask')}</span><h2>{t('taskDetails')}</h2></div><div className="panel-actions">{selectedTask.Executor === 'agent' ? <Bot size={20} /> : <UserRound size={20} />}<button className="icon-button" onClick={() => navigate({ workItemID, taskID: null, homeView })} aria-label={t('closeTask')}><X size={17} /></button></div></div>
-      <TaskDetail key={selectedTask.ID} task={selectedTask} activeClaim={selectedTaskClaim} identity={identity} mode={context.data!.WorkItem.Definition.Mode} />
+      <TaskDetail key={selectedTask.ID} task={selectedTask} activeClaim={selectedTaskClaim} executionClaim={selectedTaskExecutionClaim} identity={identity} mode={context.data!.WorkItem.Definition.Mode} />
     </aside></>}
   </>
 }

@@ -60,7 +60,9 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 				}
 				return err
 			}
-			if !containsAll(candidate.Task.Tags, query.Tags) {
+			// Workflow eligibility is determined by graph state and role. Tags are
+			// descriptive metadata for Workflow tasks, not an execution filter.
+			if candidate.WorkItem.CoordinationMode() != domain.CoordinationModeWorkflow && !containsAll(candidate.Task.Tags, query.Tags) {
 				continue
 			}
 			definition, err := loadDefinitionExecutionContext(store, candidate.WorkItem)

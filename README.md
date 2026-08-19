@@ -114,86 +114,20 @@ For development, use Go 1.26.5 or later and run:
 go test ./...
 ```
 
-## HTTP API
+## Running Kairos
 
-The server uses Trusted Mode and SQLite by default:
-
-```bash
-KAIROS_SQLITE_PATH=kairos.db \
-KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
-KAIROS_AGENT_CLAIM_LEASE=60s \
-go run ./cmd/kairos-server
-```
-
-Every request except `/healthz` requires identity headers:
-
-```text
-X-Kairos-Actor-Id: codex-backend
-X-Kairos-Actor-Role: backend
-```
-
-The Actor ID is both the stable identity and its readable name, so it should not be casually renamed. `X-Kairos-Actor-Kind` defaults to `agent`; set it to `human` for human review decisions. Trusted Mode must only be used when callers and transport are inside the trust boundary because the service accepts these headers without authentication. Mutation requests can use `Idempotency-Key` for durable idempotency.
-
-Shared environments should use Authenticated Mode. The Admin Token must contain at least 32 characters and protects identity management APIs:
+Build the operations console and embedded server, then open `http://127.0.0.1:8080`:
 
 ```bash
-KAIROS_AUTH_MODE=authenticated \
-KAIROS_ADMIN_TOKEN='<high-entropy-admin-token>' \
-KAIROS_SQLITE_PATH=kairos.db \
-go run ./cmd/kairos-server
+make build
+./bin/kairos-server
 ```
 
-Administrators call these endpoints with `Authorization: Bearer <admin-token>`:
+The default uses SQLite and Trusted Mode. Shared deployments should use Authenticated Mode. See the [API Reference](docs/api-reference.md) for development-only server startup, HTTP routes, identity configuration, MCP transport, and response contracts.
 
-- `POST /api/v1/identities` creates a one-to-one `Token → Actor ID → Role`; plaintext Token is returned only once;
-- `GET /api/v1/identities` and `GET /api/v1/identities/{kind}/{id}` return identity data without Token hashes;
-- `POST /api/v1/identities/{kind}/{id}/token` rotates the Token and immediately invalidates the old one;
-- `DELETE /api/v1/identities/{kind}/{id}/token` revokes the Token while retaining Actor history.
+## MCP and Agent Integration
 
-Work requests use the issued `Authorization: Bearer <identity-token>`. Authenticated Mode ignores all `X-Kairos-Actor-*` headers; ID, Kind, and Role come only from the server-side identity record. An Agent has exactly one required Role, while a Human has none. Role and Actor ID remain stable together; create a separate Actor Identity when another Role is needed.
-
-`/api/v1` exposes Definition management, WorkItem creation, Blackboard planning, work discovery, Task and WorkItem execution context, Claims, submissions, failures, decomposition, skipping, and review decisions. A terminal WorkItem remains readable at `GET /api/v1/work-items/{work_item_id}/context`, including its aggregated result and Task summaries. Definition versions are immutable; clients explicitly provide `version` when creating one.
-
-Definitions use separate resources for the two coordination modes:
-
-| | Workflow | Blackboard |
-| --- | --- | --- |
-| Create and list | `/definitions/workflows` | `/definitions/blackboards` |
-| Read a version | `/definitions/workflows/{id}/versions/{version}` | `/definitions/blackboards/{id}/versions/{version}` |
-| Definition content | A published version requires a valid formal Task Graph | Shared metadata and collaboration guidance only |
-| After WorkItem creation | Start Tasks are instantiated immediately from the Graph | Remains empty and is discovered as a planning candidate |
-| Further planning | Runtime follows formal relations and choice groups | Collaborators dynamically add Tasks, hierarchy, and suggested relations |
-
-The real-SQLite Trusted and Authenticated HTTP flows are covered by `internal/httpapi/httpapi_test.go` and `internal/httpapi/authenticated_test.go`.
-
-## MCP and Codex Skill
-
-The server exposes a stateless Streamable HTTP MCP endpoint at `/mcp`. It uses the same identity resolver as `/api/v1`: Trusted Mode accepts `X-Kairos-Actor-*` transport headers, while Authenticated Mode requires the issued `Authorization: Bearer <identity-token>`. Identity values never appear in tool arguments.
-
-The execution surface contains fourteen tools with compact `snake_case` structured results:
-
-- `find_work`, `get_task_context`, and `get_work_item_context` for discovery and inspection, including terminal WorkItems;
-- `claim_task`, `heartbeat_claim`, `release_claim`, `submit_task`, and `fail_task` for the Claim lifecycle;
-- `create_blackboard_task` for planning an empty or open Blackboard.
-- `add_blackboard_relation`, `decompose_blackboard_task`, `add_blackboard_child_task`, `skip_blackboard_task`, and `complete_blackboard` for dynamic Blackboard planning.
-
-Definition management, Identity management, and human Review decisions intentionally remain HTTP-only. Every MCP mutation requires a caller-generated `operation_id`; retry the same logical call with the same ID and use a new ID when any argument changes.
-
-The repository-level Codex Skill is available at `.agents/skills/kairos-agent`. Project-level Codex MCP configuration lives in `.codex/config.toml` and points to the default `http://127.0.0.1:8080/mcp` endpoint. Configure one transport identity before starting Codex from this trusted repository:
-
-```bash
-# Trusted Mode
-export KAIROS_ACTOR_ID=codex-backend
-export KAIROS_ACTOR_KIND=agent
-export KAIROS_ACTOR_ROLE=backend
-
-# Or Authenticated Mode
-export KAIROS_IDENTITY_TOKEN='<issued-identity-token>'
-```
-
-Agent Claims use leases; human Claims do not. `claim_task` and `heartbeat_claim` accept an optional `lease_seconds`, which the server clamps to 15 seconds through 30 minutes. An omitted value uses `KAIROS_AGENT_CLAIM_LEASE` (60 seconds by default). The background reaper returns expired Agent Claims to Pending, and an expired Claim cannot be revived or used to submit a result.
-
-Restart the Codex task after changing project MCP configuration or these environment variables. The Skill guides an agent through discover → inspect → claim → execute with heartbeat → submit/fail/release → verify. Real-SQLite Trusted and Authenticated MCP flows are covered by `internal/mcpapi/mcpapi_test.go`.
+Kairos exposes an execution-focused MCP surface and a repository-level Codex Skill at `.agents/skills/kairos-agent`. The Skill gives compatible harnesses a durable discover → claim → heartbeat → submit loop. Integration and configuration details live in the [API Reference](docs/api-reference.md).
 
 ## Design Whitepapers
 
@@ -205,3 +139,4 @@ Restart the Codex task after changing project MCP configuration or these environ
 6. [Human Interaction Model](docs/whitepapers/06-human-interaction-model.md)
 7. [Agent Interaction Model](docs/whitepapers/07-agent-interaction-model.md)
 8. [Agent Identity Model](docs/whitepapers/08-agent-identity-model.md)
+9. [API Reference](docs/api-reference.md)

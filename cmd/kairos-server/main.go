@@ -42,7 +42,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	claimLease, err := time.ParseDuration(environment("KAIROS_AGENT_CLAIM_LEASE", "60s"))
+	claimLease, err := time.ParseDuration(environment("KAIROS_AGENT_CLAIM_LEASE", "5m"))
 	if err != nil {
 		return fmt.Errorf("parse KAIROS_AGENT_CLAIM_LEASE: %w", err)
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-const DefaultClaimLease = 60 * time.Second
+const DefaultClaimLease = 5 * time.Minute
 const MinClaimLease = 15 * time.Second
 const MaxClaimLease = 30 * time.Minute
 

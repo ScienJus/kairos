@@ -13,7 +13,7 @@ export function Status({ value }: { value: string }) {
   const { t } = useI18n()
   const labels: Record<string, MessageKey> = {
     open: 'statusOpen', completed: 'statusCompleted', cancelled: 'statusCancelled', failed: 'statusFailed',
-    pending: 'statusPending', working: 'statusWorking', waiting_children: 'statusWaiting', in_review: 'statusReview', skipped: 'statusSkipped',
+    pending: 'statusPending', working: 'statusWorking', waiting_children: 'statusWaiting', in_review: 'statusReview', skipped: 'statusSkipped', not_reached: 'statusNotReached',
   }
   const key = labels[value]
   return <span className={`status status-${value}`}><i />{key ? t(key) : value.toUpperCase()}</span>
