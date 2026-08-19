@@ -59,8 +59,8 @@ Supported collaboration capabilities:
 - **Open subtrees**: collaborators can append children until an aggregate Task closes; parents complete recursively.
 - **Dynamic Review**: an executor can request human Review when submitting a result.
 - **Continuous expansion**: an executor creates follow-up Tasks before ending the current Task when more work is needed.
-- **Automatic completion**: the WorkItem completes when its final Task ends; an empty Blackboard can also complete directly.
-- **Optional acceptance**: a WorkItem may require no acceptance, agent acceptance, or human acceptance after Tasks converge.
+- **Explicit completion**: after current Tasks converge, a collaborator either plans more work or submits a durable WorkItem completion result.
+- **Optional acceptance**: a completion submission may require no acceptance, agent acceptance, or human acceptance.
 
 ## Shared Execution Semantics
 

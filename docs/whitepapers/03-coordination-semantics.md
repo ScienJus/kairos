@@ -108,18 +108,18 @@ Blackboard is therefore dynamic throughout execution. Collaborators complete Tas
 
 ## 5. Completion Semantics
 
-Both modes use the same completion condition:
+Workflow completion is derived from formal graph closure:
 
 ```text
-Every produced Task is Completed or Skipped
+Every produced Workflow Task is Completed or Skipped
 + no structural progression remains pending
-                    ↓
-            WorkItem Completed
+                         ↓
+                 WorkItem Completed
 ```
 
-In Workflow, structural progression is determined by the Definition, path choices, and cycle state. In Blackboard, the executor decides before ending the current Task whether the plan needs expansion. If more work is needed, the executor creates follow-up Tasks first; otherwise the final Task ends the WorkItem. A collaborator can also explicitly complete an empty Blackboard.
+In Workflow, structural progression is determined by the Definition, path choices, and cycle state. Blackboard has no formal graph closure: when its current Tasks converge, the WorkItem remains open and exposes a completion decision. A collaborator either creates more Tasks or explicitly submits a durable completion result. Only that submission applies the configured acceptance policy and can eventually complete the WorkItem.
 
-The coordination mode determines how Tasks are produced, while the WorkItem closure condition remains consistent.
+The coordination mode therefore determines both how Tasks are produced and how WorkItem completion is declared.
 
 ## 6. Mode Boundary
 

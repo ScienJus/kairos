@@ -18,7 +18,7 @@ type FindWorkQuery struct {
 	Limit    int
 }
 
-// FindWork returns visible Tasks and empty Blackboards that need planning.
+// FindWork returns visible Tasks and Blackboards that need planning or a lifecycle decision.
 func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCandidate, error) {
 	if err := query.Identity.Validate(); err != nil {
 		return nil, err
@@ -34,84 +34,116 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 
 	result := make([]WorkCandidate, 0)
 	err := s.repository.View(ctx, func(store ReadStore) error {
-		candidates, err := store.ListOpenTasks()
+		atLimit := func() bool { return query.Limit > 0 && len(result) >= query.Limit }
+
+		workItems, err := store.ListBlackboardsAwaitingLifecycleDecision()
 		if err != nil {
-			return fmt.Errorf("list open tasks: %w", err)
+			return fmt.Errorf("list blackboards for completion or acceptance: %w", err)
 		}
-		for _, candidate := range candidates {
-			if candidate.Kind != WorkCandidateTask {
-				continue
+	lifecyclePriority:
+		for _, status := range []domain.WorkItemStatus{
+			domain.WorkItemStatusAwaitingAgentAcceptance,
+			domain.WorkItemStatusOpen,
+		} {
+			for _, workItem := range workItems {
+				if workItem.Status != status || !containsAll(workItem.Tags, query.Tags) {
+					continue
+				}
+				kind := WorkCandidateBlackboardCompletion
+				if status == domain.WorkItemStatusAwaitingAgentAcceptance {
+					if query.Identity.Actor.Kind != domain.ActorAgent {
+						continue
+					}
+					kind = WorkCandidateWorkItemAcceptance
+				}
+				result = append(result, WorkCandidate{Kind: kind, WorkItem: workItem})
+				if atLimit() {
+					break lifecyclePriority
+				}
 			}
-			if candidate.WorkItem.Status != domain.WorkItemStatusOpen || candidate.Task == nil || candidate.Task.Status != domain.TaskStatusPending {
-				continue
+		}
+
+		if !atLimit() {
+			candidates, err := store.ListOpenTasks()
+			if err != nil {
+				return fmt.Errorf("list open tasks: %w", err)
 			}
-			if candidate.WorkItem.CoordinationMode() == domain.CoordinationModeWorkflow {
-				eligible, err := workflowTaskEligible(store, candidate.WorkItem, *candidate.Task)
-				if err != nil {
+			for _, candidate := range candidates {
+				if candidate.Kind != WorkCandidateTask {
+					continue
+				}
+				if candidate.WorkItem.Status != domain.WorkItemStatusOpen || candidate.Task == nil || candidate.Task.Status != domain.TaskStatusPending {
+					continue
+				}
+				if candidate.WorkItem.CoordinationMode() == domain.CoordinationModeWorkflow {
+					eligible, err := workflowTaskEligible(store, candidate.WorkItem, *candidate.Task)
+					if err != nil {
+						return err
+					}
+					if !eligible {
+						continue
+					}
+				}
+				if err := identityCanExecute(query.Identity, *candidate.Task); err != nil {
+					if errorsIsForbidden(err) {
+						continue
+					}
 					return err
 				}
-				if !eligible {
+				// Workflow eligibility is determined by graph state and role. Tags are
+				// descriptive metadata for Workflow tasks, not an execution filter.
+				if candidate.WorkItem.CoordinationMode() != domain.CoordinationModeWorkflow && !containsAll(candidate.Task.Tags, query.Tags) {
 					continue
 				}
+				result = append(result, candidate)
+				if atLimit() {
+					break
+				}
 			}
-			if err := identityCanExecute(query.Identity, *candidate.Task); err != nil {
-				if errorsIsForbidden(err) {
+		}
+
+		if !atLimit() {
+			emptyBlackboards, err := store.ListEmptyBlackboards()
+			if err != nil {
+				return fmt.Errorf("list empty blackboards: %w", err)
+			}
+			for _, workItem := range emptyBlackboards {
+				if !containsAll(workItem.Tags, query.Tags) {
 					continue
 				}
-				return err
-			}
-			// Workflow eligibility is determined by graph state and role. Tags are
-			// descriptive metadata for Workflow tasks, not an execution filter.
-			if candidate.WorkItem.CoordinationMode() != domain.CoordinationModeWorkflow && !containsAll(candidate.Task.Tags, query.Tags) {
-				continue
-			}
-			definition, err := loadDefinitionExecutionContext(store, candidate.WorkItem)
-			if err != nil {
-				return err
-			}
-			candidate.Definition = definition
-			result = append(result, candidate)
-			if query.Limit > 0 && len(result) == query.Limit {
-				return nil
+				result = append(result, WorkCandidate{Kind: WorkCandidateEmptyBlackboard, WorkItem: workItem})
+				if atLimit() {
+					break
+				}
 			}
 		}
-		emptyBlackboards, err := store.ListEmptyBlackboards()
+
+		bindings := make([]domain.DefinitionBinding, 0, len(result))
+		seenBindings := make(map[domain.DefinitionBinding]struct{}, len(result))
+		for _, candidate := range result {
+			binding := candidate.WorkItem.Definition
+			if _, exists := seenBindings[binding]; exists {
+				continue
+			}
+			seenBindings[binding] = struct{}{}
+			bindings = append(bindings, binding)
+		}
+		definitions, err := store.GetDefinitionMetadata(bindings)
 		if err != nil {
-			return fmt.Errorf("list empty blackboards: %w", err)
+			return fmt.Errorf("get candidate definitions: %w", err)
 		}
-		for _, workItem := range emptyBlackboards {
-			if !containsAll(workItem.Tags, query.Tags) {
-				continue
+		for index := range result {
+			binding := result[index].WorkItem.Definition
+			metadata, exists := definitions[binding]
+			if !exists {
+				return fmt.Errorf("%w: definition %q version %d mode %q", ErrNotFound, binding.ID, binding.Version, binding.Mode)
 			}
-			definition, err := store.GetBlackboardDefinition(workItem.Definition.ID, workItem.Definition.Version)
-			if err != nil {
-				return fmt.Errorf("get empty blackboard definition: %w", err)
+			result[index].WorkItem = normalizeWorkItemCollections(result[index].WorkItem)
+			if result[index].Task != nil {
+				task := normalizeTaskCollections(*result[index].Task)
+				result[index].Task = &task
 			}
-			result = append(result, WorkCandidate{
-				Kind:       WorkCandidateEmptyBlackboard,
-				WorkItem:   workItem,
-				Definition: definitionExecutionContext(definition.DefinitionMetadata),
-			})
-			if query.Limit > 0 && len(result) == query.Limit {
-				break
-			}
-		}
-		workItems, err := store.ListWorkItems()
-		if err != nil {
-			return fmt.Errorf("list work items for acceptance: %w", err)
-		}
-		for _, workItem := range workItems {
-			if workItem.Status != domain.WorkItemStatusAwaitingAgentAcceptance || workItem.CoordinationMode() != domain.CoordinationModeBlackboard || !containsAll(workItem.Tags, query.Tags) {
-				continue
-			}
-			definition, err := store.GetBlackboardDefinition(workItem.Definition.ID, workItem.Definition.Version)
-			if err != nil {
-				return fmt.Errorf("get acceptance definition: %w", err)
-			}
-			result = append(result, WorkCandidate{Kind: WorkCandidateWorkItemAcceptance, WorkItem: workItem, Definition: definitionExecutionContext(definition.DefinitionMetadata)})
-			if query.Limit > 0 && len(result) == query.Limit {
-				break
-			}
+			result[index].Definition = normalizeDefinitionContext(definitionExecutionContext(metadata))
 		}
 		return nil
 	})
@@ -119,6 +151,15 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 		return nil, err
 	}
 	return result, nil
+}
+
+func blackboardTasksConverged(tasks []domain.Task) bool {
+	for _, task := range tasks {
+		if task.Status != domain.TaskStatusCompleted && task.Status != domain.TaskStatusSkipped {
+			return false
+		}
+	}
+	return true
 }
 
 func containsAll(values, required []string) bool {

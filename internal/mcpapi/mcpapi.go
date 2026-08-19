@@ -15,7 +15,7 @@ import (
 
 const maxRequestBodyBytes = 1 << 20
 
-const serverInstructions = "Use find_work to discover eligible work. For an empty_blackboard, create a concrete task and discover again. Read task context before claim_task; execute only after a successful claim. End every claim with submit_task, fail_task, or release_claim. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
+const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. End every claim with submit_task, fail_task, or release_claim. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
 
 // Handler serves a stateless Streamable HTTP MCP endpoint. Every request is
 // authenticated independently before the SDK dispatches a tool call.
@@ -75,7 +75,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "find_work",
 		Title:       "Find Kairos work",
-		Description: "Find pending tasks this actor may execute, plus empty blackboards that need planning.",
+		Description: "Find executable tasks and Blackboard planning, completion, or acceptance decisions for this actor.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input findWorkInput) (*mcp.CallToolResult, findWorkOutput, error) {
 		candidates, err := service.FindWork(ctx, application.FindWorkQuery{
@@ -242,9 +242,14 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		return successResult(fmt.Sprintf("Skipped Task %s.", input.TaskID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
 	})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "complete_blackboard", Title: "Complete blackboard", Description: "Complete an empty Blackboard or accept a converged Blackboard with a durable result.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input completeBlackboardInput) (*mcp.CallToolResult, workItemOutput, error) {
-		workItem, err := service.CompleteBlackboardWorkItem(ctx, application.CompleteBlackboardWorkItemCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID, Result: input.Result})
-		return successResult(fmt.Sprintf("Completed Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
+	mcp.AddTool(server, &mcp.Tool{Name: "submit_blackboard_completion", Title: "Submit blackboard completion", Description: "Declare that an open, converged Blackboard achieved its goal and submit its durable result for the configured acceptance policy.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
+		workItem, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID, Result: input.Result})
+		return successResult(fmt.Sprintf("Submitted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "accept_blackboard_completion", Title: "Accept blackboard completion", Description: "Accept a pending Blackboard completion proposal.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input acceptBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
+		workItem, err := service.AcceptBlackboardCompletion(ctx, application.AcceptBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID})
+		return successResult(fmt.Sprintf("Accepted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
 	})
 
 	return server
@@ -358,10 +363,15 @@ type skipBlackboardTaskInput struct {
 	OperationID string `json:"operation_id"`
 	Reason      string `json:"reason"`
 }
-type completeBlackboardInput struct {
+type submitBlackboardCompletionInput struct {
 	WorkItemID  string `json:"work_item_id"`
 	OperationID string `json:"operation_id"`
 	Result      string `json:"result"`
+}
+
+type acceptBlackboardCompletionInput struct {
+	WorkItemID  string `json:"work_item_id"`
+	OperationID string `json:"operation_id"`
 }
 
 func workflowTaskIDs(values []string) []domain.WorkflowTaskID {

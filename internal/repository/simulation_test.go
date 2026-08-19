@@ -255,6 +255,17 @@ func (s *collaborationSimulation) executeRandomTask(
 			s.record("%s discovered empty blackboard and added task %q", agent.identity.Actor.ID, "Plan the implementation")
 			return true
 		}
+		if candidate.Kind == application.WorkCandidateBlackboardCompletion {
+			if _, err := s.service.SubmitBlackboardCompletion(s.ctx, application.SubmitBlackboardCompletionCommand{
+				WorkItemID: candidate.WorkItem.ID,
+				Identity:   agent.identity,
+				Result:     "All planned Blackboard tasks converged.",
+			}); err != nil {
+				s.fail("submit blackboard completion: %v", err)
+			}
+			s.record("%s submitted Blackboard completion", agent.identity.Actor.ID)
+			return true
+		}
 		if candidate.Task == nil || !s.agentAccepts(*candidate.Task, agent) {
 			continue
 		}

@@ -38,6 +38,12 @@ func TestSQLRepositoryContract(t *testing.T) {
 		t.Run("workflow round trip", func(t *testing.T) {
 			testWorkflowRoundTrip(t, repository, workflow)
 		})
+		t.Run("definition metadata batch", func(t *testing.T) {
+			testDefinitionMetadataBatch(t, repository, workflow, blackboard)
+		})
+		t.Run("blackboard lifecycle candidates", func(t *testing.T) {
+			testBlackboardLifecycleCandidates(t, repository, blackboard)
+		})
 		t.Run("rollback", func(t *testing.T) {
 			testTransactionRollback(t, repository, blackboard)
 		})
@@ -68,6 +74,123 @@ func TestSQLRepositoryContract(t *testing.T) {
 			})
 		}
 	})
+}
+
+func testDefinitionMetadataBatch(t *testing.T, repository *SQLRepository, workflow domain.WorkflowDefinition, blackboard domain.BlackboardDefinition) {
+	t.Helper()
+	ctx := context.Background()
+	bindings := []domain.DefinitionBinding{workflow.Binding(), blackboard.Binding()}
+	var metadata map[domain.DefinitionBinding]domain.DefinitionMetadata
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		var err error
+		metadata, err = store.GetDefinitionMetadata(bindings)
+		return err
+	}); err != nil {
+		t.Fatalf("get definition metadata: %v", err)
+	}
+	if len(metadata) != 2 || metadata[workflow.Binding()].Name != workflow.Name || metadata[blackboard.Binding()].Name != blackboard.Name {
+		t.Fatalf("definition metadata = %#v", metadata)
+	}
+
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		var err error
+		metadata, err = store.GetDefinitionMetadata(nil)
+		return err
+	}); err != nil {
+		t.Fatalf("get empty definition metadata: %v", err)
+	}
+	if metadata == nil || len(metadata) != 0 {
+		t.Fatalf("empty definition metadata = %#v, want non-nil empty map", metadata)
+	}
+}
+
+func testBlackboardLifecycleCandidates(t *testing.T, repository *SQLRepository, definition domain.BlackboardDefinition) {
+	t.Helper()
+	ctx := context.Background()
+	service := repositoryTestService(t, repository)
+	agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "lifecycle-agent"}, Role: "generalist"}
+
+	createWorkItem := func(title string, acceptanceMode domain.WorkItemAcceptanceMode) domain.WorkItem {
+		t.Helper()
+		workItem, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+			Definition: definition.Binding(), Identity: agent, Title: title, Goal: "Exercise lifecycle discovery", AcceptanceMode: acceptanceMode,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", title, err)
+		}
+		return workItem
+	}
+
+	empty := createWorkItem("Empty lifecycle board", domain.WorkItemAcceptanceNone)
+	pending := createWorkItem("Pending lifecycle board", domain.WorkItemAcceptanceNone)
+	if _, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: pending.ID, Identity: agent, Title: "Pending task", Executor: domain.ExecutorAgent,
+	}); err != nil {
+		t.Fatalf("create pending task: %v", err)
+	}
+
+	converged := createWorkItem("Converged lifecycle board", domain.WorkItemAcceptanceNone)
+	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: converged.ID, Identity: agent, Title: "Completed task", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create completed task: %v", err)
+	}
+	claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim completed task: %v", err)
+	}
+	if _, err := service.SubmitTask(ctx, application.SubmitTaskCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Result: "done",
+	}); err != nil {
+		t.Fatalf("submit completed task: %v", err)
+	}
+	skipped := createWorkItem("Skipped lifecycle board", domain.WorkItemAcceptanceNone)
+	skippedTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: skipped.ID, Identity: agent, Title: "Obsolete task", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create skipped task: %v", err)
+	}
+	if _, err := service.SkipBlackboardTask(ctx, application.SkipBlackboardTaskCommand{
+		TaskID: skippedTask.ID, Identity: agent, Reason: "no longer needed",
+	}); err != nil {
+		t.Fatalf("skip task: %v", err)
+	}
+
+	agentAcceptance := createWorkItem("Agent acceptance lifecycle board", domain.WorkItemAcceptanceAgent)
+	if _, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{
+		WorkItemID: agentAcceptance.ID, Identity: agent, Result: "ready for agent acceptance",
+	}); err != nil {
+		t.Fatalf("submit agent completion: %v", err)
+	}
+	humanAcceptance := createWorkItem("Human acceptance lifecycle board", domain.WorkItemAcceptanceHuman)
+	if _, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{
+		WorkItemID: humanAcceptance.ID, Identity: agent, Result: "ready for human acceptance",
+	}); err != nil {
+		t.Fatalf("submit human completion: %v", err)
+	}
+
+	var candidates []domain.WorkItem
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		var err error
+		candidates, err = store.ListBlackboardsAwaitingLifecycleDecision()
+		return err
+	}); err != nil {
+		t.Fatalf("list lifecycle candidates: %v", err)
+	}
+	found := make(map[domain.WorkItemID]bool, len(candidates))
+	for _, candidate := range candidates {
+		found[candidate.ID] = true
+	}
+	if !found[converged.ID] || !found[skipped.ID] || !found[agentAcceptance.ID] {
+		t.Fatalf("lifecycle candidates = %+v, want completed %q, skipped %q, and agent acceptance %q", candidates, converged.ID, skipped.ID, agentAcceptance.ID)
+	}
+	for _, excluded := range []domain.WorkItemID{empty.ID, pending.ID, humanAcceptance.ID} {
+		if found[excluded] {
+			t.Fatalf("lifecycle candidates unexpectedly include %q: %+v", excluded, candidates)
+		}
+	}
 }
 
 func testClaimLeaseColumns(t *testing.T, repository *SQLRepository, definition domain.BlackboardDefinition) {

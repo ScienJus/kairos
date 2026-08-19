@@ -104,6 +104,11 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if len(candidates) != 1 || candidates[0].Task.ID != task.ID {
 		t.Fatalf("candidates = %+v, want task %q", candidates, task.ID)
 	}
+	if candidates[0].WorkItem.Tags == nil || candidates[0].Definition.SuggestedTags == nil ||
+		candidates[0].Task.AllowedRoles == nil || candidates[0].Task.Tags == nil || candidates[0].Task.Reviews == nil ||
+		candidates[0].Task.Submissions == nil || candidates[0].Task.Failures == nil || candidates[0].Task.TransitionDecisions == nil {
+		t.Fatalf("candidate contains null collections: %#v", candidates[0])
+	}
 
 	claim := requestData[domain.Claim](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/claims", nil, "claim-task", http.StatusCreated)
 	retriedClaim := requestData[domain.Claim](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/claims", nil, "claim-task", http.StatusCreated)
@@ -130,12 +135,24 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	}
 	workItemContext := requestData[application.WorkItemExecutionContext](t, client, http.MethodGet,
 		server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", nil, "", http.StatusOK)
-	if workItemContext.WorkItem.Status != domain.WorkItemStatusCompleted || workItemContext.WorkItem.Result != submission.Result {
-		t.Fatalf("completed WorkItem context = %+v", workItemContext)
+	if workItemContext.WorkItem.Status != domain.WorkItemStatusOpen || workItemContext.WorkItem.Result != "" {
+		t.Fatalf("converged WorkItem context = %+v", workItemContext)
+	}
+	candidates = requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work?tag=backend", nil, "", http.StatusOK)
+	if len(candidates) != 1 || candidates[0].Kind != application.WorkCandidateBlackboardCompletion || candidates[0].WorkItem.ID != workItem.ID {
+		t.Fatalf("completion candidates = %+v", candidates)
+	}
+	completed := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/completion", map[string]any{
+		"result": submission.Result,
+	}, "submit-completion", http.StatusOK)
+	if completed.Status != domain.WorkItemStatusCompleted || completed.Result != submission.Result {
+		t.Fatalf("completed WorkItem = %+v", completed)
 	}
 	if len(workItemContext.Tasks) != 1 || workItemContext.Tasks[0].ID != task.ID || workItemContext.Relations == nil {
 		t.Fatalf("completed WorkItem coordination context = %+v", workItemContext)
 	}
+	workItemContext = requestData[application.WorkItemExecutionContext](t, client, http.MethodGet,
+		server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", nil, "", http.StatusOK)
 	if workItemContext.ActiveClaims == nil || len(workItemContext.ActiveClaims) != 0 {
 		t.Fatalf("completed WorkItem active claims = %#v, want non-nil empty slice", workItemContext.ActiveClaims)
 	}
@@ -146,6 +163,25 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	candidates = requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work", nil, "", http.StatusOK)
 	if candidates == nil || len(candidates) != 0 {
 		t.Fatalf("candidates after submission = %#v, want a non-nil empty list", candidates)
+	}
+
+	agentAcceptanceWorkItem := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
+		"definition_id": "engineering", "mode": "blackboard", "acceptance_mode": "agent",
+		"title": "Confirm delivery", "goal": "Exercise explicit agent acceptance", "tags": []string{"acceptance"},
+	}, "create-agent-acceptance-work-item", http.StatusCreated)
+	submittedForAcceptance := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(agentAcceptanceWorkItem.ID)+"/completion", map[string]any{
+		"result": "Delivery is ready for acceptance.",
+	}, "submit-agent-acceptance", http.StatusOK)
+	if submittedForAcceptance.Status != domain.WorkItemStatusAwaitingAgentAcceptance || submittedForAcceptance.Result != "Delivery is ready for acceptance." {
+		t.Fatalf("submitted agent acceptance WorkItem = %+v", submittedForAcceptance)
+	}
+	candidates = requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work?tag=acceptance", nil, "", http.StatusOK)
+	if len(candidates) != 1 || candidates[0].Kind != application.WorkCandidateWorkItemAcceptance || candidates[0].WorkItem.ID != agentAcceptanceWorkItem.ID {
+		t.Fatalf("agent acceptance candidates = %+v", candidates)
+	}
+	accepted := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(agentAcceptanceWorkItem.ID)+"/acceptance", nil, "accept-agent-completion", http.StatusOK)
+	if accepted.Status != domain.WorkItemStatusCompleted || accepted.Result != submittedForAcceptance.Result {
+		t.Fatalf("accepted WorkItem = %+v", accepted)
 	}
 
 	workflowWorkItem := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
@@ -301,6 +337,9 @@ func TestTrustedHTTPIdentityEnforcementEndToEnd(t *testing.T) {
 	if review.Status != domain.ReviewStatusApproved || review.DecidedBy == nil || *review.DecidedBy != domain.ActorID(humanReviewer.ID) {
 		t.Fatalf("review = %+v, want approval by %q", review, humanReviewer.ID)
 	}
+	requestDataAs[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/completion", map[string]any{
+		"result": "Reviewed work completed.",
+	}, "owner-completion", http.StatusOK, owner)
 
 	err = repo.View(context.Background(), func(store application.ReadStore) error {
 		stored, err := store.GetWorkItem(workItem.ID)

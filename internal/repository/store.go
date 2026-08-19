@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ScienJus/kairos/internal/application"
@@ -278,6 +279,48 @@ func (s *sqlStore) ListEmptyBlackboards() ([]domain.WorkItem, error) {
 	return result, normalizeError(rows.Err())
 }
 
+func (s *sqlStore) ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem, error) {
+	rows, err := s.query(`
+		SELECT w.payload
+		FROM work_items w
+		WHERE w.mode = ?
+		  AND (
+			w.status = ?
+			OR (
+			  w.status = ?
+			  AND EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)
+			  AND NOT EXISTS (
+				SELECT 1 FROM tasks t
+				WHERE t.work_item_id = w.id AND t.status NOT IN (?, ?)
+			  )
+			)
+		  )
+		ORDER BY w.id`,
+		domain.CoordinationModeBlackboard,
+		domain.WorkItemStatusAwaitingAgentAcceptance,
+		domain.WorkItemStatusOpen,
+		domain.TaskStatusCompleted,
+		domain.TaskStatusSkipped,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.WorkItem
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, normalizeError(err)
+		}
+		workItem, err := decodeJSON[domain.WorkItem](payload)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, workItem)
+	}
+	return result, normalizeError(rows.Err())
+}
+
 func (s *sqlStore) GetWorkflowDefinition(
 	id domain.DefinitionID,
 	version int64,
@@ -290,6 +333,52 @@ func (s *sqlStore) GetWorkflowDefinition(
 		return domain.WorkflowDefinition{}, normalizeError(err)
 	}
 	return decodeJSON[domain.WorkflowDefinition](payload)
+}
+
+func (s *sqlStore) GetDefinitionMetadata(bindings []domain.DefinitionBinding) (map[domain.DefinitionBinding]domain.DefinitionMetadata, error) {
+	result := make(map[domain.DefinitionBinding]domain.DefinitionMetadata, len(bindings))
+	if len(bindings) == 0 {
+		return result, nil
+	}
+
+	placeholders := make([]string, 0, len(bindings))
+	args := make([]any, 0, len(bindings)*3)
+	for _, binding := range bindings {
+		placeholders = append(placeholders, "(?, ?, ?)")
+		args = append(args, binding.ID, binding.Version, binding.Mode)
+	}
+	rows, err := s.query(fmt.Sprintf(`
+		SELECT id, version, mode, payload
+		FROM definitions
+		WHERE (id, version, mode) IN (%s)`, strings.Join(placeholders, ", ")), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var binding domain.DefinitionBinding
+		var payload string
+		if err := rows.Scan(&binding.ID, &binding.Version, &binding.Mode, &payload); err != nil {
+			return nil, normalizeError(err)
+		}
+		switch binding.Mode {
+		case domain.CoordinationModeWorkflow:
+			definition, err := decodeJSON[domain.WorkflowDefinition](payload)
+			if err != nil {
+				return nil, err
+			}
+			result[binding] = definition.DefinitionMetadata
+		case domain.CoordinationModeBlackboard:
+			definition, err := decodeJSON[domain.BlackboardDefinition](payload)
+			if err != nil {
+				return nil, err
+			}
+			result[binding] = definition.DefinitionMetadata
+		default:
+			return nil, fmt.Errorf("unsupported definition mode %q", binding.Mode)
+		}
+	}
+	return result, normalizeError(rows.Err())
 }
 
 func (s *sqlStore) GetBlackboardDefinition(

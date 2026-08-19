@@ -9,11 +9,13 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 
 ## Execution loop
 
-1. Call `find_work` with a reasonable limit. In Workflow mode, role and graph eligibility determine candidates; tags are descriptive metadata and do not filter executable Workflow Tasks. In Blackboard mode, tags may narrow discovery.
+1. Call `find_work` with a reasonable limit. Lifecycle decisions are returned before executable Tasks and empty Blackboard planning candidates, with the limit applied globally. In Workflow mode, role and graph eligibility determine candidates; tags are descriptive metadata and do not filter executable Workflow Tasks. In Blackboard mode, tags may narrow discovery.
 2. Select one eligible candidate at a time unless the user explicitly requests parallel execution.
-3. If the candidate kind is `empty_blackboard`, read its WorkItem goal, context, constraints, acceptance criteria, and Definition instructions. Call `create_blackboard_task` to add a concrete executable Task, then call `find_work` again.
-   If the candidate kind is `work_item_acceptance`, review the converged WorkItem and create another Task if needed; otherwise call `complete_blackboard` with the final result.
-   If no Task is needed because the goal is already satisfied, call `complete_blackboard` with the durable result instead.
+3. Handle Blackboard lifecycle candidates explicitly:
+   - For `empty_blackboard`, read the WorkItem goal, context, constraints, acceptance criteria, and Definition instructions. Create a concrete Task when work is needed; if the goal already requires no execution, call `submit_blackboard_completion` with the durable result.
+   - For `blackboard_completion`, inspect the converged WorkItem. Create another Task when more work is needed; otherwise call `submit_blackboard_completion`. Task convergence alone never completes a Blackboard or starts acceptance.
+   - For `work_item_acceptance`, review the submitted completion result. Create another Task if the proposal should not be accepted; otherwise call `accept_blackboard_completion`.
+   Call `find_work` again after every lifecycle decision.
 4. For a Task candidate, call `get_task_context` before claiming. Read the complete Task, WorkItem, Definition instructions, previous failures, upstream Workflow results, and current Blackboard state.
 5. Call `claim_task` immediately before beginning execution. Do not work on a Task whose Claim was not acquired successfully.
 6. Perform the requested work outside Kairos using the available repository, browser, API, or other tools. Keep the Claim ID.
@@ -23,7 +25,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
    - Call `fail_task` with `reopen` and a useful retry prompt when another attempt can succeed.
    - Call `fail_task` with `fail_work_item` only when the whole WorkItem cannot continue.
    - Call `release_claim` when stopping without a result or failure decision.
-8. When the final WorkItem status or aggregated result matters, call `get_work_item_context` after the lifecycle action. This query works for both open and terminal WorkItems.
+8. When the final WorkItem status or aggregated result matters, call `get_work_item_context` after the lifecycle action. This query works for open, acceptance-pending, and terminal WorkItems. After the last Task ends, call `find_work` again and handle the resulting Blackboard completion candidate.
 
 ## Mutation discipline
 
@@ -37,7 +39,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 
 For a non-terminal Workflow Task, use the choice groups returned by `get_task_context`. Pass exactly one legal `transition.choice_group_id` to `submit_task` and only skip IDs listed as skippable. Do not invent runtime Workflow edges. The current Workflow context includes controlled summaries of upstream Tasks and their durable results; use those summaries instead of opening arbitrary upstream Task contexts. Direct `get_task_context` calls remain restricted by the target Task's role and active Claim.
 
-For Blackboard Tasks, omit `transition`. Use `create_blackboard_task` only for open Blackboard WorkItems returned by Kairos or already present in Task context.
+For Blackboard Tasks, omit `transition`. Use `create_blackboard_task` only for open or Agent-acceptance Blackboard WorkItems returned by Kairos or already present in Task context. `submit_blackboard_completion` declares that the goal is achieved; `accept_blackboard_completion` is a separate acceptance action.
 
 Use `decompose_blackboard_task` when a claimed Task must become an aggregate of concrete children. While that aggregate remains open, use `add_blackboard_child_task` for newly discovered work. Use `add_blackboard_relation` for suggested ordering, and `skip_blackboard_task` with a durable reason when an unclaimed pending Task has lost value.
 

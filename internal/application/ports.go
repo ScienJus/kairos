@@ -35,13 +35,14 @@ type IDGenerator interface {
 	NewID() string
 }
 
-// WorkCandidateKind distinguishes executable Tasks from empty Blackboards that need planning.
+// WorkCandidateKind distinguishes execution, planning, completion, and acceptance opportunities.
 type WorkCandidateKind string
 
 const (
-	WorkCandidateTask               WorkCandidateKind = "task"
-	WorkCandidateEmptyBlackboard    WorkCandidateKind = "empty_blackboard"
-	WorkCandidateWorkItemAcceptance WorkCandidateKind = "work_item_acceptance"
+	WorkCandidateTask                 WorkCandidateKind = "task"
+	WorkCandidateEmptyBlackboard      WorkCandidateKind = "empty_blackboard"
+	WorkCandidateBlackboardCompletion WorkCandidateKind = "blackboard_completion"
+	WorkCandidateWorkItemAcceptance   WorkCandidateKind = "work_item_acceptance"
 )
 
 // WorkCandidate combines a discoverable opportunity with its WorkItem.
@@ -74,7 +75,9 @@ type ReadStore interface {
 	ListWorkflowTaskActivations(domain.WorkItemID) ([]domain.WorkflowTaskActivation, error)
 	ListOpenTasks() ([]WorkCandidate, error)
 	ListEmptyBlackboards() ([]domain.WorkItem, error)
+	ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem, error)
 
+	GetDefinitionMetadata([]domain.DefinitionBinding) (map[domain.DefinitionBinding]domain.DefinitionMetadata, error)
 	GetWorkflowDefinition(domain.DefinitionID, int64) (domain.WorkflowDefinition, error)
 	GetBlackboardDefinition(domain.DefinitionID, int64) (domain.BlackboardDefinition, error)
 	ListWorkflowDefinitions() ([]domain.WorkflowDefinition, error)

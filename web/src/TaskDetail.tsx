@@ -739,7 +739,7 @@ export function EmptyBlackboardActions({
   const queryClient = useQueryClient();
   const [result, setResult] = useState("");
   const complete = useMutation({
-    mutationFn: () => api.completeBlackboard(identity, workItemID, result),
+    mutationFn: () => api.submitBlackboardCompletion(identity, workItemID, result),
     onSuccess: () => refreshWorkItemState(queryClient, identity, workItemID),
   });
   return (
@@ -765,10 +765,41 @@ export function EmptyBlackboardActions({
             disabled={!result.trim() || complete.isPending}
             onClick={() => complete.mutate()}
           >
-            {t("completeWork")}
+            {t("submitCompletion")}
           </button>
         </details>
       </div>
+    </div>
+  );
+}
+
+export function BlackboardCompletionActions({
+  identity,
+  workItemID,
+}: {
+  identity: Identity;
+  workItemID: string;
+}) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const [result, setResult] = useState("");
+  const submit = useMutation({
+    mutationFn: () => api.submitBlackboardCompletion(identity, workItemID, result),
+    onSuccess: () => refreshWorkItemState(queryClient, identity, workItemID),
+  });
+  return (
+    <div className="empty-planning">
+      <CircleDot size={20} />
+      <h3>{t("blackboardConverged")}</h3>
+      <p>{t("blackboardConvergedBody")}</p>
+      <label>
+        {t("completionResult")}
+        <textarea rows={3} value={result} onChange={(event) => setResult(event.target.value)} />
+      </label>
+      {submit.error && <FormError error={submit.error} />}
+      <button className="quiet-button" disabled={!result.trim() || submit.isPending} onClick={() => submit.mutate()}>
+        {t("submitCompletion")}
+      </button>
     </div>
   );
 }

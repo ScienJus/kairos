@@ -46,6 +46,7 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 		}
 		if workItem.Status == domain.WorkItemStatusAwaitingAgentAcceptance {
 			workItem.Status = domain.WorkItemStatusOpen
+			workItem.Result = ""
 		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {

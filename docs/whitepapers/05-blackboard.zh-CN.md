@@ -132,18 +132,18 @@ Blackboard 的自主性来自持续规划，因此无需通过预配置的 optio
 
 ## 6. WorkItem 完成
 
-执行者在结束当前 Task 前，根据 WorkItem 的目标和验收标准判断是否需要继续扩展工作：
+当前 Task 收敛后，协作者根据 WorkItem 目标判断是否需要继续扩展工作：
 
 ```text
-结束当前 Task 前检查 WorkItem 目标
- ├── 仍需推进 → 先创建后续 Task
- └── 已经满足 → 结束当前 Task
-                       ↓
-             所有 Task 均已结束
-                       ↓
-               WorkItem 完成
+当前所有 Task 均已完成或跳过
+                 ↓
+       Blackboard 完成判断候选
+        ├── 仍需推进 → 创建后续 Task
+        └── 已经满足 → 提交完成结果
+                              ↓
+                      acceptance_mode
 ```
 
-新的发现可以随时扩展 Task Graph，目标已经满足时则可以将剩余的低价值 Task 标记为 Skipped。最后一个 Task 完成或跳过后，WorkItem 按 `acceptance_mode` 处理：`none` 自动完成；`agent` 暂停在 Agent 验收候选，Agent 可以继续创建 Task 或确认完成；`human` 进入人工验收状态。空 Blackboard 也可以由协作者直接确认完成。
+新的发现可以随时扩展 Task Graph，目标已经满足时则可以将剩余的低价值 Task 标记为 Skipped。Task 收敛后 WorkItem 仍保持 `open`，不会自行声明完成或开始验收；协作者必须显式提交持久的完成结果，之后才应用 `acceptance_mode`：`none` 立即完成，`agent` 产生 Agent 验收候选，`human` 进入人工验收状态。验收者可以接受完成声明；Agent 验收者也可以创建更多 Task，让 WorkItem 回到执行阶段。空 Blackboard 同样通过显式完成声明结束。
 
 > Blackboard grows a shared plan while people and agents execute the work.

@@ -14,6 +14,7 @@ const (
 	WorkItemEventWorkItemCompleted   WorkItemEventType = "work_item.completed"
 	WorkItemEventWorkItemCancelled   WorkItemEventType = "work_item.cancelled"
 	WorkItemEventWorkItemFailed      WorkItemEventType = "work_item.failed"
+	WorkItemEventCompletionSubmitted WorkItemEventType = "work_item.completion_submitted"
 	WorkItemEventAcceptanceRequested WorkItemEventType = "work_item.acceptance_requested"
 
 	WorkItemEventTaskCreated      WorkItemEventType = "task.created"
@@ -51,6 +52,7 @@ func (t WorkItemEventType) workItemScoped() (bool, bool) {
 		WorkItemEventWorkItemCompleted,
 		WorkItemEventWorkItemCancelled,
 		WorkItemEventWorkItemFailed,
+		WorkItemEventCompletionSubmitted,
 		WorkItemEventAcceptanceRequested:
 		return true, true
 	case WorkItemEventTaskCreated,

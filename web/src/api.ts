@@ -69,9 +69,10 @@ export const api = {
   createTask: (identity: Identity, workItemID: string, input: TaskDraftInput) => request<Task>(`/api/v1/work-items/${workItemID}/tasks`, identity, {
     method: 'POST', body: JSON.stringify(input),
   }),
-  completeBlackboard: (identity: Identity, workItemID: string, result: string) => request<WorkItem>(`/api/v1/work-items/${workItemID}/completion`, identity, {
+  submitBlackboardCompletion: (identity: Identity, workItemID: string, result: string) => request<WorkItem>(`/api/v1/work-items/${workItemID}/completion`, identity, {
     method: 'POST', body: JSON.stringify({ result }),
   }),
+  acceptBlackboardCompletion: (identity: Identity, workItemID: string) => request<WorkItem>(`/api/v1/work-items/${workItemID}/acceptance`, identity, { method: 'POST' }),
   claimTask: (identity: Identity, taskID: string) => request<Claim>(`/api/v1/tasks/${taskID}/claims`, identity, { method: 'POST' }),
   releaseClaim: (identity: Identity, taskID: string, claimID: string) => request<void>(`/api/v1/tasks/${taskID}/claims/${claimID}`, identity, { method: 'DELETE' }),
   submitTask: (identity: Identity, taskID: string, input: SubmitTaskInput) => request<Submission>(`/api/v1/tasks/${taskID}/submissions`, identity, { method: 'POST', body: JSON.stringify(input) }),

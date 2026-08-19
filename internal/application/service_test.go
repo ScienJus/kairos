@@ -305,7 +305,7 @@ func TestFindWorkDiscoversEmptyBlackboard(t *testing.T) {
 	if err != nil || len(other) != 0 {
 		t.Fatalf("unmatched empty blackboard: candidates=%#v err=%v", other, err)
 	}
-	completed, err := service.CompleteBlackboardWorkItem(context.Background(), CompleteBlackboardWorkItemCommand{
+	completed, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
 		WorkItemID: workItem.ID,
 		Identity:   agent,
 		Result:     "The goal requires no execution tasks.",
@@ -315,6 +315,112 @@ func TestFindWorkDiscoversEmptyBlackboard(t *testing.T) {
 	}
 	if completed.Status != domain.WorkItemStatusCompleted || completed.CompletedAt == nil {
 		t.Fatalf("completed empty blackboard: %#v", completed)
+	}
+}
+
+func TestFindWorkPrioritizesLifecycleDecisionsAndFiltersAgentAcceptanceFromHumans(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repository := newTestRepository()
+	definition := blackboardDefinition()
+	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "agent"}, Role: "generalist"}
+	human := Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "human"}}
+
+	createWorkItem := func(title string, acceptanceMode domain.WorkItemAcceptanceMode) domain.WorkItem {
+		t.Helper()
+		workItem, err := service.CreateWorkItem(ctx, CreateWorkItemCommand{
+			Definition: definition.Binding(), Identity: agent, Title: title, Goal: "Exercise find_work ordering", AcceptanceMode: acceptanceMode,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", title, err)
+		}
+		return workItem
+	}
+
+	awaitingAcceptance := createWorkItem("Awaiting acceptance", domain.WorkItemAcceptanceAgent)
+	if _, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+		WorkItemID: awaitingAcceptance.ID, Identity: agent, Result: "ready",
+	}); err != nil {
+		t.Fatalf("submit completion for acceptance: %v", err)
+	}
+
+	converged := createWorkItem("Converged", domain.WorkItemAcceptanceNone)
+	completedTask, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+		WorkItemID: converged.ID, Identity: agent, Title: "Completed task", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create completed task: %v", err)
+	}
+	claim, err := service.ClaimTask(ctx, ClaimTaskCommand{TaskID: completedTask.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim completed task: %v", err)
+	}
+	if _, err := service.SubmitTask(ctx, SubmitTaskCommand{TaskID: completedTask.ID, ClaimID: claim.ID, Identity: agent, Result: "done"}); err != nil {
+		t.Fatalf("submit completed task: %v", err)
+	}
+
+	pending := createWorkItem("Executable task", domain.WorkItemAcceptanceNone)
+	if _, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+		WorkItemID: pending.ID, Identity: agent, Title: "Pending task", Executor: domain.ExecutorAgent,
+	}); err != nil {
+		t.Fatalf("create pending task: %v", err)
+	}
+	createWorkItem("Empty board", domain.WorkItemAcceptanceNone)
+
+	agentCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent, Limit: 1})
+	if err != nil {
+		t.Fatalf("find agent work: %v", err)
+	}
+	if len(agentCandidates) != 1 || agentCandidates[0].Kind != WorkCandidateWorkItemAcceptance || agentCandidates[0].WorkItem.ID != awaitingAcceptance.ID {
+		t.Fatalf("agent candidates = %#v, want acceptance first", agentCandidates)
+	}
+	if agentCandidates[0].WorkItem.Tags == nil || agentCandidates[0].Definition.SuggestedTags == nil {
+		t.Fatalf("lifecycle candidate contains nil collections: %#v", agentCandidates[0])
+	}
+
+	humanCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: human})
+	if err != nil {
+		t.Fatalf("find human work: %v", err)
+	}
+	if len(humanCandidates) == 0 || humanCandidates[0].Kind != WorkCandidateBlackboardCompletion || humanCandidates[0].WorkItem.ID != converged.ID {
+		t.Fatalf("human candidates = %#v, want completion first", humanCandidates)
+	}
+	for _, candidate := range humanCandidates {
+		if candidate.Kind == WorkCandidateWorkItemAcceptance {
+			t.Fatalf("human candidates include agent acceptance: %#v", humanCandidates)
+		}
+	}
+
+	if _, err := service.AcceptBlackboardCompletion(ctx, AcceptBlackboardCompletionCommand{WorkItemID: awaitingAcceptance.ID, Identity: agent}); err != nil {
+		t.Fatalf("accept completion: %v", err)
+	}
+	nextCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent, Limit: 1})
+	if err != nil {
+		t.Fatalf("find work after acceptance: %v", err)
+	}
+	if len(nextCandidates) != 1 || nextCandidates[0].Kind != WorkCandidateBlackboardCompletion || nextCandidates[0].WorkItem.ID != converged.ID {
+		t.Fatalf("next candidates = %#v, want completion before task or planning", nextCandidates)
+	}
+	if _, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+		WorkItemID: converged.ID, Identity: agent, Result: "completed",
+	}); err != nil {
+		t.Fatalf("submit converged completion: %v", err)
+	}
+	taskCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent, Limit: 1})
+	if err != nil {
+		t.Fatalf("find task work: %v", err)
+	}
+	if len(taskCandidates) != 1 || taskCandidates[0].Kind != WorkCandidateTask || taskCandidates[0].Task == nil {
+		t.Fatalf("task candidates = %#v", taskCandidates)
+	}
+	taskCandidate := taskCandidates[0]
+	if taskCandidate.WorkItem.Tags == nil || taskCandidate.Definition.SuggestedTags == nil ||
+		taskCandidate.Task.AllowedRoles == nil || taskCandidate.Task.Tags == nil || taskCandidate.Task.Reviews == nil ||
+		taskCandidate.Task.Submissions == nil || taskCandidate.Task.Failures == nil || taskCandidate.Task.TransitionDecisions == nil {
+		t.Fatalf("task candidate contains nil collections: %#v", taskCandidate)
 	}
 }
 
@@ -335,6 +441,11 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create task: %v", err)
 			}
+			if _, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+				WorkItemID: workItem.ID, Identity: agent, Result: "too early",
+			}); !errors.Is(err, ErrConflict) {
+				t.Fatalf("submit completion before task convergence: got %v", err)
+			}
 			claim, err := service.ClaimTask(ctx, ClaimTaskCommand{TaskID: task.ID, Identity: agent})
 			if err != nil {
 				t.Fatalf("claim task: %v", err)
@@ -343,6 +454,19 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 				t.Fatalf("submit task: %v", err)
 			}
 			got := repository.workItems[workItem.ID]
+			if got.Status != domain.WorkItemStatusOpen {
+				t.Fatalf("status after task convergence = %s, want open", got.Status)
+			}
+			candidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent})
+			if err != nil || len(candidates) != 1 || candidates[0].Kind != WorkCandidateBlackboardCompletion {
+				t.Fatalf("completion candidates = %#v, err=%v", candidates, err)
+			}
+			got, err = service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+				WorkItemID: workItem.ID, Identity: agent, Result: "done",
+			})
+			if err != nil {
+				t.Fatalf("submit completion: %v", err)
+			}
 			switch mode {
 			case domain.WorkItemAcceptanceNone:
 				if got.Status != domain.WorkItemStatusCompleted {
@@ -356,6 +480,33 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 				if err != nil || len(candidates) != 1 || candidates[0].Kind != WorkCandidateWorkItemAcceptance {
 					t.Fatalf("acceptance candidates = %#v, err=%v", candidates, err)
 				}
+				followUp, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+					WorkItemID: workItem.ID, Identity: agent, Title: "Address acceptance feedback", Executor: domain.ExecutorAgent,
+				})
+				if err != nil {
+					t.Fatalf("create acceptance follow-up: %v", err)
+				}
+				reopened := repository.workItems[workItem.ID]
+				if reopened.Status != domain.WorkItemStatusOpen || reopened.Result != "" {
+					t.Fatalf("reopened WorkItem = %#v, want open with no stale result", reopened)
+				}
+				followUpClaim, err := service.ClaimTask(ctx, ClaimTaskCommand{TaskID: followUp.ID, Identity: agent})
+				if err != nil {
+					t.Fatalf("claim acceptance follow-up: %v", err)
+				}
+				if _, err := service.SubmitTask(ctx, SubmitTaskCommand{TaskID: followUp.ID, ClaimID: followUpClaim.ID, Identity: agent, Result: "feedback addressed"}); err != nil {
+					t.Fatalf("submit acceptance follow-up: %v", err)
+				}
+				got, err = service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+					WorkItemID: workItem.ID, Identity: agent, Result: "done after feedback",
+				})
+				if err != nil || got.Status != domain.WorkItemStatusAwaitingAgentAcceptance || got.Result != "done after feedback" {
+					t.Fatalf("resubmit completion = %#v, err=%v", got, err)
+				}
+				accepted, err := service.AcceptBlackboardCompletion(ctx, AcceptBlackboardCompletionCommand{WorkItemID: workItem.ID, Identity: agent})
+				if err != nil || accepted.Status != domain.WorkItemStatusCompleted {
+					t.Fatalf("accept agent completion = %#v, err=%v", accepted, err)
+				}
 			case domain.WorkItemAcceptanceHuman:
 				if got.Status != domain.WorkItemStatusAwaitingHumanAcceptance {
 					t.Fatalf("status = %s", got.Status)
@@ -368,8 +519,50 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 				if err != nil || len(candidates) != 0 {
 					t.Fatalf("human acceptance candidates = %#v, err=%v", candidates, err)
 				}
+				human := Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
+				accepted, err := service.AcceptBlackboardCompletion(ctx, AcceptBlackboardCompletionCommand{WorkItemID: workItem.ID, Identity: human})
+				if err != nil || accepted.Status != domain.WorkItemStatusCompleted {
+					t.Fatalf("accept human completion = %#v, err=%v", accepted, err)
+				}
 			}
 		})
+	}
+}
+
+func TestHumanCanSubmitBlackboardCompletion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	repository := newTestRepository()
+	repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+	service := newTestService(t, repository)
+	human := Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
+	workItem, err := service.CreateWorkItem(ctx, CreateWorkItemCommand{
+		Definition: domain.DefinitionBinding{ID: "blackboard", Version: 1, Mode: domain.CoordinationModeBlackboard},
+		Identity:   human, Title: "Human completion", Goal: "Allow people to close collaborative work",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	task, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: human, Title: "Human task", Executor: domain.ExecutorHuman,
+	})
+	if err != nil {
+		t.Fatalf("create human task: %v", err)
+	}
+	claim, err := service.ClaimTask(ctx, ClaimTaskCommand{TaskID: task.ID, Identity: human})
+	if err != nil {
+		t.Fatalf("claim human task: %v", err)
+	}
+	if _, err := service.SubmitTask(ctx, SubmitTaskCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: human, Result: "human task completed",
+	}); err != nil {
+		t.Fatalf("submit human task: %v", err)
+	}
+	completed, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+		WorkItemID: workItem.ID, Identity: human, Result: "human completed the work item",
+	})
+	if err != nil || completed.Status != domain.WorkItemStatusCompleted || completed.Result != "human completed the work item" {
+		t.Fatalf("submit human completion = %#v, err=%v", completed, err)
 	}
 }
 
@@ -404,7 +597,7 @@ func TestProjectTaskLifecycleUsesStateSpecificResponsibility(t *testing.T) {
 	}
 }
 
-func TestBlackboardPlanningAndAutomaticCompletion(t *testing.T) {
+func TestBlackboardPlanningRequiresExplicitCompletion(t *testing.T) {
 	t.Parallel()
 
 	repository := newTestRepository()
@@ -475,14 +668,20 @@ func TestBlackboardPlanningAndAutomaticCompletion(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("skip second task: %v", err)
 	}
-	completed := repository.workItems[workItem.ID]
-	if completed.Status != domain.WorkItemStatusCompleted || completed.CompletedAt == nil {
-		t.Fatalf("completed blackboard: %#v", completed)
+	converged := repository.workItems[workItem.ID]
+	if converged.Status != domain.WorkItemStatusOpen || converged.CompletedAt != nil {
+		t.Fatalf("converged blackboard: %#v", converged)
+	}
+	completed, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
+		WorkItemID: workItem.ID, Identity: identity, Result: "No remaining work is useful.",
+	})
+	if err != nil || completed.Status != domain.WorkItemStatusCompleted || completed.CompletedAt == nil {
+		t.Fatalf("submit blackboard completion: %#v, err=%v", completed, err)
 	}
 	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: identity, Title: "Late task", Executor: domain.ExecutorAgent,
 	}); !errors.Is(err, ErrConflict) {
-		t.Fatalf("append after automatic completion: got %v", err)
+		t.Fatalf("append after submitted completion: got %v", err)
 	}
 }
 
@@ -583,10 +782,16 @@ func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T
 	}); err != nil {
 		t.Fatalf("submit follow-up task: %v", err)
 	}
-	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusCompleted {
-		t.Fatalf("blackboard after final task: got %s", got)
+	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusOpen {
+		t.Fatalf("blackboard after final task: got %s, want open", got)
 	}
-	completed := repository.workItems[workItem.ID]
+	completed, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
+		WorkItemID: workItem.ID, Identity: agent,
+		Result: summarizeWorkItemResult(repository.tasksFor(workItem.ID)),
+	})
+	if err != nil {
+		t.Fatalf("submit completion: %v", err)
+	}
 	if !strings.Contains(completed.Result, "Investigate failure\nFound the root cause") ||
 		!strings.Contains(completed.Result, "Apply discovered fix\nApplied the fix") {
 		t.Fatalf("aggregated WorkItem result = %q", completed.Result)
@@ -760,8 +965,13 @@ func TestBlackboardTaskHierarchySupportsOpenAppendAndRecursiveCompletion(t *test
 	if len(completedNested.Submissions) != 0 || len(completedRoot.Submissions) != 0 {
 		t.Fatalf("aggregate submissions: nested=%d root=%d", len(completedNested.Submissions), len(completedRoot.Submissions))
 	}
-	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusCompleted {
-		t.Fatalf("blackboard after aggregate closure: got %s", got)
+	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusOpen {
+		t.Fatalf("blackboard after aggregate closure: got %s, want open", got)
+	}
+	if _, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
+		WorkItemID: workItem.ID, Identity: contributor, Result: "All aggregate children completed.",
+	}); err != nil {
+		t.Fatalf("submit aggregate completion: %v", err)
 	}
 	if _, err := service.AddBlackboardChildTask(context.Background(), AddBlackboardChildTaskCommand{
 		ParentTaskID: root.ID, Identity: contributor,
@@ -994,8 +1204,13 @@ func TestBlackboardReviewReopensTaskWithCompleteHistory(t *testing.T) {
 	if task.Status != domain.TaskStatusCompleted || len(task.Submissions) != 2 || len(task.Reviews) != 2 || task.Reviews[0].Feedback != "Include database traces." {
 		t.Fatalf("completed revised task: %#v", task)
 	}
-	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusCompleted {
-		t.Fatalf("blackboard after approved final task: got %s", got)
+	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusOpen {
+		t.Fatalf("blackboard after approved final task: got %s, want open", got)
+	}
+	if _, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
+		WorkItemID: workItem.ID, Identity: secondAgent, Result: "Reviewed diagnosis completed.",
+	}); err != nil {
+		t.Fatalf("submit reviewed completion: %v", err)
 	}
 }
 
@@ -1748,12 +1963,47 @@ func (r *testRepository) ListEmptyBlackboards() ([]domain.WorkItem, error) {
 	return result, nil
 }
 
+func (r *testRepository) ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem, error) {
+	var result []domain.WorkItem
+	for _, workItem := range r.workItems {
+		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
+			continue
+		}
+		tasks := r.tasksFor(workItem.ID)
+		if workItem.Status == domain.WorkItemStatusAwaitingAgentAcceptance ||
+			(workItem.Status == domain.WorkItemStatusOpen && len(tasks) > 0 && blackboardTasksConverged(tasks)) {
+			result = append(result, workItem)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result, nil
+}
+
 func (r *testRepository) GetWorkflowDefinition(id domain.DefinitionID, version int64) (domain.WorkflowDefinition, error) {
 	value, ok := r.workflows[definitionKey(id, version)]
 	if !ok {
 		return domain.WorkflowDefinition{}, ErrNotFound
 	}
 	return value, nil
+}
+
+func (r *testRepository) GetDefinitionMetadata(bindings []domain.DefinitionBinding) (map[domain.DefinitionBinding]domain.DefinitionMetadata, error) {
+	result := make(map[domain.DefinitionBinding]domain.DefinitionMetadata, len(bindings))
+	for _, binding := range bindings {
+		switch binding.Mode {
+		case domain.CoordinationModeWorkflow:
+			definition, ok := r.workflows[definitionKey(binding.ID, binding.Version)]
+			if ok {
+				result[binding] = definition.DefinitionMetadata
+			}
+		case domain.CoordinationModeBlackboard:
+			definition, ok := r.blackboards[definitionKey(binding.ID, binding.Version)]
+			if ok {
+				result[binding] = definition.DefinitionMetadata
+			}
+		}
+	}
+	return result, nil
 }
 
 func (r *testRepository) GetBlackboardDefinition(id domain.DefinitionID, version int64) (domain.BlackboardDefinition, error) {

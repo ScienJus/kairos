@@ -45,14 +45,16 @@ Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes
 | --- | --- |
 | Workflow Definitions | `GET/POST /api/v1/definitions/workflows`, `GET /api/v1/definitions/workflows/{id}/versions/{version}` |
 | Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`, `GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
-| WorkItems | `GET/POST /api/v1/work-items`, `GET /api/v1/work-items/{id}/context` |
+| WorkItems | `GET/POST /api/v1/work-items`, `GET /api/v1/work-items/{id}/context`, `POST /completion`, `POST /acceptance` |
 | Discovery | `GET /api/v1/work` |
 | Task detail and execution | `GET /api/v1/tasks/{id}`, `/context`, `/claims`, `/submissions`, `/failures`, `/reviews` |
 | Blackboard planning | WorkItem Tasks, relations, completion; Task decomposition, children, and skipping |
 | Human attention | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities`, token rotation and revocation routes |
 
-Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. Blackboard WorkItems support `acceptance_mode`: `none` (default, automatic completion after Task convergence), `agent` (an Agent acceptance candidate), or `human` (human acceptance state).
+Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. After Blackboard Tasks converge, `find_work` returns `blackboard_completion`; a collaborator either creates more Tasks or posts a durable completion result. That submission then applies `acceptance_mode`: `none` (default) completes immediately, `agent` returns `work_item_acceptance`, and `human` enters human acceptance. Acceptance is a separate `POST /acceptance` action. Agent acceptance candidates are visible only to Agent identities. Lifecycle decisions are returned before executable or planning candidates, and `limit` applies globally across those candidate kinds.
+
+While acceptance is pending, `WorkItem.Result` contains the submitted completion proposal. After acceptance, the same field contains the accepted final outcome. Reopening Agent acceptance by creating another Task clears the stale proposal.
 
 `GET /api/v1/work-items/{id}/context` remains available after terminal completion and returns the aggregate result, normalized Task and relation collections, complete Claim history in `Claims`, and the currently live subset in `ActiveClaims`. A completed Task's executor can be resolved through `Submission.ClaimID -> Claims[].ID -> Executor`.
 
@@ -66,11 +68,11 @@ Agent Claims use leases; human Claims do not. Agent claim and heartbeat requests
 
 MCP shares the HTTP identity resolver. Trusted Mode supplies actor headers at transport level; Authenticated Mode supplies `Authorization: Bearer <identity-token>`. Identity never appears in tool arguments.
 
-The execution surface contains fourteen tools:
+The execution surface contains fifteen tools:
 
 - discovery and context: `find_work`, `get_task_context`, `get_work_item_context`;
 - Claim lifecycle: `claim_task`, `heartbeat_claim`, `release_claim`, `submit_task`, `fail_task`;
-- Blackboard planning: `create_blackboard_task`, `add_blackboard_relation`, `decompose_blackboard_task`, `add_blackboard_child_task`, `skip_blackboard_task`, `complete_blackboard`.
+- Blackboard planning and closure: `create_blackboard_task`, `add_blackboard_relation`, `decompose_blackboard_task`, `add_blackboard_child_task`, `skip_blackboard_task`, `submit_blackboard_completion`, `accept_blackboard_completion`.
 
 Every MCP mutation requires an `operation_id`. Reuse it only for an identical retry. Workflow discovery is determined by role and graph state and ignores tag filters; Blackboard discovery may use tags. Workflow Task context exposes controlled upstream summaries and durable results without granting arbitrary access to other Tasks.
 

@@ -23,7 +23,7 @@ import (
 
 func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	ctx := context.Background()
-	service, _ := newMCPFixture(t)
+	service, _ := newMCPFixture(t, domain.WorkItemAcceptanceAgent)
 	handler, err := New(service, identity.TrustedResolver{})
 	if err != nil {
 		t.Fatalf("new MCP handler: %v", err)
@@ -47,10 +47,10 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 		t.Fatalf("list tools: %v", err)
 	}
 	wantTools := []string{
-		"add_blackboard_child_task", "add_blackboard_relation", "claim_task", "complete_blackboard",
+		"accept_blackboard_completion", "add_blackboard_child_task", "add_blackboard_relation", "claim_task",
 		"create_blackboard_task", "decompose_blackboard_task", "fail_task", "find_work",
 		"get_task_context", "get_work_item_context", "heartbeat_claim", "release_claim",
-		"skip_blackboard_task", "submit_task",
+		"skip_blackboard_task", "submit_blackboard_completion", "submit_task",
 	}
 	gotTools := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
@@ -179,8 +179,28 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	taskContext = callTool[taskContextOutput](t, ctx, session, "get_task_context", taskContextInput{
 		TaskID: retryTask.Task.ID,
 	})
-	if taskContext.Task.Status != string(domain.TaskStatusCompleted) || taskContext.WorkItem.Status != string(domain.WorkItemStatusCompleted) || len(taskContext.Task.Failures) != 1 {
-		t.Fatalf("completed context = %+v", taskContext)
+	if taskContext.Task.Status != string(domain.TaskStatusCompleted) || taskContext.WorkItem.Status != string(domain.WorkItemStatusOpen) || len(taskContext.Task.Failures) != 1 {
+		t.Fatalf("converged context = %+v", taskContext)
+	}
+	find = callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{Tags: []string{"mcp"}})
+	if len(find.Candidates) != 1 || find.Candidates[0].Kind != string(application.WorkCandidateBlackboardCompletion) {
+		t.Fatalf("completion candidates = %+v", find.Candidates)
+	}
+	completion := callTool[workItemOutput](t, ctx, session, "submit_blackboard_completion", submitBlackboardCompletionInput{
+		WorkItemID: workItemID, OperationID: "submit-completion-1", Result: "MCP lifecycle and recovery verified.",
+	})
+	if completion.WorkItem.Status != string(domain.WorkItemStatusAwaitingAgentAcceptance) {
+		t.Fatalf("completion = %+v", completion.WorkItem)
+	}
+	find = callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{Tags: []string{"mcp"}})
+	if len(find.Candidates) != 1 || find.Candidates[0].Kind != string(application.WorkCandidateWorkItemAcceptance) {
+		t.Fatalf("acceptance candidates = %+v", find.Candidates)
+	}
+	accepted := callTool[workItemOutput](t, ctx, session, "accept_blackboard_completion", acceptBlackboardCompletionInput{
+		WorkItemID: workItemID, OperationID: "accept-completion-1",
+	})
+	if accepted.WorkItem.Status != string(domain.WorkItemStatusCompleted) || accepted.WorkItem.Result != completion.WorkItem.Result {
+		t.Fatalf("accepted completion = %+v", accepted.WorkItem)
 	}
 	workItemContext := callTool[workItemContextOutput](t, ctx, session, "get_work_item_context", workItemContextInput{
 		WorkItemID: workItemID,
@@ -280,13 +300,13 @@ func TestMCPBlackboardPlanningTools(t *testing.T) {
 	secondSession := connectMCP(t, ctx, secondServer.URL, http.Header{identity.HeaderActorID: {"planner"}, identity.HeaderActorKind: {"agent"}, identity.HeaderActorRole: {"backend"}})
 	t.Cleanup(func() { _ = secondSession.Close() })
 	empty := callTool[findWorkOutput](t, ctx, secondSession, "find_work", findWorkInput{})
-	completed := callTool[workItemOutput](t, ctx, secondSession, "complete_blackboard", completeBlackboardInput{WorkItemID: empty.Candidates[0].WorkItem.ID, OperationID: "complete-empty-1", Result: "No execution task was required."})
+	completed := callTool[workItemOutput](t, ctx, secondSession, "submit_blackboard_completion", submitBlackboardCompletionInput{WorkItemID: empty.Candidates[0].WorkItem.ID, OperationID: "complete-empty-1", Result: "No execution task was required."})
 	if completed.WorkItem.Status != string(domain.WorkItemStatusCompleted) {
 		t.Fatalf("completed = %+v", completed.WorkItem)
 	}
 }
 
-func newMCPFixture(t *testing.T) (*application.Service, *repository.SQLRepository) {
+func newMCPFixture(t *testing.T, acceptanceModes ...domain.WorkItemAcceptanceMode) (*application.Service, *repository.SQLRepository) {
 	t.Helper()
 	ctx := context.Background()
 	repo, err := repository.OpenSQLite(ctx, filepath.Join(t.TempDir(), "mcp.db"))
@@ -310,9 +330,13 @@ func newMCPFixture(t *testing.T) (*application.Service, *repository.SQLRepositor
 	if err != nil {
 		t.Fatalf("create blackboard definition: %v", err)
 	}
+	acceptanceMode := domain.WorkItemAcceptanceNone
+	if len(acceptanceModes) > 0 {
+		acceptanceMode = acceptanceModes[0]
+	}
 	_, err = service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
 		Definition: definition.Binding(), Identity: setup,
-		Title: "MCP end-to-end", Goal: "Prove an agent can plan and execute through MCP.", Tags: []string{"mcp"},
+		Title: "MCP end-to-end", Goal: "Prove an agent can plan and execute through MCP.", Tags: []string{"mcp"}, AcceptanceMode: acceptanceMode,
 	})
 	if err != nil {
 		t.Fatalf("create work item: %v", err)

@@ -89,7 +89,8 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /api/v1/work-items/{work_item_id}/context", h.getWorkItemContext)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/tasks", h.createBlackboardTask)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/relations", h.addBlackboardRelation)
-	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/completion", h.completeBlackboardWorkItem)
+	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/completion", h.submitBlackboardCompletion)
+	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/acceptance", h.acceptBlackboardCompletion)
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}/context", h.getTaskContext)
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}", h.getTaskDetail)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/claims", h.claimTask)
@@ -479,22 +480,38 @@ func (h *Handler) addBlackboardRelation(writer http.ResponseWriter, request *htt
 	writeJSON(writer, http.StatusCreated, dataResponse{Data: relation})
 }
 
-type completeBlackboardWorkItemRequest struct {
+type submitBlackboardCompletionRequest struct {
 	Result string `json:"result"`
 }
 
-func (h *Handler) completeBlackboardWorkItem(writer http.ResponseWriter, request *http.Request) {
+func (h *Handler) submitBlackboardCompletion(writer http.ResponseWriter, request *http.Request) {
 	actor, ok := h.resolveIdentity(writer, request)
 	if !ok {
 		return
 	}
-	var body completeBlackboardWorkItemRequest
+	var body submitBlackboardCompletionRequest
 	if !decodeRequest(writer, request, &body) {
 		return
 	}
-	workItem, err := h.service.CompleteBlackboardWorkItem(request.Context(), application.CompleteBlackboardWorkItemCommand{
+	workItem, err := h.service.SubmitBlackboardCompletion(request.Context(), application.SubmitBlackboardCompletionCommand{
 		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor,
 		OperationID: operationID(request), Result: body.Result,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: workItem})
+}
+
+func (h *Handler) acceptBlackboardCompletion(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	workItem, err := h.service.AcceptBlackboardCompletion(request.Context(), application.AcceptBlackboardCompletionCommand{
+		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor,
+		OperationID: operationID(request),
 	})
 	if err != nil {
 		writeError(writer, err)

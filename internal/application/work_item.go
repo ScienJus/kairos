@@ -236,6 +236,11 @@ func (s *Service) completeWorkItemIfDone(
 	if workItem.Status != domain.WorkItemStatusOpen {
 		return nil
 	}
+	// Blackboard convergence is advisory. A collaborator must explicitly
+	// submit completion before the WorkItem can advance to acceptance.
+	if workItem.CoordinationMode() == domain.CoordinationModeBlackboard {
+		return nil
+	}
 	tasks, err := store.ListTasks(workItem.ID)
 	if err != nil {
 		return fmt.Errorf("list tasks for completion: %w", err)
@@ -248,21 +253,6 @@ func (s *Service) completeWorkItemIfDone(
 			return nil
 		}
 	}
-	if workItem.CoordinationMode() == domain.CoordinationModeBlackboard && workItem.AcceptanceMode != domain.WorkItemAcceptanceNone {
-		now := s.clock.Now()
-		if workItem.AcceptanceMode == domain.WorkItemAcceptanceAgent {
-			workItem.Status = domain.WorkItemStatusAwaitingAgentAcceptance
-		} else {
-			workItem.Status = domain.WorkItemStatusAwaitingHumanAcceptance
-		}
-		workItem.UpdatedAt = now
-		workItem.Version++
-		if err := store.SaveWorkItem(*workItem); err != nil {
-			return fmt.Errorf("save work item awaiting agent acceptance: %w", err)
-		}
-		return s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventAcceptanceRequested, string(workItem.ID), actor, string(workItem.Status))
-	}
-
 	if workItem.CoordinationMode() == domain.CoordinationModeWorkflow {
 		definition, err := store.GetWorkflowDefinition(workItem.Definition.ID, workItem.Definition.Version)
 		if err != nil {
@@ -337,16 +327,16 @@ func (s *Service) completeWorkItem(
 	return s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventWorkItemCompleted, string(workItem.ID), actor, workItem.Result)
 }
 
-// CompleteBlackboardWorkItemCommand directly completes an empty Blackboard.
-type CompleteBlackboardWorkItemCommand struct {
+// SubmitBlackboardCompletionCommand declares that an open Blackboard has achieved its goal.
+type SubmitBlackboardCompletionCommand struct {
 	WorkItemID  domain.WorkItemID
 	Identity    Identity
 	OperationID string
 	Result      string
 }
 
-// CompleteBlackboardWorkItem completes an empty Blackboard without creating a Task.
-func (s *Service) CompleteBlackboardWorkItem(ctx context.Context, command CompleteBlackboardWorkItemCommand) (domain.WorkItem, error) {
+// SubmitBlackboardCompletion records a durable completion proposal after all current Tasks converge.
+func (s *Service) SubmitBlackboardCompletion(ctx context.Context, command SubmitBlackboardCompletionCommand) (domain.WorkItem, error) {
 	if strings.TrimSpace(string(command.WorkItemID)) == "" {
 		return domain.WorkItem{}, invalidCommand("work item id is required")
 	}
@@ -357,8 +347,8 @@ func (s *Service) CompleteBlackboardWorkItem(ctx context.Context, command Comple
 		return domain.WorkItem{}, invalidCommand("result is required")
 	}
 
-	var completed domain.WorkItem
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "complete_blackboard_work_item", command, &completed, func(store WriteStore) error {
+	var submitted domain.WorkItem
+	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "submit_blackboard_completion", command, &submitted, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
@@ -366,29 +356,100 @@ func (s *Service) CompleteBlackboardWorkItem(ctx context.Context, command Comple
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 			return conflict("work item %q is not a blackboard", workItem.ID)
 		}
-		if workItem.Status != domain.WorkItemStatusOpen && workItem.Status != domain.WorkItemStatusAwaitingAgentAcceptance && workItem.Status != domain.WorkItemStatusAwaitingHumanAcceptance {
+		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
 		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
 		}
-		if len(tasks) != 0 && workItem.Status != domain.WorkItemStatusAwaitingAgentAcceptance && workItem.Status != domain.WorkItemStatusAwaitingHumanAcceptance {
-			return conflict("non-empty blackboard %q completes from its task states", workItem.ID)
-		}
-		if workItem.Status == domain.WorkItemStatusAwaitingHumanAcceptance && command.Identity.Actor.Kind != domain.ActorHuman {
-			return forbidden("human acceptance is required for work item %q", workItem.ID)
+		if !blackboardTasksConverged(tasks) {
+			return conflict("blackboard %q has unfinished tasks", workItem.ID)
 		}
 
 		actor := command.Identity.Actor
-		if err := s.completeWorkItem(store, &workItem, &actor, command.Result); err != nil {
+		result := strings.TrimSpace(command.Result)
+		if err := s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventCompletionSubmitted, string(workItem.ID), &actor, result); err != nil {
 			return err
 		}
-		completed = workItem
+
+		if workItem.AcceptanceMode == domain.WorkItemAcceptanceNone {
+			if err := s.completeWorkItem(store, &workItem, &actor, result); err != nil {
+				return err
+			}
+		} else {
+			now := s.clock.Now()
+			workItem.Result = result
+			if workItem.AcceptanceMode == domain.WorkItemAcceptanceAgent {
+				workItem.Status = domain.WorkItemStatusAwaitingAgentAcceptance
+			} else {
+				workItem.Status = domain.WorkItemStatusAwaitingHumanAcceptance
+			}
+			workItem.UpdatedAt = now
+			workItem.Version++
+			if err := store.SaveWorkItem(workItem); err != nil {
+				return fmt.Errorf("save work item awaiting acceptance: %w", err)
+			}
+			if err := s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventAcceptanceRequested, string(workItem.ID), &actor, string(workItem.Status)); err != nil {
+				return err
+			}
+		}
+		submitted = workItem
 		return nil
 	})
 	if err != nil {
 		return domain.WorkItem{}, err
 	}
-	return normalizeWorkItemCollections(completed), nil
+	return normalizeWorkItemCollections(submitted), nil
+}
+
+// AcceptBlackboardCompletionCommand accepts a previously submitted completion proposal.
+type AcceptBlackboardCompletionCommand struct {
+	WorkItemID  domain.WorkItemID
+	Identity    Identity
+	OperationID string
+}
+
+// AcceptBlackboardCompletion completes a Blackboard whose configured acceptance is pending.
+func (s *Service) AcceptBlackboardCompletion(ctx context.Context, command AcceptBlackboardCompletionCommand) (domain.WorkItem, error) {
+	if strings.TrimSpace(string(command.WorkItemID)) == "" {
+		return domain.WorkItem{}, invalidCommand("work item id is required")
+	}
+	if err := command.Identity.Validate(); err != nil {
+		return domain.WorkItem{}, err
+	}
+
+	var accepted domain.WorkItem
+	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "accept_blackboard_completion", command, &accepted, func(store WriteStore) error {
+		workItem, err := store.GetWorkItem(command.WorkItemID)
+		if err != nil {
+			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
+		}
+		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
+			return conflict("work item %q is not a blackboard", workItem.ID)
+		}
+		switch workItem.Status {
+		case domain.WorkItemStatusAwaitingAgentAcceptance:
+			if command.Identity.Actor.Kind != domain.ActorAgent {
+				return forbidden("agent acceptance is required for work item %q", workItem.ID)
+			}
+		case domain.WorkItemStatusAwaitingHumanAcceptance:
+			if command.Identity.Actor.Kind != domain.ActorHuman {
+				return forbidden("human acceptance is required for work item %q", workItem.ID)
+			}
+		default:
+			return conflict("work item %q is %s", workItem.ID, workItem.Status)
+		}
+
+		actor := command.Identity.Actor
+		if err := s.completeWorkItem(store, &workItem, &actor, workItem.Result); err != nil {
+			return err
+		}
+		accepted = workItem
+		return nil
+	})
+	if err != nil {
+		return domain.WorkItem{}, err
+	}
+	return normalizeWorkItemCollections(accepted), nil
 }

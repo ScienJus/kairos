@@ -63,7 +63,7 @@ type WorkItem struct {
 	// Status is the current lifecycle state. [Both]
 	Status WorkItemStatus
 
-	// AcceptanceMode controls what happens after all Tasks converge.
+	// AcceptanceMode controls what happens after a collaborator submits completion.
 	AcceptanceMode WorkItemAcceptanceMode
 
 	// Title is the short label shown in lists and Kanban cards. [Both]
@@ -84,7 +84,8 @@ type WorkItem struct {
 	// Tags provide discovery metadata, including before a Blackboard has Tasks. [Both]
 	Tags []string
 
-	// Result records the final outcome and important deliverables. [Both]
+	// Result stores a submitted completion proposal while acceptance is pending,
+	// and the accepted final outcome after completion. [Both]
 	Result string
 
 	// Version is the server-maintained WorkItem revision. Blackboard planning

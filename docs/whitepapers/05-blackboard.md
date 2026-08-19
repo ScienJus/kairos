@@ -132,18 +132,18 @@ Blackboard autonomy comes from continuous planning and therefore does not need p
 
 ## 6. WorkItem Completion
 
-Before ending the current Task, the executor evaluates whether the WorkItem objective and acceptance criteria require more work:
+After the current Tasks converge, a collaborator evaluates whether the WorkItem objective requires more work:
 
 ```text
-Check WorkItem objective before ending current Task
- ├── more work needed → create follow-up Tasks first
- └── objective met    → end current Task
-                              ↓
-                    every Task has ended
-                              ↓
-                    WorkItem Completed
+Every current Task is Completed or Skipped
+                    ↓
+        Blackboard completion candidate
+         ├── more work needed → create follow-up Tasks
+         └── objective met    → submit completion result
+                                      ↓
+                              acceptance_mode
 ```
 
-New findings can expand the Task Graph at any point. When the objective is already satisfied, remaining low-value Tasks can be marked Skipped. After the final Task completes or is skipped, `acceptance_mode` controls the WorkItem: `none` completes automatically; `agent` exposes an Agent acceptance candidate that may add more Tasks or complete the WorkItem; `human` enters human acceptance and is shown in the human-attention queue. A collaborator can also explicitly complete an empty Blackboard.
+New findings can expand the Task Graph at any point. When the objective is already satisfied, remaining low-value Tasks can be marked Skipped. Task convergence leaves the WorkItem `open`; it does not itself declare completion or start acceptance. A collaborator must submit a durable completion result. Then `acceptance_mode` applies: `none` completes immediately, `agent` exposes an Agent acceptance candidate, and `human` enters human acceptance and is shown in the human-attention queue. An acceptance actor may accept the proposal, while an Agent acceptance actor may instead create more Tasks and return the WorkItem to execution. The same explicit completion submission also applies to an empty Blackboard.
 
 > Blackboard grows a shared plan while people and agents execute the work.
