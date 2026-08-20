@@ -34,7 +34,7 @@ record progress
 submit result
 ```
 
-Before execution, the agent reads necessary context and confirms the Task. The agent or Bridge creates a leased Claim before work begins, establishing unique execution responsibility. During execution, the agent renews that lease with heartbeat calls and may request a different duration for each interval. Progress and final results produced during execution are recorded on the Task. If the lease expires, the agent must stop and cannot revive or submit through the old Claim.
+Before execution, the agent reads necessary context and confirms the Task. The agent or Bridge creates a leased Claim before work begins, establishing unique execution responsibility. During execution, the agent renews that lease with heartbeat calls and may request a different duration for each interval. Progress and final results produced during execution are recorded on the Task. Reaching `lease_until` makes the Claim eligible for reaping but does not revoke it: the current agent may still renew or submit until the reaper commits. After reaping, the agent must stop and cannot revive or submit through the old Claim.
 
 ## 2. Discovering Work
 

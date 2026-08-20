@@ -101,7 +101,7 @@ Available in this repository:
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with WorkItem List, human attention, Workflow graph, Blackboard task map, and Definition editors;
-- agent Claim leases with flexible durations, heartbeat, expiry recovery, and fencing;
+- agent Claim leases with flexible durations, heartbeat, reaper-mediated recovery, and fencing;
 - deterministic unit tests and randomized collaboration simulations.
 
 Still to be built:

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -237,6 +238,25 @@ func testClaimLeaseColumns(t *testing.T, repository *SQLRepository, definition d
 	}
 	assertColumns(agentClaim.ID, "agent", "lease-agent", true)
 	assertColumns(humanClaim.ID, "human", "lease-human", false)
+
+	listReapable := func(now time.Time) []domain.TaskID {
+		t.Helper()
+		var result []domain.TaskID
+		if err := repository.View(ctx, func(store application.ReadStore) error {
+			var err error
+			result, err = store.ListReapableAgentClaimTasks(now)
+			return err
+		}); err != nil {
+			t.Fatalf("list reapable claims: %v", err)
+		}
+		return result
+	}
+	if got := listReapable(agentClaim.LeaseUntil.Add(-time.Nanosecond)); slices.Contains(got, agentTask.ID) {
+		t.Fatalf("reapable before deadline = %v, unexpectedly contains %q", got, agentTask.ID)
+	}
+	if got := listReapable(agentClaim.LeaseUntil); !slices.Contains(got, agentTask.ID) || slices.Contains(got, humanTask.ID) {
+		t.Fatalf("reapable at deadline = %v, want agent task %q without human task %q", got, agentTask.ID, humanTask.ID)
+	}
 }
 
 func forEachSQLRepository(

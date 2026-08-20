@@ -1979,6 +1979,26 @@ func (r *testRepository) ListBlackboardsAwaitingLifecycleDecision() ([]domain.Wo
 	return result, nil
 }
 
+func (r *testRepository) ListReapableAgentClaimTasks(now time.Time) ([]domain.TaskID, error) {
+	result := make([]domain.TaskID, 0)
+	for _, task := range r.tasks {
+		if task.Status != domain.TaskStatusWorking || task.ActiveClaimID == nil {
+			continue
+		}
+		workItem := r.workItems[task.WorkItemID]
+		if workItem.Status != domain.WorkItemStatusOpen {
+			continue
+		}
+		claim, exists := r.claims[*task.ActiveClaimID]
+		if !exists || claim.Executor.Kind != domain.ActorAgent || !claim.Active() || claim.LeaseUntil.IsZero() || now.Before(claim.LeaseUntil) {
+			continue
+		}
+		result = append(result, task.ID)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+	return result, nil
+}
+
 func (r *testRepository) GetWorkflowDefinition(id domain.DefinitionID, version int64) (domain.WorkflowDefinition, error) {
 	value, ok := r.workflows[definitionKey(id, version)]
 	if !ok {

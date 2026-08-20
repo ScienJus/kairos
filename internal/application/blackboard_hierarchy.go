@@ -53,11 +53,6 @@ func (s *Service) DecomposeBlackboardTask(
 		if err != nil {
 			return fmt.Errorf("list claims for task %q: %w", parent.ID, err)
 		}
-		if expired, err := s.expireActiveClaim(store, &parent, claims, s.clock.Now()); err != nil {
-			return err
-		} else if expired {
-			return conflict("claim %q lease has expired", command.ClaimID)
-		}
 		if err := validateBlackboardTaskDecomposition(workItem, parent, claims, command.Identity, command.ClaimID); err != nil {
 			return err
 		}

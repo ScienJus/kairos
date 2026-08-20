@@ -62,7 +62,7 @@ Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；�
 
 ## Claim Lease
 
-Agent Claim 使用 lease，Human Claim 不使用。Agent Claim 与 heartbeat 可选择 15 秒至 30 分钟的时长；省略时使用 `KAIROS_AGENT_CLAIM_LEASE`，默认五分钟。后台 reaper 将过期 Agent Claim 恢复为 Pending；过期 Claim 不能续租，也不能提交成果。
+Agent Claim 使用 lease，Human Claim 不使用。Agent Claim 与 heartbeat 可选择 15 秒至 30 分钟的时长；省略时使用 `KAIROS_AGENT_CLAIM_LEASE`，默认五分钟。`lease_until` 是后台 reaper 最早可以结束 Claim、将 Task 恢复为 Pending 的时间；到达该时间本身不会改变执行权。reaper 提交回收事务前，当前执行者仍可继续推进 Task 或续租，其他执行者仍不能 Claim 这个 Working Task。回收完成后，旧 Claim ID 继续作为 fencing token，不能续租或提交成果。
 
 ## MCP
 

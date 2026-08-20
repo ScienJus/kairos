@@ -101,7 +101,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
 - 包含 WorkItem List、人工关注、Workflow 图、Blackboard Task Map 和 Definition 编辑器的 operations console；
-- 支持灵活时长、heartbeat、过期恢复和 fencing 的 Agent Claim lease；
+- 支持灵活时长、heartbeat、reaper 回收和 fencing 的 Agent Claim lease；
 - 确定性单元测试和随机协作模拟测试。
 
 仍需实现：

@@ -131,7 +131,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "heartbeat_claim", Title: "Heartbeat claim", Description: "Extend an active claim lease before it expires. Reuse operation_id when retrying the same call.", Annotations: mutationAnnotations(false),
+		Name: "heartbeat_claim", Title: "Heartbeat claim", Description: "Extend an active claim before reaping. Reuse operation_id only for an identical retry.", Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input heartbeatClaimInput) (*mcp.CallToolResult, claimOutput, error) {
 		claim, err := service.HeartbeatClaim(ctx, application.HeartbeatClaimCommand{TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor, OperationID: input.OperationID, LeaseSeconds: input.LeaseSeconds})
 		return successResult(fmt.Sprintf("Heartbeated Claim %s.", input.ClaimID)), claimOutput{Claim: claimViewFrom(claim)}, err

@@ -26,7 +26,7 @@ Kairos 只有少量页面，不按大型管理后台的假设设计数据层。
 - 前端只根据 capability 决定是否展示操作，不从状态、历史、Claim 和身份重新拼装规则。
 - 后端仍必须在执行命令时重新校验；capability 是界面提示，不是授权凭证。
 - capability 只表达当前身份、当前版本数据下的结果。操作后应刷新上下文，不能长期缓存为本地事实。
-- UI 是否采集一个字段，不决定领域命令是否保留该字段。例如 Human UI 可以无原因释放 Claim；Agent Claim 的 lease 过期则由后端记录独立的 `expired` 结束原因与 `task.claim_expired` 事件。
+- UI 是否采集一个字段，不决定领域命令是否保留该字段。例如 Human UI 可以无原因释放 Claim；Agent Claim 到达 lease deadline 后仍保持 Active，直到 reaper 回收并由后端记录独立的 `expired` 结束原因与 `task.claim_expired` 事件。
 
 复杂的领域判断必须由后端统一完成，例如 Claim 所有权、执行历史、能力组合和状态转换。简单且稳定的展示判断可以交给前端计算，例如 Blackboard 中 `pending && 无 Active Claim` 时显示“跳过”，或 `waiting_children` 时显示“追加子任务”。后端仍必须完整校验所有命令。
 

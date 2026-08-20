@@ -29,6 +29,59 @@ function WorkflowGraphNode({ data }: NodeProps) {
 export const workflowEdgeTypes: EdgeTypes = { selfLoop: WorkflowSelfLoopEdge, cycleBack: WorkflowCycleBackEdge }
 export const workflowNodeTypes: NodeTypes = { workflowTask: WorkflowGraphNode }
 
+export function workflowNodeIsSelected(runtimeTaskIDs: string[], selectedTaskID: string | null) {
+  return selectedTaskID !== null && runtimeTaskIDs.includes(selectedTaskID)
+}
+
+export function workflowGraphLayout(
+  taskIDs: string[],
+  relations: Array<{ FromTaskID: string; ToTaskID: string }>,
+  startTaskIDs: string[],
+) {
+  const knownTaskIDs = new Set(taskIDs)
+  const validRelations = relations.filter(relation => knownTaskIDs.has(relation.FromTaskID) && knownTaskIDs.has(relation.ToTaskID))
+  const outgoing = new Map(taskIDs.map(taskID => [taskID, [] as typeof validRelations]))
+  validRelations.forEach(relation => outgoing.get(relation.FromTaskID)!.push(relation))
+
+  const edgeKey = (fromTaskID: string, toTaskID: string) => JSON.stringify([fromTaskID, toTaskID])
+  const backEdges = new Set<string>()
+  const state = new Map<string, 'visiting' | 'visited'>()
+  // Removing DFS back edges leaves a DAG whose longest paths provide stable columns.
+  const visit = (taskID: string) => {
+    state.set(taskID, 'visiting')
+    outgoing.get(taskID)!.forEach(relation => {
+      const targetState = state.get(relation.ToTaskID)
+      if (targetState === 'visiting') backEdges.add(edgeKey(relation.FromTaskID, relation.ToTaskID))
+      else if (!targetState) visit(relation.ToTaskID)
+    })
+    state.set(taskID, 'visited')
+  }
+  startTaskIDs.filter(taskID => knownTaskIDs.has(taskID)).forEach(taskID => { if (!state.has(taskID)) visit(taskID) })
+  taskIDs.forEach(taskID => { if (!state.has(taskID)) visit(taskID) })
+
+  const forwardRelations = validRelations.filter(relation => !backEdges.has(edgeKey(relation.FromTaskID, relation.ToTaskID)))
+  const forwardOutgoing = new Map(taskIDs.map(taskID => [taskID, [] as typeof forwardRelations]))
+  const incoming = new Map(taskIDs.map(taskID => [taskID, 0]))
+  forwardRelations.forEach(relation => {
+    forwardOutgoing.get(relation.FromTaskID)!.push(relation)
+    incoming.set(relation.ToTaskID, incoming.get(relation.ToTaskID)! + 1)
+  })
+  const depths = new Map(taskIDs.map(taskID => [taskID, 0]))
+  const queue = taskIDs.filter(taskID => incoming.get(taskID) === 0)
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    forwardOutgoing.get(current)!.forEach(relation => {
+      depths.set(relation.ToTaskID, Math.max(depths.get(relation.ToTaskID)!, depths.get(current)! + 1))
+      incoming.set(relation.ToTaskID, incoming.get(relation.ToTaskID)! - 1)
+      if (incoming.get(relation.ToTaskID) === 0) queue.push(relation.ToTaskID)
+    })
+  }
+  return {
+    depths,
+    isBackEdge: (fromTaskID: string, toTaskID: string) => backEdges.has(edgeKey(fromTaskID, toTaskID)),
+  }
+}
+
 export function workflowEdgePresentation(fromTaskID: string, toTaskID: string, goesBackward = false) {
   if (fromTaskID === toTaskID) return { type: 'selfLoop', sourceHandle: 'loop-out', targetHandle: 'loop-in' }
   if (goesBackward) return { type: 'cycleBack', sourceHandle: 'cycle-out', targetHandle: 'cycle-in' }

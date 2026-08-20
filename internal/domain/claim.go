@@ -66,10 +66,12 @@ type Claim struct {
 
 	ClaimedAt       time.Time
 	LastHeartbeatAt time.Time
-	LeaseUntil      time.Time
-	LeaseSeconds    int64
-	EndedAt         *time.Time
-	EndReason       ClaimEndReason
+	// LeaseUntil is the earliest time when the background reaper may end an
+	// active Agent Claim. Reaching it does not itself revoke ownership.
+	LeaseUntil   time.Time
+	LeaseSeconds int64
+	EndedAt      *time.Time
+	EndReason    ClaimEndReason
 }
 
 // Active reports whether the Claim is still the Task's current execution responsibility.

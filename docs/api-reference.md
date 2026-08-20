@@ -62,7 +62,7 @@ While acceptance is pending, `WorkItem.Result` contains the submitted completion
 
 ## Claim Leases
 
-Agent Claims use leases; human Claims do not. Agent claim and heartbeat requests may choose a duration from 15 seconds through 30 minutes. Omitted durations use `KAIROS_AGENT_CLAIM_LEASE`, five minutes by default. The background reaper returns expired Agent Claims to Pending. An expired Claim cannot be renewed or used for submission.
+Agent Claims use leases; human Claims do not. Agent claim and heartbeat requests may choose a duration from 15 seconds through 30 minutes. Omitted durations use `KAIROS_AGENT_CLAIM_LEASE`, five minutes by default. `lease_until` is the earliest time when the background reaper may end the Claim and return its Task to Pending; reaching that timestamp does not itself change ownership. Until the reaper commits that transition, the current executor may continue Task operations or renew the Claim, while every other executor remains unable to Claim the working Task. After reaping, the old Claim ID remains fenced and cannot be renewed or used for submission.
 
 ## MCP
 

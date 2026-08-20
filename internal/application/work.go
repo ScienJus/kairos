@@ -205,15 +205,6 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
 		}
-		if task.ActiveClaimID != nil {
-			claims, err := store.ListClaims(task.ID)
-			if err != nil {
-				return fmt.Errorf("list claims for task %q: %w", task.ID, err)
-			}
-			if _, err := s.expireActiveClaim(store, &task, claims, s.clock.Now()); err != nil {
-				return fmt.Errorf("expire claim: %w", err)
-			}
-		}
 		if task.Status != domain.TaskStatusPending || task.ActiveClaimID != nil {
 			return conflict("task %q is not claimable", task.ID)
 		}

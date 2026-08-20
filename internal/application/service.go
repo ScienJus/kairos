@@ -50,6 +50,12 @@ func (s *Service) StartLeaseReaper(ctx context.Context, interval time.Duration) 
 		defer close(done)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		reap := func() {
+			if err := s.ReapExpiredClaims(ctx); err != nil {
+				log.Printf("kairos: lease reaper: %v", err)
+			}
+		}
+		reap()
 		for {
 			select {
 			case <-ctx.Done():
@@ -57,46 +63,50 @@ func (s *Service) StartLeaseReaper(ctx context.Context, interval time.Duration) 
 			case <-stop:
 				return
 			case <-ticker.C:
-				if err := s.ReapExpiredClaims(ctx); err != nil {
-					log.Printf("kairos: lease reaper: %v", err)
-				}
+				reap()
 			}
 		}
 	}()
 	return func() { close(stop); <-done }
 }
 
-// ReapExpiredClaims scans open WorkItems and expires stale active Claims.
+// ReapExpiredClaims returns reapable Agent Claims to the pending queue.
 func (s *Service) ReapExpiredClaims(ctx context.Context) error {
-	return s.repository.Update(ctx, func(store WriteStore) error {
-		items, err := store.ListWorkItems()
+	now := s.clock.Now()
+	var taskIDs []domain.TaskID
+	if err := s.repository.View(ctx, func(store ReadStore) error {
+		var err error
+		taskIDs, err = store.ListReapableAgentClaimTasks(now)
 		if err != nil {
-			return err
-		}
-		now := s.clock.Now()
-		for _, item := range items {
-			if item.Status != domain.WorkItemStatusOpen {
-				continue
-			}
-			tasks, err := store.ListTasks(item.ID)
-			if err != nil {
-				return err
-			}
-			for i := range tasks {
-				if tasks[i].ActiveClaimID == nil {
-					continue
-				}
-				claims, err := store.ListClaims(tasks[i].ID)
-				if err != nil {
-					return err
-				}
-				if _, err := s.expireActiveClaim(store, &tasks[i], claims, now); err != nil {
-					return err
-				}
-			}
+			return fmt.Errorf("list reapable agent claims: %w", err)
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	var reapErrors []error
+	for _, taskID := range taskIDs {
+		if err := s.repository.Update(ctx, func(store WriteStore) error {
+			task, err := store.GetTask(taskID)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					return nil
+				}
+				return fmt.Errorf("get reapable task %q: %w", taskID, err)
+			}
+			claims, err := store.ListClaims(task.ID)
+			if err != nil {
+				return fmt.Errorf("list claims for reapable task %q: %w", task.ID, err)
+			}
+			if _, err := s.reapActiveClaim(store, &task, claims, now); err != nil {
+				return fmt.Errorf("reap claim for task %q: %w", task.ID, err)
+			}
+			return nil
+		}); err != nil {
+			reapErrors = append(reapErrors, err)
+		}
+	}
+	return errors.Join(reapErrors...)
 }
 
 // NewService creates an application Service.

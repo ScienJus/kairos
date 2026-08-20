@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { GitBranch, Languages, Library, Plus, UserRound } from 'lucide-react'
 import { loadIdentity, saveIdentity } from './api'
 import { CreateWorkModal, IdentityModal, type WorkDefinitionTarget } from './AppModals'
-import { BlackboardsPage } from './BlackboardsPage'
 import { HomePage } from './HomePage'
 import { useI18n } from './i18n'
 import { readRoute, routePath, type RouteState } from './route'
 import type { Identity } from './types'
-import { WorkItemPage } from './WorkItemPage'
-import { WorkflowsPage } from './WorkflowsPage'
-import { WorkflowEditorPage } from './WorkflowEditorPage'
+
+const BlackboardsPage = lazy(() => import('./BlackboardsPage').then(module => ({ default: module.BlackboardsPage })))
+const WorkItemPage = lazy(() => import('./WorkItemPage').then(module => ({ default: module.WorkItemPage })))
+const WorkflowsPage = lazy(() => import('./WorkflowsPage').then(module => ({ default: module.WorkflowsPage })))
+const WorkflowEditorPage = lazy(() => import('./WorkflowEditorPage').then(module => ({ default: module.WorkflowEditorPage })))
 
 export function App() {
   const { locale, setLocale, t } = useI18n()
@@ -51,7 +52,7 @@ export function App() {
       </div>
     </header>
 
-    <main className={`workspace ${route.blackboardID !== undefined || route.workflowID !== undefined ? 'library-workspace' : ''} ${route.workItemID ? 'show-work' : 'show-queue'} ${route.taskID ? 'task-open' : ''}`}>
+    <main className={`workspace ${route.blackboardID !== undefined || route.workflowID !== undefined ? 'library-workspace' : ''} ${route.workItemID ? 'show-work' : 'show-queue'} ${route.taskID ? 'task-open' : ''}`}><Suspense fallback={<div className="panel-placeholder"><strong>{t('acquiring')}</strong></div>}>
       {route.workflowID !== undefined
         ? route.workflowEditing
           ? <WorkflowEditorPage identity={identity} workflowID={route.workflowID ?? null} workflowVersion={route.workflowVersion ?? null} navigate={navigate} />
@@ -61,6 +62,7 @@ export function App() {
         : !route.workItemID
         ? <HomePage identity={identity} homeView={route.homeView} navigate={navigate} onCreate={() => setCreateOpen(true)} />
         : <WorkItemPage identity={identity} workItemID={route.workItemID} selectedTaskID={route.taskID} homeView={route.homeView} navigate={navigate} />}
+      </Suspense>
     </main>
 
     <CreateWorkModal open={createOpen} onOpenChange={open => { setCreateOpen(open); if (!open) setCreateDefinition(null) }} identity={identity} definition={createDefinition} onCreated={workItem => { if (createDefinition) navigate({ workItemID: workItem.ID, taskID: null, homeView: 'all' }) }} />

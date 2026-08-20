@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, CircleDot } from '
 import { useI18n } from './i18n'
 import type { Task, TaskRelation, WorkflowDefinition } from './types'
 import { Status } from './ui'
+import { workflowEdgePresentation, workflowEdgeTypes, workflowGraphLayout, workflowNodeIsSelected, workflowNodeTypes } from './WorkflowGraphEdges'
 
 export function TaskMap({ mode, tasks, relations, workflowDefinition, selectedTaskID, onSelect }: { mode: string; tasks: Task[]; relations: TaskRelation[]; workflowDefinition?: WorkflowDefinition; selectedTaskID: string | null; onSelect: (id: string) => void }) {
   const { t } = useI18n()
@@ -61,24 +62,21 @@ function WorkflowGraph({ tasks, relations, definition, selectedTaskID, onSelect 
   const { t } = useI18n()
   const runtimeByDefinition = new Map<string, Task[]>()
   tasks.forEach(task => { if (task.WorkflowTaskID) runtimeByDefinition.set(task.WorkflowTaskID, [...(runtimeByDefinition.get(task.WorkflowTaskID) ?? []), task]) })
+  runtimeByDefinition.forEach(runtime => runtime.sort((left, right) => left.Position - right.Position))
   if (!definition) return <RuntimeWorkflowGraph tasks={tasks} relations={relations} selectedTaskID={selectedTaskID} onSelect={onSelect} />
   const definitions = definition.Graph.Tasks
-  const incoming = new Map(definitions.map(task => [task.ID, 0]))
-  definition.Graph.Relations.forEach(relation => incoming.set(relation.ToTaskID, (incoming.get(relation.ToTaskID) ?? 0) + 1))
-  const depth = new Map<string, number>(); const queue: string[] = []
-  const startIDs = definition.Graph.StartTaskIDs; startIDs.forEach(id => depth.set(id, 0)); queue.splice(0, queue.length, ...startIDs)
-  while (queue.length) {
-    const current = queue.shift()!; const currentDepth = depth.get(current) ?? 0
-    definition.Graph.Relations.filter(relation => relation.FromTaskID === current).forEach(relation => { depth.set(relation.ToTaskID, Math.max(depth.get(relation.ToTaskID) ?? 0, currentDepth + 1)); incoming.set(relation.ToTaskID, (incoming.get(relation.ToTaskID) ?? 1) - 1); if (incoming.get(relation.ToTaskID) === 0) queue.push(relation.ToTaskID) })
-  }
+  const layout = workflowGraphLayout(definitions.map(task => task.ID), definition.Graph.Relations, definition.Graph.StartTaskIDs)
   const rows = new Map<number, number>()
   const nodes: Node[] = definitions.map((task, index) => {
-    const runtime = runtimeByDefinition.get(task.ID) ?? []; const latest = runtime.at(-1); const status = latest?.Status ?? 'not_reached'; const column = depth.get(task.ID) ?? index; const row = rows.get(column) ?? 0; rows.set(column, row + 1)
+    const runtime = runtimeByDefinition.get(task.ID) ?? []; const latest = runtime.at(-1); const status = latest?.Status ?? 'not_reached'; const column = layout.depths.get(task.ID) ?? index; const row = rows.get(column) ?? 0; rows.set(column, row + 1)
     const role = task.AllowedRoles.length > 0 ? task.AllowedRoles.join(', ') : t('unrestricted')
-    return { id: task.ID, position: { x: column * 250, y: row * 96 }, data: { label: <div className="flow-node-content"><Status value={status} /><strong>{task.Title}</strong><small>{t(task.Executor)} · {role}{runtime.length > 1 ? ` · ${runtime.length} runs` : ''}</small></div> }, className: `flow-node status-node-${status} ${latest && selectedTaskID === latest.ID ? 'selected' : ''}`, sourcePosition: Position.Right, targetPosition: Position.Left }
+    return { id: task.ID, position: { x: column * 250, y: row * 96 }, data: { label: <div className="flow-node-content"><Status value={status} /><strong>{task.Title}</strong><small>{t(task.Executor)} · {role}{runtime.length > 1 ? ` · ${t('workflowRuns', { count: runtime.length })}` : ''}</small></div> }, type: 'workflowTask', className: `flow-node status-node-${status} ${workflowNodeIsSelected(runtime.map(instance => instance.ID), selectedTaskID) ? 'selected' : ''}`, sourcePosition: Position.Right, targetPosition: Position.Left }
   })
-  const edges: Edge[] = definition.Graph.Relations.map(relation => ({ id: relation.ID, source: relation.FromTaskID, target: relation.ToTaskID, markerEnd: { type: MarkerType.ArrowClosed }, type: 'smoothstep' }))
-  return <div className="workflow-graph"><ReactFlow nodes={nodes} edges={edges} fitView fitViewOptions={{ padding: .25 }} minZoom={.5} maxZoom={1.4} nodesDraggable={false} nodesConnectable={false} elementsSelectable proOptions={{ hideAttribution: true }} onNodeClick={(_, node) => { const latest = runtimeByDefinition.get(node.id)?.at(-1); if (latest) onSelect(latest.ID) }}><Background gap={24} size={1} /><Controls showInteractive={false} /></ReactFlow></div>
+  const edges: Edge[] = definition.Graph.Relations.map(relation => {
+    const presentation = workflowEdgePresentation(relation.FromTaskID, relation.ToTaskID, layout.isBackEdge(relation.FromTaskID, relation.ToTaskID))
+    return { id: relation.ID, source: relation.FromTaskID, target: relation.ToTaskID, markerEnd: { type: MarkerType.ArrowClosed }, className: presentation.type === 'smoothstep' ? '' : 'workflow-cycle-edge', ...presentation }
+  })
+  return <div className="workflow-graph"><ReactFlow nodes={nodes} edges={edges} edgeTypes={workflowEdgeTypes} nodeTypes={workflowNodeTypes} fitView fitViewOptions={{ padding: .25 }} minZoom={.5} maxZoom={1.4} nodesDraggable={false} nodesConnectable={false} elementsSelectable proOptions={{ hideAttribution: true }} onNodeClick={(_, node) => { const latest = runtimeByDefinition.get(node.id)?.at(-1); if (latest) onSelect(latest.ID) }}><Background gap={24} size={1} /><Controls showInteractive={false} /></ReactFlow></div>
 }
 
 function RuntimeWorkflowGraph({ tasks, relations, selectedTaskID, onSelect }: { tasks: Task[]; relations: TaskRelation[]; selectedTaskID: string | null; onSelect: (id: string) => void }) {

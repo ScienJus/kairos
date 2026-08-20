@@ -24,6 +24,7 @@ func TestNormalizeClaimLease(t *testing.T) {
 		{"minimum", 1, DefaultClaimLease, MinClaimLease},
 		{"requested", 300, DefaultClaimLease, 5 * time.Minute},
 		{"maximum", 86400, DefaultClaimLease, MaxClaimLease},
+		{"overflow maximum", 1<<63 - 1, DefaultClaimLease, MaxClaimLease},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -85,6 +86,128 @@ func TestAgentClaimLeaseLifecycle(t *testing.T) {
 	if replacement.ID == claim.ID {
 		t.Fatal("replacement reused expired claim id")
 	}
+}
+
+func TestUnreapedAgentClaimRetainsOwnershipPastLeaseUntil(t *testing.T) {
+	repository := newTestRepository()
+	repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+	clock := &leaseTestClock{now: applicationTestTime}
+	service, err := NewService(repository, clock, &testIDs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "owner"}, Role: "generalist"}
+	other := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "other"}, Role: "generalist"}
+	task := createLeaseTestTask(t, service, owner, domain.ExecutorAgent)
+	claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: owner, LeaseSeconds: 30})
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	clock.now = claim.LeaseUntil
+	if _, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: other}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("claim before reaping: %v", err)
+	}
+	candidates, err := service.FindWork(context.Background(), FindWorkQuery{Identity: other})
+	if err != nil {
+		t.Fatalf("find work: %v", err)
+	}
+	for _, candidate := range candidates {
+		if candidate.Task != nil && candidate.Task.ID == task.ID {
+			t.Fatalf("working task was discoverable after lease deadline: %#v", candidate)
+		}
+	}
+
+	renewed, err := service.HeartbeatClaim(context.Background(), HeartbeatClaimCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: owner, LeaseSeconds: 60,
+	})
+	if err != nil {
+		t.Fatalf("heartbeat after lease deadline: %v", err)
+	}
+	if !renewed.LeaseUntil.Equal(clock.now.Add(time.Minute)) {
+		t.Fatalf("renewed lease until = %s, want %s", renewed.LeaseUntil, clock.now.Add(time.Minute))
+	}
+	clock.now = renewed.LeaseUntil
+	if err := service.ReleaseClaim(context.Background(), ReleaseClaimCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: owner}); err != nil {
+		t.Fatalf("release before reaping: %v", err)
+	}
+	if _, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: other}); err != nil {
+		t.Fatalf("claim after release: %v", err)
+	}
+}
+
+func TestUnreapedAgentClaimCanSubmitPastLeaseUntil(t *testing.T) {
+	repository := newTestRepository()
+	repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+	clock := &leaseTestClock{now: applicationTestTime}
+	service, err := NewService(repository, clock, &testIDs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "owner"}, Role: "generalist"}
+	task := createLeaseTestTask(t, service, owner, domain.ExecutorAgent)
+	claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: owner, LeaseSeconds: 30})
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	clock.now = claim.LeaseUntil
+	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: owner, Result: "completed before reaping",
+	}); err != nil {
+		t.Fatalf("submit after lease deadline: %v", err)
+	}
+	if got := repository.tasks[task.ID]; got.Status != domain.TaskStatusCompleted || got.ActiveClaimID != nil {
+		t.Fatalf("submitted task: %#v", got)
+	}
+}
+
+func TestUnreapedAgentClaimCanFailOrDecomposePastLeaseUntil(t *testing.T) {
+	t.Run("fail", func(t *testing.T) {
+		repository := newTestRepository()
+		repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+		clock := &leaseTestClock{now: applicationTestTime}
+		service, err := NewService(repository, clock, &testIDs{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "owner"}, Role: "generalist"}
+		task := createLeaseTestTask(t, service, owner, domain.ExecutorAgent)
+		claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: owner, LeaseSeconds: 30})
+		if err != nil {
+			t.Fatalf("claim: %v", err)
+		}
+		clock.now = claim.LeaseUntil
+		if _, err := service.FailTask(context.Background(), FailTaskCommand{
+			TaskID: task.ID, ClaimID: claim.ID, Identity: owner,
+			Action: domain.TaskFailureReopen, Reason: "retry after lease deadline",
+		}); err != nil {
+			t.Fatalf("fail before reaping: %v", err)
+		}
+	})
+
+	t.Run("decompose", func(t *testing.T) {
+		repository := newTestRepository()
+		repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+		clock := &leaseTestClock{now: applicationTestTime}
+		service, err := NewService(repository, clock, &testIDs{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "owner"}, Role: "generalist"}
+		task := createLeaseTestTask(t, service, owner, domain.ExecutorAgent)
+		claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: owner, LeaseSeconds: 30})
+		if err != nil {
+			t.Fatalf("claim: %v", err)
+		}
+		clock.now = claim.LeaseUntil
+		if _, err := service.DecomposeBlackboardTask(context.Background(), DecomposeBlackboardTaskCommand{
+			TaskID: task.ID, ClaimID: claim.ID, Identity: owner,
+			Children: []BlackboardTaskSpec{{Title: "Child", Executor: domain.ExecutorAgent}},
+		}); err != nil {
+			t.Fatalf("decompose before reaping: %v", err)
+		}
+	})
 }
 
 func TestHumanClaimDoesNotUseLease(t *testing.T) {

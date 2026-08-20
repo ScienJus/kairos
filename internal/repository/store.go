@@ -321,6 +321,41 @@ func (s *sqlStore) ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem
 	return result, normalizeError(rows.Err())
 }
 
+func (s *sqlStore) ListReapableAgentClaimTasks(now time.Time) ([]domain.TaskID, error) {
+	rows, err := s.query(`
+		SELECT c.task_id
+		FROM claims c
+		JOIN tasks t ON t.id = c.task_id
+		JOIN work_items w ON w.id = t.work_item_id
+		WHERE c.executor_kind = ?
+		  AND c.active = ?
+		  AND c.lease_until_ns IS NOT NULL
+		  AND c.lease_until_ns <= ?
+		  AND t.status = ?
+		  AND t.active_claim_id = c.id
+		  AND w.status = ?
+		ORDER BY c.lease_until_ns, c.task_id`,
+		domain.ActorAgent,
+		true,
+		now.UnixNano(),
+		domain.TaskStatusWorking,
+		domain.WorkItemStatusOpen,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]domain.TaskID, 0)
+	for rows.Next() {
+		var taskID domain.TaskID
+		if err := rows.Scan(&taskID); err != nil {
+			return nil, normalizeError(err)
+		}
+		result = append(result, taskID)
+	}
+	return result, normalizeError(rows.Err())
+}
+
 func (s *sqlStore) GetWorkflowDefinition(
 	id domain.DefinitionID,
 	version int64,

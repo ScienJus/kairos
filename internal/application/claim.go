@@ -43,11 +43,6 @@ func (s *Service) ReleaseClaim(ctx context.Context, command ReleaseClaimCommand)
 		if err != nil {
 			return fmt.Errorf("list claims for task %q: %w", task.ID, err)
 		}
-		if expired, err := s.expireActiveClaim(store, &task, claims, s.clock.Now()); err != nil {
-			return err
-		} else if expired {
-			return conflict("claim %q lease has expired", command.ClaimID)
-		}
 		claimIndex := findClaim(claims, command.ClaimID)
 		if claimIndex < 0 {
 			return fmt.Errorf("%w: claim %q", ErrNotFound, command.ClaimID)

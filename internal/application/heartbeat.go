@@ -8,13 +8,21 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-// expireActiveClaim releases an expired lease inside the caller's transaction.
-func (s *Service) expireActiveClaim(store WriteStore, task *domain.Task, claims []domain.Claim, now time.Time) (bool, error) {
+// reapActiveClaim ends an Agent Claim after its lease deadline. Ordinary
+// operations rely only on persisted ownership and never call this helper.
+func (s *Service) reapActiveClaim(store WriteStore, task *domain.Task, claims []domain.Claim, now time.Time) (bool, error) {
 	if task.ActiveClaimID == nil {
 		return false, nil
 	}
 	idx := findClaim(claims, *task.ActiveClaimID)
 	if idx < 0 || claims[idx].Executor.Kind != domain.ActorAgent || !claims[idx].Active() || claims[idx].LeaseUntil.IsZero() || now.Before(claims[idx].LeaseUntil) {
+		return false, nil
+	}
+	workItem, err := store.GetWorkItem(task.WorkItemID)
+	if err != nil {
+		return false, err
+	}
+	if workItem.Status != domain.WorkItemStatusOpen {
 		return false, nil
 	}
 	claim := claims[idx]
@@ -28,10 +36,6 @@ func (s *Service) expireActiveClaim(store WriteStore, task *domain.Task, claims 
 	task.UpdatedAt = now
 	task.Version++
 	if err := store.SaveTask(*task); err != nil {
-		return false, err
-	}
-	workItem, err := store.GetWorkItem(task.WorkItemID)
-	if err != nil {
 		return false, err
 	}
 	workItem.UpdatedAt = now
@@ -55,7 +59,8 @@ type HeartbeatClaimCommand struct {
 	LeaseSeconds int64
 }
 
-// HeartbeatClaim extends an active lease. A lease cannot be revived after expiry.
+// HeartbeatClaim extends an active Agent Claim, including after its lease
+// deadline when the background reaper has not ended it yet.
 func (s *Service) HeartbeatClaim(ctx context.Context, command HeartbeatClaimCommand) (domain.Claim, error) {
 	if command.TaskID == "" || command.ClaimID == "" {
 		return domain.Claim{}, invalidCommand("task id and claim id are required")
@@ -88,9 +93,6 @@ func (s *Service) HeartbeatClaim(ctx context.Context, command HeartbeatClaimComm
 			return forbidden("actor does not own claim %q", claim.ID)
 		}
 		now := s.clock.Now()
-		if !claim.LeaseUntil.IsZero() && !now.Before(claim.LeaseUntil) {
-			return conflict("claim %q lease has expired", claim.ID)
-		}
 		lease := normalizeClaimLease(command.LeaseSeconds, time.Duration(claim.LeaseSeconds)*time.Second)
 		if claim.LeaseSeconds <= 0 {
 			lease = normalizeClaimLease(command.LeaseSeconds, s.claimLease)

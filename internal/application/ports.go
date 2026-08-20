@@ -12,10 +12,18 @@ const MinClaimLease = 15 * time.Second
 const MaxClaimLease = 30 * time.Minute
 
 func normalizeClaimLease(requested int64, fallback time.Duration) time.Duration {
-	d := fallback
 	if requested > 0 {
-		d = time.Duration(requested) * time.Second
+		minSeconds := int64(MinClaimLease / time.Second)
+		maxSeconds := int64(MaxClaimLease / time.Second)
+		if requested < minSeconds {
+			return MinClaimLease
+		}
+		if requested > maxSeconds {
+			return MaxClaimLease
+		}
+		return time.Duration(requested) * time.Second
 	}
+	d := fallback
 	if d < MinClaimLease {
 		return MinClaimLease
 	}
@@ -76,6 +84,7 @@ type ReadStore interface {
 	ListOpenTasks() ([]WorkCandidate, error)
 	ListEmptyBlackboards() ([]domain.WorkItem, error)
 	ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem, error)
+	ListReapableAgentClaimTasks(time.Time) ([]domain.TaskID, error)
 
 	GetDefinitionMetadata([]domain.DefinitionBinding) (map[domain.DefinitionBinding]domain.DefinitionMetadata, error)
 	GetWorkflowDefinition(domain.DefinitionID, int64) (domain.WorkflowDefinition, error)

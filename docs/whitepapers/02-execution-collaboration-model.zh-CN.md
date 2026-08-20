@@ -62,7 +62,7 @@ Task A → 执行者 2    不合法
 
 > Claim 表示 Task 的独占执行责任，与任务采用何种分发方式无关。
 
-只有 Agent Claim 使用 lease。Agent 可以在领取 Task 和每次 heartbeat 时请求 lease 时长；服务端按策略限制并返回实际批准的 `lease_seconds` 与 `lease_until`。如果 `lease_until` 前没有收到 heartbeat，Kairos 会以 `expired` 结束 Claim、将 Task 恢复为 Pending，并允许新的执行者领取。旧 Claim ID 作为 fencing token，过期后不能复活，也不能继续提交结果。
+只有 Agent Claim 使用 lease。Agent 可以在领取 Task 和每次 heartbeat 时请求 lease 时长；服务端按策略限制并返回实际批准的 `lease_seconds` 与 `lease_until`。到达该时间只表示 Active Claim 可以被后台 reaper 回收，时间本身不会改变执行权。reaper 提交回收事务前，当前执行者仍可继续操作或续租，其他执行者不能 Claim 这个 Working Task。reaper 会以 `expired` 结束可回收 Claim 并将 Task 恢复为 Pending；只有此后新的执行者才能领取，旧 Claim ID 作为 fencing token，不能复活或继续提交结果。
 
 Human Claim 不使用 lease 或 heartbeat。它持续有效，直到提交、失败、主动释放或管理员撤销，从而避免将基础设施存活机制暴露给人类交互。
 

@@ -34,7 +34,7 @@ record progress
 submit result
 ```
 
-Agent 在执行前读取必要上下文并确认 Task。Agent 或 Bridge 在执行开始前建立带 lease 的 Claim，形成唯一执行责任。执行期间 Agent 通过 heartbeat 续租，并可以为每一段续租请求不同的时长；进展和最终成果都记录在 Task 中。lease 过期后 Agent 必须停止，不能复活旧 Claim 或继续提交。
+Agent 在执行前读取必要上下文并确认 Task。Agent 或 Bridge 在执行开始前建立带 lease 的 Claim，形成唯一执行责任。执行期间 Agent 通过 heartbeat 续租，并可以为每一段续租请求不同的时长；进展和最终成果都记录在 Task 中。到达 `lease_until` 只表示 Claim 可以被 reaper 回收，并不会直接撤销执行权；reaper 提交回收前，当前 Agent 仍可续租或提交。回收完成后 Agent 必须停止，不能复活旧 Claim 或继续提交。
 
 ## 2. 发现工作
 

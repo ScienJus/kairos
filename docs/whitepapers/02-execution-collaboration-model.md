@@ -62,7 +62,7 @@ Unique execution responsibility prevents duplicated work and conflicting results
 
 > A Claim represents exclusive execution responsibility for a Task, independently of how the Task was distributed.
 
-Only Agent Claims use leases. An agent may request a lease duration when claiming and on every heartbeat; the server applies policy bounds and returns the granted `lease_seconds` and `lease_until`. If no heartbeat arrives before `lease_until`, Kairos ends the Claim with `expired`, returns the Task to Pending, and allows a new executor to Claim it. The old Claim ID acts as a fencing token and cannot be revived or used for submission after expiry.
+Only Agent Claims use leases. An agent may request a lease duration when claiming and on every heartbeat; the server applies policy bounds and returns the granted `lease_seconds` and `lease_until`. The deadline makes an active Claim eligible for the background reaper; time alone does not change ownership. Before the reaper commits, the current executor may continue operating or renew the Claim, and no other executor may Claim the Working Task. The reaper ends an eligible Claim with `expired` and returns the Task to Pending. Only then may a new executor Claim it; the old Claim ID acts as a fencing token and cannot be revived or used for submission.
 
 Human Claims do not use leases or heartbeat. They remain active until submission, failure, explicit release, or administrative revocation. This keeps infrastructure liveness out of the human interaction model.
 

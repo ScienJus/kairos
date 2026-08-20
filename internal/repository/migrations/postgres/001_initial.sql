@@ -12,6 +12,7 @@ CREATE TABLE work_items (
     definition_version BIGINT NOT NULL,
     mode TEXT NOT NULL CHECK (mode IN ('workflow', 'blackboard')),
     status TEXT NOT NULL,
+    acceptance_mode TEXT NOT NULL DEFAULT 'none' CHECK (acceptance_mode IN ('none', 'agent', 'human')),
     version BIGINT NOT NULL,
     payload JSONB NOT NULL,
     FOREIGN KEY (definition_id, definition_version, mode)
@@ -23,6 +24,7 @@ CREATE INDEX work_items_status_idx ON work_items (status, id);
 CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
     work_item_id TEXT NOT NULL REFERENCES work_items (id),
+    parent_task_id TEXT REFERENCES tasks (id),
     status TEXT NOT NULL,
     active_claim_id TEXT,
     position BIGINT NOT NULL,
@@ -34,6 +36,9 @@ CREATE TABLE tasks (
 CREATE INDEX tasks_work_item_position_idx ON tasks (work_item_id, position, id);
 -- +kairos StatementBreak
 CREATE INDEX tasks_status_idx ON tasks (status, id);
+-- +kairos StatementBreak
+CREATE INDEX tasks_parent_position_idx
+    ON tasks (work_item_id, parent_task_id, position, id);
 -- +kairos StatementBreak
 CREATE TABLE task_relations (
     work_item_id TEXT NOT NULL REFERENCES work_items (id),
@@ -56,10 +61,15 @@ CREATE TABLE claims (
     executor_id TEXT NOT NULL,
     active BOOLEAN NOT NULL,
     claimed_at_ns BIGINT NOT NULL,
+    last_heartbeat_at_ns BIGINT,
+    lease_until_ns BIGINT,
+    lease_seconds BIGINT,
     payload JSONB NOT NULL
 );
 -- +kairos StatementBreak
 CREATE INDEX claims_task_time_idx ON claims (task_id, claimed_at_ns, id);
+-- +kairos StatementBreak
+CREATE INDEX claims_active_lease_idx ON claims (active, lease_until_ns, task_id);
 -- +kairos StatementBreak
 CREATE TABLE workflow_activations (
     id TEXT PRIMARY KEY,
@@ -85,3 +95,31 @@ CREATE TABLE work_item_events (
 -- +kairos StatementBreak
 CREATE INDEX work_item_events_order_idx
     ON work_item_events (work_item_id, sequence);
+-- +kairos StatementBreak
+CREATE TABLE idempotency_records (
+    actor_kind TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    response JSONB NOT NULL,
+    created_at_ns BIGINT NOT NULL,
+    PRIMARY KEY (actor_kind, actor_id, operation_id)
+);
+-- +kairos StatementBreak
+CREATE TABLE identities (
+    actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human', 'agent')),
+    actor_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    token_hash TEXT UNIQUE,
+    version BIGINT NOT NULL,
+    created_at_ns BIGINT NOT NULL,
+    updated_at_ns BIGINT NOT NULL,
+    PRIMARY KEY (actor_kind, actor_id),
+    CHECK (
+        (actor_kind = 'human' AND role = '') OR
+        (actor_kind = 'agent' AND role <> '')
+    )
+);
+-- +kairos StatementBreak
+CREATE INDEX identities_order_idx ON identities (actor_kind, actor_id);

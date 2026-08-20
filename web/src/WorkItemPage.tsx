@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Bot, UserRound, X, XCircle } from 'lucide-react'
+import { ArrowLeft, Bot, ChevronLeft, ChevronRight, UserRound, X, XCircle } from 'lucide-react'
 import { APIError } from './api'
 import { api } from './api'
 import { useI18n } from './i18n'
@@ -8,7 +8,7 @@ import { useWorkItemData, useWorkflowDefinitionData } from './pageData'
 import type { HomeView, RouteState } from './route'
 import { TaskDetail, BlackboardCompletionActions, CreateTask, EmptyBlackboardActions } from './TaskDetail'
 import { TaskMap } from './TaskMap'
-import type { Identity } from './types'
+import type { Identity, Task } from './types'
 import { FormError, Status } from './ui'
 
 export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, navigate }: {
@@ -23,6 +23,9 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
   const workflowBinding = context.data?.WorkItem.Definition.Mode === 'workflow' ? context.data.WorkItem.Definition : null
   const workflowDefinition = useWorkflowDefinitionData(identity, workflowBinding?.ID ?? null, workflowBinding?.Version ?? null)
   const selectedTask = context.data?.Tasks.find(task => task.ID === selectedTaskID) ?? null
+  const selectedWorkflowNodeTasks = selectedTask?.WorkflowTaskID
+    ? context.data?.Tasks.filter(task => task.WorkflowTaskID === selectedTask.WorkflowTaskID).sort((left, right) => left.Position - right.Position) ?? []
+    : []
   const selectedTaskClaim = selectedTask ? context.data?.ActiveClaims.find(claim => claim.TaskID === selectedTask.ID) ?? null : null
   const selectedTaskExecutionClaim = selectedTask?.Submissions.at(-1)?.ClaimID ? context.data?.Claims.find(claim => claim.ID === selectedTask.Submissions.at(-1)?.ClaimID) ?? null : null
   const pendingReviews = context.data?.Tasks.flatMap(task => (task.Reviews ?? []).filter(review => review.Status === 'pending')) ?? []
@@ -62,10 +65,27 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
     </section>
 
     {selectedTask && <><button className="inspector-backdrop" aria-label={t('closeTask')} onClick={() => navigate({ workItemID, taskID: null, homeView })} /><aside className="task-panel mobile-task">
-      <div className="panel-header"><div><span className="eyebrow">{t('selectedTask')}</span><h2>{t('taskDetails')}</h2></div><div className="panel-actions">{selectedTask.Executor === 'agent' ? <Bot size={20} /> : <UserRound size={20} />}<button className="icon-button" onClick={() => navigate({ workItemID, taskID: null, homeView })} aria-label={t('closeTask')}><X size={17} /></button></div></div>
+      <div className="panel-header"><div><span className="eyebrow">{t('selectedTask')}</span><h2>{t(selectedTask.WorkflowTaskID ? 'workflowNodeDetails' : 'taskDetails')}</h2></div><div className="panel-actions">{selectedTask.Executor === 'agent' ? <Bot size={20} /> : <UserRound size={20} />}<button className="icon-button" onClick={() => navigate({ workItemID, taskID: null, homeView })} aria-label={t('closeTask')}><X size={17} /></button></div></div>
+      <WorkflowInstancePager tasks={selectedWorkflowNodeTasks} selectedTaskID={selectedTask.ID} onSelect={taskID => navigate({ workItemID, taskID, homeView })} />
       <TaskDetail key={selectedTask.ID} task={selectedTask} activeClaim={selectedTaskClaim} executionClaim={selectedTaskExecutionClaim} identity={identity} mode={context.data!.WorkItem.Definition.Mode} />
     </aside></>}
   </>
+}
+
+export function WorkflowInstancePager({ tasks, selectedTaskID, onSelect }: { tasks: Task[]; selectedTaskID: string; onSelect: (taskID: string) => void }) {
+  const { t } = useI18n()
+  if (tasks.length <= 1) return null
+  const current = tasks.findIndex(task => task.ID === selectedTaskID)
+  if (current < 0) return null
+  const previous = tasks[current - 1]
+  const next = tasks[current + 1]
+  return <nav className="workflow-instance-pager" aria-label={t('workflowInstanceHistory')}>
+    <span>{t('workflowInstancePosition', { current: current + 1, total: tasks.length })}</span>
+    <div>
+      <button type="button" disabled={!previous} title={t('previousWorkflowInstance')} aria-label={t('previousWorkflowInstance')} onClick={() => previous && onSelect(previous.ID)}><ChevronLeft size={16} /></button>
+      <button type="button" disabled={!next} title={t('nextWorkflowInstance')} aria-label={t('nextWorkflowInstance')} onClick={() => next && onSelect(next.ID)}><ChevronRight size={16} /></button>
+    </div>
+  </nav>
 }
 
 function Brief({ label, value }: { label: string; value: string }) { return <div className="brief"><span>{label}</span><p>{value || '—'}</p></div> }
