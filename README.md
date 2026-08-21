@@ -15,6 +15,7 @@ Kairos gives every participant one durable view of the work:
 - people and agents discover Tasks from the same WorkItem;
 - an atomic Claim prevents two executors from working on the same Task at once;
 - submissions, Reviews, feedback, and failures remain with the Task instead of an agent session;
+- named Artifacts keep Git commits, branches, documents, reports, and managed files addressable across Tasks;
 - Tasks can be executed by an agent, a person, or either;
 - both structured processes and open-ended collaboration use the same execution protocol.
 
@@ -98,6 +99,7 @@ Available in this repository:
 - domain model and Application Services;
 - Workflow and Blackboard runtime semantics;
 - PostgreSQL and SQLite persistence;
+- Workflow Artifact delivery contracts and a content-addressed built-in `kairos://` Artifact Store;
 - concurrency and idempotency protection;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
@@ -141,4 +143,5 @@ Kairos exposes an execution-focused MCP surface and a repository-level Codex Ski
 6. [Human Interaction Model](docs/whitepapers/06-human-interaction-model.md)
 7. [Agent Interaction Model](docs/whitepapers/07-agent-interaction-model.md)
 8. [Agent Identity Model](docs/whitepapers/08-agent-identity-model.md)
-9. [API Reference](docs/api-reference.md)
+9. [Artifact Model and Store](docs/whitepapers/09-artifacts.md)
+10. [API Reference](docs/api-reference.md)

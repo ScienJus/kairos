@@ -60,6 +60,8 @@ Blackboard 中的执行者也可以在产生成果前将 Task 拆分为子 Task�
 
 执行者每次正式提交结果时，Kairos 在 Task 下创建不可变的 Task Submission，并关联产生该结果的 Claim。Task 可以经历多轮执行、提交和 Review，全部 Submission 都作为共享历史保留。
 
+Result 是执行者留下的持久说明，Artifact 是具名、可寻址的实际交付物。执行者持有 Claim 时可以暂存 Artifact，并在创建 Submission 时绑定。绑定后的 Artifact 进入同一份不可变历史，并对整个 WorkItem 可见。
+
 执行者报告失败时，Kairos 在 Task 下创建不可变的 Task Failure。重新打开产生的提示会进入后续执行上下文；全局失败则结束当前 Task 与 WorkItem。Claim、Submission、Review、Failure 和推进决策同时形成按顺序追加的 WorkItem Event 历史。
 
 > WorkItem 回答“最终要完成什么”，Task 回答“接下来具体做什么”。

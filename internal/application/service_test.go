@@ -104,6 +104,130 @@ func TestGetWorkflowTaskExecutionContext(t *testing.T) {
 	}
 }
 
+func TestWorkflowArtifactsGuideAndGateSubmission(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := workflowDefinition()
+	definition.Graph.Relations = nil
+	definition.Graph.Tasks = definition.Graph.Tasks[:1]
+	definition.Graph.Tasks[0].Artifacts = []domain.ArtifactDefinition{
+		{Name: "commit", Description: "Provide the immutable Git commit."},
+		{Name: "branch", Description: "Provide the remote integration branch."},
+	}
+	repository.workflows[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "agent"}, Role: "backend"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Artifacts", Goal: "Ship a traceable change",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	task := repository.tasksFor(workItem.ID)[0]
+	claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim task: %v", err)
+	}
+	commit, err := service.CreateArtifact(context.Background(), CreateArtifactCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Name: "commit", URI: "https://example.test/repo/commit/abc",
+	})
+	if err != nil {
+		t.Fatalf("create commit artifact: %v", err)
+	}
+	contextView, err := service.GetTaskExecutionContext(context.Background(), GetTaskExecutionContextQuery{TaskID: task.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("get task context: %v", err)
+	}
+	if len(contextView.ExpectedArtifacts) != 2 || len(contextView.Artifacts) != 1 || contextView.Artifacts[0].SubmissionID != nil {
+		t.Fatalf("artifact context: %#v", contextView)
+	}
+	_, err = service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Result: "done", ArtifactIDs: []domain.ArtifactID{commit.ID},
+	})
+	if !errors.Is(err, ErrInvalidCommand) || !strings.Contains(err.Error(), "branch") {
+		t.Fatalf("submit without required branch: %v", err)
+	}
+	branch, err := service.CreateArtifact(context.Background(), CreateArtifactCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Name: "branch", URI: "https://example.test/repo/tree/feature",
+	})
+	if err != nil {
+		t.Fatalf("create branch artifact: %v", err)
+	}
+	submission, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Result: "done", ArtifactIDs: []domain.ArtifactID{commit.ID, branch.ID},
+	})
+	if err != nil {
+		t.Fatalf("submit artifacts: %v", err)
+	}
+	artifacts, err := service.ListArtifacts(context.Background(), workItem.ID, agent)
+	if err != nil || len(artifacts) != 2 {
+		t.Fatalf("list committed artifacts: %v %#v", err, artifacts)
+	}
+	for _, artifact := range artifacts {
+		if artifact.SubmissionID == nil || *artifact.SubmissionID != submission.ID {
+			t.Fatalf("artifact was not bound to submission: %#v", artifact)
+		}
+	}
+}
+
+func TestSubmittedArtifactIsVisibleToOtherBlackboardTask(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := blackboardDefinition()
+	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "agent"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Shared Artifacts", Goal: "Reuse a durable deliverable",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	producer, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent,
+		Title: "Produce", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create producer: %v", err)
+	}
+	consumer, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent,
+		Title: "Consume", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create consumer: %v", err)
+	}
+	producerClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: producer.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim producer: %v", err)
+	}
+	artifact, err := service.CreateArtifact(context.Background(), CreateArtifactCommand{
+		TaskID: producer.ID, ClaimID: producerClaim.ID, Identity: agent,
+		Name: "research", URI: "https://example.test/research",
+	})
+	if err != nil {
+		t.Fatalf("create Artifact: %v", err)
+	}
+	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: producer.ID, ClaimID: producerClaim.ID, Identity: agent,
+		Result: "Research complete", ArtifactIDs: []domain.ArtifactID{artifact.ID},
+	}); err != nil {
+		t.Fatalf("submit producer: %v", err)
+	}
+	if _, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: consumer.ID, Identity: agent}); err != nil {
+		t.Fatalf("claim consumer: %v", err)
+	}
+	contextView, err := service.GetTaskExecutionContext(context.Background(), GetTaskExecutionContextQuery{TaskID: consumer.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("get consumer context: %v", err)
+	}
+	if len(contextView.Artifacts) != 1 || contextView.Artifacts[0].ID != artifact.ID {
+		t.Fatalf("consumer Artifacts = %#v", contextView.Artifacts)
+	}
+}
+
 func TestGetBlackboardTaskExecutionContext(t *testing.T) {
 	t.Parallel()
 
@@ -1837,6 +1961,8 @@ type testRepository struct {
 	tasks       map[domain.TaskID]domain.Task
 	relations   []domain.TaskRelation
 	claims      map[domain.ClaimID]domain.Claim
+	artifacts   map[domain.ArtifactID]domain.Artifact
+	blobs       map[string]domain.ArtifactBlob
 	activations map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation
 	events      []domain.WorkItemEvent
 	workflows   map[string]domain.WorkflowDefinition
@@ -1849,6 +1975,8 @@ func newTestRepository() *testRepository {
 		workItems:   make(map[domain.WorkItemID]domain.WorkItem),
 		tasks:       make(map[domain.TaskID]domain.Task),
 		claims:      make(map[domain.ClaimID]domain.Claim),
+		artifacts:   make(map[domain.ArtifactID]domain.Artifact),
+		blobs:       make(map[string]domain.ArtifactBlob),
 		activations: make(map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation),
 		workflows:   make(map[string]domain.WorkflowDefinition),
 		blackboards: make(map[string]domain.BlackboardDefinition),
@@ -1923,6 +2051,33 @@ func (r *testRepository) ListClaims(taskID domain.TaskID) ([]domain.Claim, error
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ClaimedAt.Before(result[j].ClaimedAt) })
 	return result, nil
+}
+
+func (r *testRepository) GetArtifact(id domain.ArtifactID) (domain.Artifact, error) {
+	value, ok := r.artifacts[id]
+	if !ok {
+		return domain.Artifact{}, ErrNotFound
+	}
+	return value, nil
+}
+
+func (r *testRepository) ListArtifacts(workItemID domain.WorkItemID) ([]domain.Artifact, error) {
+	result := make([]domain.Artifact, 0)
+	for _, artifact := range r.artifacts {
+		if artifact.WorkItemID == workItemID {
+			result = append(result, artifact)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
+}
+
+func (r *testRepository) GetArtifactBlob(uri string) (domain.ArtifactBlob, error) {
+	value, ok := r.blobs[uri]
+	if !ok {
+		return domain.ArtifactBlob{}, ErrNotFound
+	}
+	return value, nil
 }
 
 func (r *testRepository) GetWorkflowTaskActivation(id domain.WorkflowTaskActivationID) (domain.WorkflowTaskActivation, error) {
@@ -2167,6 +2322,30 @@ func (r *testRepository) SaveClaim(value domain.Claim) error {
 		return ErrNotFound
 	}
 	r.claims[value.ID] = value
+	return nil
+}
+
+func (r *testRepository) CreateArtifact(value domain.Artifact) error {
+	if _, exists := r.artifacts[value.ID]; exists {
+		return ErrConflict
+	}
+	r.artifacts[value.ID] = value
+	return nil
+}
+
+func (r *testRepository) SaveArtifact(value domain.Artifact) error {
+	if _, exists := r.artifacts[value.ID]; !exists {
+		return ErrNotFound
+	}
+	r.artifacts[value.ID] = value
+	return nil
+}
+
+func (r *testRepository) CreateArtifactBlob(value domain.ArtifactBlob) error {
+	if existing, exists := r.blobs[value.URI]; exists && existing.Digest != value.Digest {
+		return ErrConflict
+	}
+	r.blobs[value.URI] = value
 	return nil
 }
 

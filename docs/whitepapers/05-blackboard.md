@@ -73,6 +73,8 @@ Completed Tasks and their results remain available as context for later decision
 
 Tasks can form a hierarchy. After claiming a Task that has not produced a result, the executor can decompose it into an initial set of child Tasks. The parent immediately ends its Claim, enters `WaitingChildren`, and no longer produces its own Submission. Its result is aggregated from descendants.
 
+Blackboard does not impose a structured Artifact contract. The dynamically authored Task prompt and acceptance criteria tell the executor what to deliver. Any submitted Artifacts become part of the WorkItem-wide shared Artifact collection.
+
 `WaitingChildren` represents an open aggregation scope. While the WorkItem remains open, collaborators can append child Tasks to it. After every direct child is completed or skipped, the parent recursively completes and closes. Regular execution Tasks, aggregate Tasks, and Task Relations separately represent execution, work decomposition, and suggested order.
 
 ## 3. Task Relation

@@ -38,7 +38,7 @@ function makeWorkItem(): WorkItem {
 function execution(task: Task, claims: Claim[] = []): TaskExecutionContext {
   const actor = task.SkippedBy ?? claims[0]?.Executor ?? null
   const kind = task.Status === 'skipped' ? 'skipped_by' : task.Status === 'completed' ? 'executed_by' : task.Status === 'working' ? 'claimed_by' : 'unclaimed'
-  return { WorkItem: makeWorkItem(), Task: task, Claims: claims, Responsibility: { Kind: kind, Actor: actor }, Outcome: { Kind: task.Status, Actor: actor, Reason: task.SkipReason }, Workflow: null, Blackboard: { Tasks: [task], Relations: [], CanDecompose: false } }
+  return { WorkItem: makeWorkItem(), Task: task, Claims: claims, Artifacts: [], ExpectedArtifacts: [], Responsibility: { Kind: kind, Actor: actor }, Outcome: { Kind: task.Status, Actor: actor, Reason: task.SkipReason }, Workflow: null, Blackboard: { Tasks: [task], Relations: [], CanDecompose: false } }
 }
 
 function detail(task: Task, claims: Claim[] = []): TaskDetailView {

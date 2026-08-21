@@ -48,7 +48,7 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	}
 	wantTools := []string{
 		"accept_blackboard_completion", "add_blackboard_child_task", "add_blackboard_relation", "claim_task",
-		"create_blackboard_task", "decompose_blackboard_task", "fail_task", "find_work",
+		"create_artifact", "create_blackboard_task", "decompose_blackboard_task", "fail_task", "find_work",
 		"get_task_context", "get_work_item_context", "heartbeat_claim", "release_claim",
 		"skip_blackboard_task", "submit_blackboard_completion", "submit_task",
 	}
@@ -71,8 +71,8 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal formatted tool definitions: %v", err)
 	}
-	if len(prettyToolPayload) > 70_000 {
-		t.Fatalf("formatted tool definitions are %d bytes, want at most 70000", len(prettyToolPayload))
+	if len(prettyToolPayload) > 76_000 {
+		t.Fatalf("formatted tool definitions are %d bytes, want at most 76000", len(prettyToolPayload))
 	}
 
 	find := callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{})

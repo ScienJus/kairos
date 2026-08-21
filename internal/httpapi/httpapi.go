@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 )
 
 const maxRequestBodyBytes = 1 << 20
+const maxArtifactUploadBytes = 128 << 20
 
 // Handler serves the versioned Kairos HTTP API.
 type Handler struct {
@@ -87,6 +89,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /api/v1/work-items", h.listWorkItems)
 	h.mux.HandleFunc("POST /api/v1/work-items", h.createWorkItem)
 	h.mux.HandleFunc("GET /api/v1/work-items/{work_item_id}/context", h.getWorkItemContext)
+	h.mux.HandleFunc("GET /api/v1/work-items/{work_item_id}/artifacts", h.listArtifacts)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/tasks", h.createBlackboardTask)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/relations", h.addBlackboardRelation)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/completion", h.submitBlackboardCompletion)
@@ -97,6 +100,9 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("DELETE /api/v1/tasks/{task_id}/claims/{claim_id}", h.releaseClaim)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/claims/{claim_id}/heartbeat", h.heartbeatClaim)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/submissions", h.submitTask)
+	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/artifacts", h.createArtifact)
+	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/artifact-uploads", h.uploadArtifact)
+	h.mux.HandleFunc("GET /api/v1/artifacts/{artifact_id}/content", h.getArtifactContent)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/failures", h.failTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/skip", h.skipBlackboardTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/decomposition", h.decomposeBlackboardTask)
@@ -187,15 +193,21 @@ type workflowGraphRequest struct {
 }
 
 type workflowTaskDefinitionRequest struct {
-	ID                 domain.WorkflowTaskID      `json:"id"`
-	Title              string                     `json:"title"`
-	Description        string                     `json:"description"`
-	AcceptanceCriteria string                     `json:"acceptance_criteria"`
-	Executor           domain.ExecutorRequirement `json:"executor"`
-	AllowedRoles       []string                   `json:"allowed_roles"`
-	Execution          domain.ExecutionPolicy     `json:"execution"`
-	ReviewPolicy       domain.ReviewPolicy        `json:"review_policy"`
-	DefaultTags        []string                   `json:"default_tags"`
+	ID                 domain.WorkflowTaskID       `json:"id"`
+	Title              string                      `json:"title"`
+	Description        string                      `json:"description"`
+	AcceptanceCriteria string                      `json:"acceptance_criteria"`
+	Executor           domain.ExecutorRequirement  `json:"executor"`
+	AllowedRoles       []string                    `json:"allowed_roles"`
+	Execution          domain.ExecutionPolicy      `json:"execution"`
+	ReviewPolicy       domain.ReviewPolicy         `json:"review_policy"`
+	DefaultTags        []string                    `json:"default_tags"`
+	Artifacts          []artifactDefinitionRequest `json:"artifacts"`
+}
+
+type artifactDefinitionRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type workflowRelationRequest struct {
@@ -209,11 +221,15 @@ type workflowRelationRequest struct {
 func (r workflowGraphRequest) domainGraph() domain.WorkflowGraph {
 	tasks := make([]domain.WorkflowTaskDefinition, 0, len(r.Tasks))
 	for _, task := range r.Tasks {
+		artifacts := make([]domain.ArtifactDefinition, 0, len(task.Artifacts))
+		for _, artifact := range task.Artifacts {
+			artifacts = append(artifacts, domain.ArtifactDefinition{Name: strings.TrimSpace(artifact.Name), Description: strings.TrimSpace(artifact.Description)})
+		}
 		tasks = append(tasks, domain.WorkflowTaskDefinition{
 			ID: task.ID, Title: task.Title, Description: task.Description,
 			AcceptanceCriteria: task.AcceptanceCriteria, Executor: task.Executor,
 			AllowedRoles: task.AllowedRoles, Execution: task.Execution,
-			ReviewPolicy: task.ReviewPolicy, DefaultTags: task.DefaultTags,
+			ReviewPolicy: task.ReviewPolicy, DefaultTags: task.DefaultTags, Artifacts: artifacts,
 		})
 	}
 	relations := make([]domain.WorkflowRelationDefinition, 0, len(r.Relations))
@@ -605,6 +621,7 @@ func (h *Handler) heartbeatClaim(writer http.ResponseWriter, request *http.Reque
 type submitTaskRequest struct {
 	ClaimID       domain.ClaimID             `json:"claim_id"`
 	Result        string                     `json:"result"`
+	ArtifactIDs   []domain.ArtifactID        `json:"artifact_ids"`
 	RequestReview bool                       `json:"request_review"`
 	Transition    *workflowTransitionRequest `json:"transition"`
 }
@@ -638,6 +655,7 @@ func (h *Handler) submitTask(writer http.ResponseWriter, request *http.Request) 
 	submission, err := h.service.SubmitTask(request.Context(), application.SubmitTaskCommand{
 		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: body.ClaimID,
 		Identity: actor, OperationID: operationID(request), Result: body.Result,
+		ArtifactIDs:   body.ArtifactIDs,
 		RequestReview: body.RequestReview, Transition: body.Transition.command(),
 	})
 	if err != nil {
@@ -645,6 +663,91 @@ func (h *Handler) submitTask(writer http.ResponseWriter, request *http.Request) 
 		return
 	}
 	writeJSON(writer, http.StatusCreated, dataResponse{Data: submission})
+}
+
+type createArtifactRequest struct {
+	ClaimID domain.ClaimID `json:"claim_id"`
+	Name    string         `json:"name"`
+	URI     string         `json:"uri"`
+}
+
+func (h *Handler) createArtifact(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	var body createArtifactRequest
+	if !decodeRequest(writer, request, &body) {
+		return
+	}
+	artifact, err := h.service.CreateArtifact(request.Context(), application.CreateArtifactCommand{
+		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: body.ClaimID,
+		Identity: actor, OperationID: operationID(request), Name: body.Name, URI: body.URI,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusCreated, dataResponse{Data: artifact})
+}
+
+func (h *Handler) uploadArtifact(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	request.Body = http.MaxBytesReader(writer, request.Body, maxArtifactUploadBytes)
+	if err := request.ParseMultipartForm(1 << 20); err != nil {
+		writeError(writer, application.ErrInvalidCommand)
+		return
+	}
+	defer request.MultipartForm.RemoveAll()
+	file, _, err := request.FormFile("file")
+	if err != nil {
+		writeError(writer, application.ErrInvalidCommand)
+		return
+	}
+	defer file.Close()
+	artifact, err := h.service.UploadArtifact(request.Context(), application.UploadArtifactCommand{
+		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: domain.ClaimID(request.FormValue("claim_id")),
+		Identity: actor, OperationID: operationID(request), Name: request.FormValue("name"),
+	}, file)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusCreated, dataResponse{Data: artifact})
+}
+
+func (h *Handler) listArtifacts(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	artifacts, err := h.service.ListArtifacts(request.Context(), domain.WorkItemID(request.PathValue("work_item_id")), actor)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: artifacts})
+}
+
+func (h *Handler) getArtifactContent(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	artifact, content, err := h.service.OpenArtifact(request.Context(), domain.ArtifactID(request.PathValue("artifact_id")), actor)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	defer content.Close()
+	writer.Header().Set("Content-Type", "application/octet-stream")
+	writer.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": artifact.Name}))
+	if _, err := io.Copy(writer, content); err != nil {
+		return
+	}
 }
 
 type failTaskRequest struct {

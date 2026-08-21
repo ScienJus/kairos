@@ -24,6 +24,9 @@ type WorkflowTaskDefinition struct {
 	// DefaultTags are copied to each runtime Task instance. Executors may add or
 	// adjust tags during execution.
 	DefaultTags []string
+
+	// Artifacts are the named deliverables that every successful Submission must include.
+	Artifacts []ArtifactDefinition
 }
 
 // Validate checks the WorkflowTaskDefinition invariants.
@@ -48,6 +51,17 @@ func (t WorkflowTaskDefinition) Validate() error {
 	}
 	if err := validateStringSet("workflow.tasks.default_tags", t.DefaultTags); err != nil {
 		return err
+	}
+	artifactNames := make(map[string]struct{}, len(t.Artifacts))
+	for _, artifact := range t.Artifacts {
+		if err := artifact.Validate(); err != nil {
+			return err
+		}
+		name := strings.TrimSpace(artifact.Name)
+		if _, exists := artifactNames[name]; exists {
+			return invalid("workflow.tasks.artifacts", "contains duplicate name %q for task %q", name, t.ID)
+		}
+		artifactNames[name] = struct{}{}
 	}
 	if t.Executor == ExecutorHuman && len(t.AllowedRoles) > 0 {
 		return invalid("workflow.tasks.allowed_roles", "must be empty for human-only task %q", t.ID)

@@ -4,10 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkflowDefinition, WorkflowTaskDefinition } from './types'
 import { appendWorkflowTask, connectWorkflowTasks, deleteWorkflowTask, draftFromDefinition, loadWorkflowDraft, newWorkflowDraft, saveWorkflowDraft, toggleWorkflowStartTask, validateWorkflowDraft, workflowDraftInput, workflowDraftKey } from './workflowDraft'
 
-const task = (ID: string): WorkflowTaskDefinition => ({ ID, Title: ID, Description: '', AcceptanceCriteria: '', Executor: 'agent', AllowedRoles: [], Execution: 'required', ReviewPolicy: 'none', DefaultTags: [] })
+const task = (ID: string): WorkflowTaskDefinition => ({ ID, Title: ID, Description: '', AcceptanceCriteria: '', Executor: 'agent', AllowedRoles: [], Execution: 'required', ReviewPolicy: 'none', DefaultTags: [], Artifacts: [] })
 const definition: WorkflowDefinition = {
   ID: 'release', Version: 2, Name: 'Release', Description: '', AgentInstructions: '', SuggestedTags: [], Status: 'published',
-  Graph: { StartTaskIDs: ['a'], Tasks: [task('a'), task('b')], Relations: [{ ID: 'ab', FromTaskID: 'a', ToTaskID: 'b', Label: 'Ready', AgentGuidance: 'Continue when implementation is ready.' }], MaxTaskExecutions: 10 },
+  Graph: { StartTaskIDs: ['a'], Tasks: [{ ...task('a'), Artifacts: [{ Name: 'commit', Description: 'Provide the immutable commit.' }] }, task('b')], Relations: [{ ID: 'ab', FromTaskID: 'a', ToTaskID: 'b', Label: 'Ready', AgentGuidance: 'Continue when implementation is ready.' }], MaxTaskExecutions: 10 },
 }
 
 beforeEach(() => {
@@ -30,10 +30,12 @@ describe('Workflow local drafts', () => {
   it('copies a published version into the next version without sharing collections', () => {
     const draft = draftFromDefinition(definition)
     draft.tasks[0].AllowedRoles.push('backend')
+    draft.tasks[0].Artifacts[0].Description = 'Changed locally'
 
     expect(draft.baseVersion).toBe(2)
     expect(draft.targetVersion).toBe(3)
     expect(definition.Graph.Tasks[0].AllowedRoles).toEqual([])
+    expect(definition.Graph.Tasks[0].Artifacts[0].Description).toBe('Provide the immutable commit.')
   })
 
   it('maintains tasks, starts, and relations as one graph operation', () => {
@@ -78,5 +80,9 @@ describe('Workflow local drafts', () => {
     expect(validateWorkflowDraft(draft)).toEqual([])
     expect(input).toMatchObject({ id: 'release', version: 3, status: 'published', graph: { start_task_ids: ['a'], max_task_executions: 10 } })
     expect(input.graph.relations).toEqual([{ id: 'ab', from_task_id: 'a', to_task_id: 'b', label: 'Ready', agent_guidance: 'Continue when implementation is ready.' }])
+    expect(input.graph.tasks[0].artifacts).toEqual([{ name: 'commit', description: 'Provide the immutable commit.' }])
+
+    draft.tasks[0].Artifacts.push({ Name: 'commit', Description: 'Duplicate' })
+    expect(validateWorkflowDraft(draft)).toContain('duplicate-artifacts')
   })
 })

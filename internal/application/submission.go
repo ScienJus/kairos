@@ -34,6 +34,7 @@ type SubmitTaskCommand struct {
 	OperationID string
 
 	Result        string
+	ArtifactIDs   []domain.ArtifactID
 	RequestReview bool
 	Transition    *WorkflowTransitionCommand
 }
@@ -77,6 +78,10 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 		}
 		if !sameActor(claim.Executor, command.Identity.Actor) {
 			return forbidden("actor does not own claim %q", claim.ID)
+		}
+		artifacts, err := submissionArtifacts(store, workItem, task, claim, command.ArtifactIDs)
+		if err != nil {
+			return err
 		}
 
 		now := s.clock.Now()
@@ -149,6 +154,12 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 		if err := store.SaveTask(task); err != nil {
 			return fmt.Errorf("save submitted task: %w", err)
 		}
+		for _, artifact := range artifacts {
+			artifact.SubmissionID = &submission.ID
+			if err := store.SaveArtifact(artifact); err != nil {
+				return fmt.Errorf("bind artifact %q to submission: %w", artifact.ID, err)
+			}
+		}
 		actor := command.Identity.Actor
 		if err := s.appendEvent(store, workItem.ID, &task.ID, domain.WorkItemEventTaskSubmitted, string(submission.ID), &actor, submission.Result); err != nil {
 			return err
@@ -186,6 +197,65 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 		return domain.TaskSubmission{}, err
 	}
 	return created, nil
+}
+
+func submissionArtifacts(
+	store ReadStore,
+	workItem domain.WorkItem,
+	task domain.Task,
+	claim domain.Claim,
+	artifactIDs []domain.ArtifactID,
+) ([]domain.Artifact, error) {
+	artifacts := make([]domain.Artifact, 0, len(artifactIDs))
+	seenIDs := make(map[domain.ArtifactID]struct{}, len(artifactIDs))
+	seenNames := make(map[string]struct{}, len(artifactIDs))
+	for _, artifactID := range artifactIDs {
+		if strings.TrimSpace(string(artifactID)) == "" {
+			return nil, invalidCommand("artifact id must not be empty")
+		}
+		if _, exists := seenIDs[artifactID]; exists {
+			return nil, invalidCommand("artifact %q is included more than once", artifactID)
+		}
+		seenIDs[artifactID] = struct{}{}
+		artifact, err := store.GetArtifact(artifactID)
+		if err != nil {
+			return nil, fmt.Errorf("get artifact %q: %w", artifactID, err)
+		}
+		if artifact.WorkItemID != workItem.ID || artifact.TaskID != task.ID || artifact.ClaimID != claim.ID {
+			return nil, invalidCommand("artifact %q does not belong to the active claim", artifact.ID)
+		}
+		if artifact.SubmissionID != nil {
+			return nil, conflict("artifact %q has already been submitted", artifact.ID)
+		}
+		name := strings.TrimSpace(artifact.Name)
+		if _, exists := seenNames[name]; exists {
+			return nil, invalidCommand("submission contains duplicate artifact name %q", name)
+		}
+		seenNames[name] = struct{}{}
+		artifacts = append(artifacts, artifact)
+	}
+
+	if workItem.CoordinationMode() != domain.CoordinationModeWorkflow {
+		return artifacts, nil
+	}
+	definition, err := store.GetWorkflowDefinition(workItem.Definition.ID, workItem.Definition.Version)
+	if err != nil {
+		return nil, fmt.Errorf("get workflow definition: %w", err)
+	}
+	workflowTask, exists := workflowTaskDefinition(definition, *task.WorkflowTaskID)
+	if !exists {
+		return nil, invalidCommand("workflow task definition %q does not exist", *task.WorkflowTaskID)
+	}
+	missing := make([]string, 0)
+	for _, expected := range workflowTask.Artifacts {
+		if _, exists := seenNames[strings.TrimSpace(expected.Name)]; !exists {
+			missing = append(missing, expected.Name)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, invalidCommand("workflow task %q requires artifacts: %s", task.ID, strings.Join(missing, ", "))
+	}
+	return artifacts, nil
 }
 
 func submissionRequiresReview(mode domain.CoordinationMode, task domain.Task, requested bool) (bool, error) {

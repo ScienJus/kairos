@@ -185,6 +185,67 @@ func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
 	return result, normalizeError(rows.Err())
 }
 
+func (s *sqlStore) GetArtifact(id domain.ArtifactID) (domain.Artifact, error) {
+	var artifact domain.Artifact
+	var submissionID sql.NullString
+	var createdAtNS int64
+	if err := s.queryRow(`
+		SELECT id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at_ns
+		FROM artifacts WHERE id = ?`, id).Scan(
+		&artifact.ID, &artifact.WorkItemID, &artifact.TaskID, &artifact.ClaimID,
+		&submissionID, &artifact.Name, &artifact.URI, &createdAtNS,
+	); err != nil {
+		return domain.Artifact{}, normalizeError(err)
+	}
+	if submissionID.Valid {
+		value := domain.SubmissionID(submissionID.String)
+		artifact.SubmissionID = &value
+	}
+	artifact.CreatedAt = time.Unix(0, createdAtNS).UTC()
+	return artifact, nil
+}
+
+func (s *sqlStore) ListArtifacts(workItemID domain.WorkItemID) ([]domain.Artifact, error) {
+	rows, err := s.query(`
+		SELECT id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at_ns
+		FROM artifacts WHERE work_item_id = ? ORDER BY created_at_ns, id`, workItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]domain.Artifact, 0)
+	for rows.Next() {
+		var artifact domain.Artifact
+		var submissionID sql.NullString
+		var createdAtNS int64
+		if err := rows.Scan(
+			&artifact.ID, &artifact.WorkItemID, &artifact.TaskID, &artifact.ClaimID,
+			&submissionID, &artifact.Name, &artifact.URI, &createdAtNS,
+		); err != nil {
+			return nil, normalizeError(err)
+		}
+		if submissionID.Valid {
+			value := domain.SubmissionID(submissionID.String)
+			artifact.SubmissionID = &value
+		}
+		artifact.CreatedAt = time.Unix(0, createdAtNS).UTC()
+		result = append(result, artifact)
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) GetArtifactBlob(uri string) (domain.ArtifactBlob, error) {
+	var blob domain.ArtifactBlob
+	var createdAtNS int64
+	if err := s.queryRow(`
+		SELECT uri, digest, size, created_at_ns FROM artifact_blobs WHERE uri = ?`, uri,
+	).Scan(&blob.URI, &blob.Digest, &blob.Size, &createdAtNS); err != nil {
+		return domain.ArtifactBlob{}, normalizeError(err)
+	}
+	blob.CreatedAt = time.Unix(0, createdAtNS).UTC()
+	return blob, nil
+}
+
 func (s *sqlStore) GetWorkflowTaskActivation(
 	id domain.WorkflowTaskActivationID,
 ) (domain.WorkflowTaskActivation, error) {
@@ -756,6 +817,49 @@ func (s *sqlStore) SaveClaim(value domain.Claim) error {
 		return err
 	}
 	return s.requireUpdated(result, "claims", value.ID)
+}
+
+func (s *sqlStore) CreateArtifact(value domain.Artifact) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	_, err := s.exec(`
+		INSERT INTO artifacts
+			(id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at_ns)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		value.ID, value.WorkItemID, value.TaskID, value.ClaimID,
+		nullString(value.SubmissionID), value.Name, value.URI, value.CreatedAt.UnixNano(),
+	)
+	return err
+}
+
+func (s *sqlStore) SaveArtifact(value domain.Artifact) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	result, err := s.exec(`
+		UPDATE artifacts SET submission_id = ?
+		WHERE id = ? AND work_item_id = ? AND task_id = ? AND claim_id = ? AND name = ? AND uri = ?`,
+		nullString(value.SubmissionID), value.ID, value.WorkItemID, value.TaskID,
+		value.ClaimID, value.Name, value.URI,
+	)
+	if err != nil {
+		return err
+	}
+	return s.requireUpdated(result, "artifacts", value.ID)
+}
+
+func (s *sqlStore) CreateArtifactBlob(value domain.ArtifactBlob) error {
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	_, err := s.exec(`
+		INSERT INTO artifact_blobs (uri, digest, size, created_at_ns)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (uri) DO NOTHING`,
+		value.URI, value.Digest, value.Size, value.CreatedAt.UnixNano(),
+	)
+	return err
 }
 
 func claimLeaseColumns(value domain.Claim) (any, any, any) {

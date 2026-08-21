@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ScienJus/kairos/internal/application"
+	"github.com/ScienJus/kairos/internal/artifactstore"
 	"github.com/ScienJus/kairos/internal/httpapi"
 	"github.com/ScienJus/kairos/internal/identity"
 	"github.com/ScienJus/kairos/internal/mcpapi"
@@ -40,6 +41,13 @@ func run() error {
 
 	service, err := application.NewService(repo, systemClock{}, randomIDs{})
 	if err != nil {
+		return err
+	}
+	localArtifacts, err := artifactstore.NewLocal(environment("KAIROS_ARTIFACT_DIR", "artifacts"))
+	if err != nil {
+		return err
+	}
+	if err := service.ConfigureArtifactStores(environment("KAIROS_ARTIFACT_STORE", artifactstore.LocalStoreURI), localArtifacts); err != nil {
 		return err
 	}
 	claimLease, err := time.ParseDuration(environment("KAIROS_AGENT_CLAIM_LEASE", "5m"))

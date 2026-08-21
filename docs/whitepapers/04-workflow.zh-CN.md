@@ -30,6 +30,8 @@ WorkItem Runtime：设计 #1 → 实现 #1 → 测试 #1
 
 每个 Task 实例具有独立的 Claim、进展和成果。系统在前一批 Task 正式结束后产生后续 Task；运行时的一个 Task 实例具有多个前置 Task 时，默认等待这些具体实例全部结束。
 
+每个 Task Definition 还可以声明具名 Artifact 交付指引。运行时 Submission 必须包含 Definition 声明的每个名称。契约用 Description 指导执行者，但不规定文件类型或存储方式，同时允许额外 Artifact。
+
 Kairos 使用内部的 Workflow Task Activation 汇聚同一次展开产生的前置结果。Activation 通过 correlation 区分并行分支和不同循环轮次；输入全部确定后才产生可执行的 Task，它本身不会被执行者看到或 Claim。
 
 Workflow Definition 可以包含循环：

@@ -34,7 +34,7 @@ function context(item: WorkItem, tasks: Task[] = []): WorkItemContext {
   return {
     WorkItem: item,
     Definition: { Name: 'Article collaboration', Description: '', AgentInstructions: '', SuggestedTags: [] },
-    Tasks: tasks, Relations: [], Claims: [], ActiveClaims: [],
+    Tasks: tasks, Relations: [], Claims: [], ActiveClaims: [], Artifacts: [],
   }
 }
 

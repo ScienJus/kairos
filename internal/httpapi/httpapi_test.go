@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ScienJus/kairos/internal/application"
+	"github.com/ScienJus/kairos/internal/artifactstore"
 	"github.com/ScienJus/kairos/internal/domain"
 	"github.com/ScienJus/kairos/internal/httpapi"
 	"github.com/ScienJus/kairos/internal/identity"
@@ -33,6 +35,13 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	service, err := application.NewService(repo, endToEndClock{}, &endToEndIDs{})
 	if err != nil {
 		t.Fatalf("new service: %v", err)
+	}
+	localArtifacts, err := artifactstore.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local Artifact Store: %v", err)
+	}
+	if err := service.ConfigureArtifactStores(artifactstore.LocalStoreURI, localArtifacts); err != nil {
+		t.Fatalf("configure Artifact Stores: %v", err)
 	}
 	handler, err := httpapi.New(service, identity.TrustedResolver{})
 	if err != nil {
@@ -59,6 +68,7 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 				"id": "implement", "title": "Implement", "executor": "agent",
 				"allowed_roles": []string{"database"}, "execution": "required",
 				"review_policy": "none", "default_tags": []string{"backend"},
+				"artifacts": []map[string]any{{"name": "commit", "description": " Provide the immutable Git commit. "}},
 			}, {
 				"id": "verify", "title": "Verify", "executor": "agent",
 				"allowed_roles": []string{"database"}, "execution": "optional",
@@ -72,6 +82,9 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	}, "create-workflow-definition", http.StatusCreated)
 	if len(workflowDefinition.Graph.Tasks) != 2 || workflowDefinition.Graph.Tasks[0].ID != "implement" {
 		t.Fatalf("workflow graph = %+v", workflowDefinition.Graph)
+	}
+	if len(workflowDefinition.Graph.Tasks[0].Artifacts) != 1 || workflowDefinition.Graph.Tasks[0].Artifacts[0].Description != "Provide the immutable Git commit." {
+		t.Fatalf("workflow Artifact Definitions = %+v", workflowDefinition.Graph.Tasks[0].Artifacts)
 	}
 	if len(workflowDefinition.Graph.Relations) != 1 || workflowDefinition.Graph.Relations[0].Label != "Needs verification" || workflowDefinition.Graph.Relations[0].AgentGuidance != "Keep this step when storage behavior changed." {
 		t.Fatalf("workflow relation guidance = %+v", workflowDefinition.Graph.Relations)
@@ -140,9 +153,23 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		activeWorkItemContext.ActiveClaims[0].Executor.ID != claim.Executor.ID {
 		t.Fatalf("active WorkItem claims = %+v, want claim %q by %q", activeWorkItemContext.ActiveClaims, claim.ID, claim.Executor.ID)
 	}
+	artifact := requestData[domain.Artifact](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/artifacts", map[string]any{
+		"claim_id": claim.ID, "name": "commit", "uri": "https://example.test/repo/commit/abc123",
+	}, "create-artifact", http.StatusCreated)
+	if artifact.SubmissionID != nil || artifact.Name != "commit" {
+		t.Fatalf("staged Artifact = %#v", artifact)
+	}
+	managedArtifact := uploadArtifact(t, client, server.URL+"/api/v1/tasks/"+string(task.ID)+"/artifact-uploads", claim.ID, "report", []byte("managed report"), "upload-artifact")
+	if managedArtifact.URI[:len("kairos://")] != "kairos://" {
+		t.Fatalf("managed Artifact URI = %q", managedArtifact.URI)
+	}
+	executionContext = requestData[application.TaskExecutionContext](t, client, http.MethodGet, server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, "", http.StatusOK)
+	if len(executionContext.Artifacts) != 2 || executionContext.Artifacts[0].ID != artifact.ID {
+		t.Fatalf("task context Artifacts = %#v", executionContext.Artifacts)
+	}
 
 	submission := requestData[domain.TaskSubmission](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/submissions", map[string]any{
-		"claim_id": claim.ID, "result": "Migration implemented and tested",
+		"claim_id": claim.ID, "result": "Migration implemented and tested", "artifact_ids": []domain.ArtifactID{artifact.ID, managedArtifact.ID},
 	}, "submit-task", http.StatusCreated)
 	if submission.Result != "Migration implemented and tested" {
 		t.Fatalf("submission result = %q", submission.Result)
@@ -151,6 +178,19 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", nil, "", http.StatusOK)
 	if workItemContext.WorkItem.Status != domain.WorkItemStatusOpen || workItemContext.WorkItem.Result != "" {
 		t.Fatalf("converged WorkItem context = %+v", workItemContext)
+	}
+	if len(workItemContext.Artifacts) != 2 || workItemContext.Artifacts[0].SubmissionID == nil || *workItemContext.Artifacts[0].SubmissionID != submission.ID {
+		t.Fatalf("committed WorkItem Artifacts = %#v", workItemContext.Artifacts)
+	}
+	download := newTrustedRequest(t, http.MethodGet, server.URL+"/api/v1/artifacts/"+string(managedArtifact.ID)+"/content", nil, "", trustedTestIdentity{ID: "codex-storage", Role: "database"})
+	downloadResponse, err := client.Do(download)
+	if err != nil {
+		t.Fatalf("download managed Artifact: %v", err)
+	}
+	downloaded, readErr := io.ReadAll(downloadResponse.Body)
+	downloadResponse.Body.Close()
+	if readErr != nil || downloadResponse.StatusCode != http.StatusOK || string(downloaded) != "managed report" {
+		t.Fatalf("download managed Artifact: status=%d error=%v content=%q", downloadResponse.StatusCode, readErr, downloaded)
 	}
 	candidates = requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work?tag=backend", nil, "", http.StatusOK)
 	if len(candidates) != 1 || candidates[0].Kind != application.WorkCandidateBlackboardCompletion || candidates[0].WorkItem.ID != workItem.ID {
@@ -368,6 +408,52 @@ func TestTrustedHTTPIdentityEnforcementEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify reviewed work item: %v", err)
 	}
+}
+
+func uploadArtifact(t *testing.T, client *http.Client, endpoint string, claimID domain.ClaimID, name string, content []byte, operationID string) domain.Artifact {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("claim_id", string(claimID)); err != nil {
+		t.Fatalf("write upload claim: %v", err)
+	}
+	if err := writer.WriteField("name", name); err != nil {
+		t.Fatalf("write upload name: %v", err)
+	}
+	part, err := writer.CreateFormFile("file", name)
+	if err != nil {
+		t.Fatalf("create upload file: %v", err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatalf("write upload file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close upload body: %v", err)
+	}
+	request, err := http.NewRequest(http.MethodPost, endpoint, &body)
+	if err != nil {
+		t.Fatalf("create upload request: %v", err)
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Idempotency-Key", operationID)
+	request.Header.Set(identity.HeaderActorID, "codex-storage")
+	request.Header.Set(identity.HeaderActorRole, "database")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("upload Artifact: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		responseContent, _ := io.ReadAll(response.Body)
+		t.Fatalf("upload Artifact status = %d: %s", response.StatusCode, responseContent)
+	}
+	var envelope struct {
+		Data domain.Artifact `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode uploaded Artifact: %v", err)
+	}
+	return envelope.Data
 }
 
 func requestData[T any](

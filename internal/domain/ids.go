@@ -30,6 +30,9 @@ type ClaimID string
 // SubmissionID identifies one immutable Task result submission.
 type SubmissionID string
 
+// ArtifactID identifies one immutable deliverable created during a Claim.
+type ArtifactID string
+
 // ReviewID identifies one review round.
 type ReviewID string
 

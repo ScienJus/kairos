@@ -54,6 +54,21 @@ type submissionView struct {
 	Result  string `json:"result"`
 }
 
+type artifactDefinitionView struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type artifactView struct {
+	ID           string  `json:"id"`
+	WorkItemID   string  `json:"work_item_id"`
+	TaskID       string  `json:"task_id"`
+	ClaimID      string  `json:"claim_id"`
+	SubmissionID *string `json:"submission_id,omitempty"`
+	Name         string  `json:"name"`
+	URI          string  `json:"uri"`
+}
+
 type failureView struct {
 	ID          string `json:"id"`
 	TaskID      string `json:"task_id"`
@@ -125,16 +140,17 @@ type relationView struct {
 }
 
 type workflowTaskDefinitionView struct {
-	ID                 string   `json:"id"`
-	Title              string   `json:"title"`
-	Description        string   `json:"description,omitempty"`
-	AcceptanceCriteria string   `json:"acceptance_criteria,omitempty"`
-	Executor           string   `json:"executor"`
-	AllowedRoles       []string `json:"allowed_roles"`
-	Execution          string   `json:"execution"`
-	ReviewPolicy       string   `json:"review_policy"`
-	Tags               []string `json:"tags"`
-	RelationGuidance   string   `json:"relation_guidance,omitempty"`
+	ID                 string                   `json:"id"`
+	Title              string                   `json:"title"`
+	Description        string                   `json:"description,omitempty"`
+	AcceptanceCriteria string                   `json:"acceptance_criteria,omitempty"`
+	Executor           string                   `json:"executor"`
+	AllowedRoles       []string                 `json:"allowed_roles"`
+	Execution          string                   `json:"execution"`
+	ReviewPolicy       string                   `json:"review_policy"`
+	Tags               []string                 `json:"tags"`
+	RelationGuidance   string                   `json:"relation_guidance,omitempty"`
+	Artifacts          []artifactDefinitionView `json:"artifacts"`
 }
 
 type workflowChoiceGroupView struct {
@@ -168,14 +184,16 @@ type findWorkOutput struct {
 }
 
 type taskContextOutput struct {
-	WorkItem       workItemView           `json:"work_item"`
-	Task           taskView               `json:"task"`
-	Claims         []claimView            `json:"claims"`
-	Definition     definitionView         `json:"definition"`
-	Workflow       *workflowContextView   `json:"workflow,omitempty"`
-	Blackboard     *blackboardContextView `json:"blackboard,omitempty"`
-	Responsibility responsibilityView     `json:"responsibility"`
-	Outcome        outcomeView            `json:"outcome"`
+	WorkItem          workItemView             `json:"work_item"`
+	Task              taskView                 `json:"task"`
+	Claims            []claimView              `json:"claims"`
+	Definition        definitionView           `json:"definition"`
+	Workflow          *workflowContextView     `json:"workflow,omitempty"`
+	Blackboard        *blackboardContextView   `json:"blackboard,omitempty"`
+	Responsibility    responsibilityView       `json:"responsibility"`
+	Outcome           outcomeView              `json:"outcome"`
+	ExpectedArtifacts []artifactDefinitionView `json:"expected_artifacts"`
+	Artifacts         []artifactView           `json:"artifacts"`
 }
 
 type responsibilityView struct {
@@ -194,6 +212,7 @@ type workItemContextOutput struct {
 	Definition definitionView    `json:"definition"`
 	Tasks      []taskSummaryView `json:"tasks"`
 	Relations  []relationView    `json:"relations"`
+	Artifacts  []artifactView    `json:"artifacts"`
 }
 
 type claimOutput struct {
@@ -202,6 +221,10 @@ type claimOutput struct {
 
 type submissionOutput struct {
 	Submission submissionView `json:"submission"`
+}
+
+type artifactOutput struct {
+	Artifact artifactView `json:"artifact"`
 }
 
 type failureOutput struct {
@@ -250,10 +273,12 @@ func findWorkView(candidates []application.WorkCandidate) findWorkOutput {
 
 func taskContextView(value application.TaskExecutionContext) taskContextOutput {
 	result := taskContextOutput{
-		WorkItem:   workItemViewFrom(value.WorkItem),
-		Task:       taskViewFrom(value.Task),
-		Claims:     claimViews(value.Claims),
-		Definition: definitionViewFrom(value.Definition),
+		WorkItem:          workItemViewFrom(value.WorkItem),
+		Task:              taskViewFrom(value.Task),
+		Claims:            claimViews(value.Claims),
+		Definition:        definitionViewFrom(value.Definition),
+		ExpectedArtifacts: artifactDefinitionViews(value.ExpectedArtifacts),
+		Artifacts:         artifactViews(value.Artifacts),
 	}
 	result.Responsibility = responsibilityView{Kind: value.Responsibility.Kind, Actor: actorViewPtr(value.Responsibility.Actor)}
 	result.Outcome = outcomeView{Kind: value.Outcome.Kind, Actor: actorViewPtr(value.Outcome.Actor), Reason: value.Outcome.Reason}
@@ -296,6 +321,7 @@ func workItemContextView(value application.WorkItemExecutionContext) workItemCon
 		Definition: definitionViewFrom(value.Definition),
 		Tasks:      taskSummaryViews(value.Tasks),
 		Relations:  relationViews(value.Relations),
+		Artifacts:  artifactViews(value.Artifacts),
 	}
 }
 
@@ -446,6 +472,30 @@ func workflowTaskDefinitionViewFrom(value domain.WorkflowTaskDefinition) workflo
 		AcceptanceCriteria: value.AcceptanceCriteria, Executor: string(value.Executor),
 		AllowedRoles: stringSlice(value.AllowedRoles), Execution: string(value.Execution),
 		ReviewPolicy: string(value.ReviewPolicy), Tags: stringSlice(value.DefaultTags),
+		Artifacts: artifactDefinitionViews(value.Artifacts),
+	}
+}
+
+func artifactDefinitionViews(values []domain.ArtifactDefinition) []artifactDefinitionView {
+	result := make([]artifactDefinitionView, 0, len(values))
+	for _, value := range values {
+		result = append(result, artifactDefinitionView{Name: value.Name, Description: value.Description})
+	}
+	return result
+}
+
+func artifactViews(values []domain.Artifact) []artifactView {
+	result := make([]artifactView, 0, len(values))
+	for _, value := range values {
+		result = append(result, artifactViewFrom(value))
+	}
+	return result
+}
+
+func artifactViewFrom(value domain.Artifact) artifactView {
+	return artifactView{
+		ID: string(value.ID), WorkItemID: string(value.WorkItemID), TaskID: string(value.TaskID), ClaimID: string(value.ClaimID),
+		SubmissionID: optionalString(value.SubmissionID), Name: value.Name, URI: value.URI,
 	}
 }
 

@@ -60,6 +60,8 @@ In Blackboard, an executor can also decompose a Task into child Tasks before pro
 
 Whenever an executor formally submits a result, Kairos creates an immutable Task Submission under the Task and links it to the Claim that produced the result. A Task can go through multiple execution, submission, and Review rounds. Every Submission remains in shared history.
 
+A Result is the executor's durable narrative; an Artifact is a named, addressable deliverable. Executors may stage Artifacts while holding a Claim and bind them when creating the Submission. Bound Artifacts inherit the Submission's immutable history and are visible across the WorkItem.
+
 When an executor reports failure, Kairos creates an immutable Task Failure under the Task. A prompt supplied when reopening becomes part of the next execution context; a global failure ends both the Task and WorkItem. Claims, Submissions, Reviews, Failures, and progression decisions also form an append-only WorkItem Event history.
 
 > A WorkItem answers “What final outcome is required?” A Task answers “What concrete work comes next?”

@@ -73,6 +73,8 @@ Blackboard 将规划放在整个执行过程中：
 
 Task 可以形成层级。执行者 Claim 一个尚未产生成果的 Task 后，可以将它拆分为初始子 Task。父 Task 随即结束 Claim 并进入 `WaitingChildren`，不再产生自己的 Submission；成果由后代 Task 汇总。
 
+Blackboard 不施加结构化 Artifact 契约。动态创建的 Task 提示词与验收标准告诉执行者需要交付什么；提交的 Artifact 进入 WorkItem 级共享 Artifact 集合。
+
 `WaitingChildren` 表示一个开放的聚合范围。WorkItem 未完成期间，协作者可以继续向其中追加子 Task。所有直接子 Task 完成或跳过后，父 Task 递归完成并封闭。普通执行 Task、聚合 Task 与 Task Relation 分别表达执行、工作拆分和建议顺序。
 
 ## 3. Task Relation

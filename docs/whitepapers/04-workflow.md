@@ -28,6 +28,8 @@ WorkItem Runtime: Design #1 → Implement #1 → Test #1
 
 Every Task instance has independent Claims, progress, and results. The system creates downstream Tasks after the previous set of Tasks formally ends. When one runtime Task instance has multiple predecessor instances, it waits for all of those concrete instances to end by default.
 
+Each Task Definition may also declare named Artifact delivery instructions. Every declared name is required in a successful runtime Submission. The contract guides the executor with a description but does not prescribe file types or storage; extra Artifacts remain allowed.
+
 The operations UI projects the immutable Definition graph together with runtime Tasks and Relations. Definition nodes that have not produced a runtime Task are shown as `not reached`; they are display-only and cannot be claimed or opened as Task execution context. This complete-graph view does not pre-create Tasks or change Workflow activation and transition semantics. Cycle relations remain visible as return edges, while multiple runtime executions of a cyclic Definition node are summarized with an execution count on that node. Selecting the node opens its latest runtime Task by default; previous and next controls move through its concrete Task instances one at a time, using the normal Task detail view for each instance.
 
 Kairos uses an internal Workflow Task Activation to aggregate predecessor results from one unfolding. Activations use correlation to distinguish parallel branches and different cycle iterations. An Activation creates an executable Task only after every input is resolved; it is never exposed to or claimed by an executor.

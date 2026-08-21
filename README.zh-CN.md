@@ -15,6 +15,7 @@ Kairos 为所有参与者提供一个持久、统一的工作视图：
 - 人和 Agent 从同一个 WorkItem 中发现 Task；
 - 原子 Claim 避免两个执行者同时处理同一个 Task；
 - 提交、Review、反馈和失败记录归属于 Task，不随 Agent 会话消失；
+- 具名 Artifact 让 Git commit、分支、文档、报告和托管文件可以跨 Task 寻址；
 - Task 可以由 Agent、人或两者中的任意一方执行；
 - 正式流程和开放式协作使用同一套执行协议。
 
@@ -98,6 +99,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 领域模型和 Application Service；
 - Workflow 与 Blackboard 的运行时语义；
 - PostgreSQL 与 SQLite 持久化；
+- Workflow Artifact 交付契约和基于内容寻址的内置 `kairos://` Artifact Store；
 - 并发与幂等保护；
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
@@ -141,4 +143,5 @@ Kairos 提供面向执行的 MCP 接入面，并在 `.agents/skills/kairos-agent
 6. [人类交互模型](docs/whitepapers/06-human-interaction-model.zh-CN.md)
 7. [Agent 交互模型](docs/whitepapers/07-agent-interaction-model.zh-CN.md)
 8. [Agent 身份模型](docs/whitepapers/08-agent-identity-model.zh-CN.md)
-9. [API 参考](docs/api-reference.zh-CN.md)
+9. [Artifact 模型与存储](docs/whitepapers/09-artifacts.zh-CN.md)
+10. [API 参考](docs/api-reference.zh-CN.md)

@@ -15,7 +15,7 @@ import (
 
 const maxRequestBodyBytes = 1 << 20
 
-const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. End every claim with submit_task, fail_task, or release_claim. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
+const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. Follow expected_artifacts, create external deliverables with create_artifact, and pass their IDs to submit_task; managed files use the HTTP upload endpoint. End every claim with submit_task, fail_task, or release_claim. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
 
 // Handler serves a stateless Streamable HTTP MCP endpoint. Every request is
 // authenticated independently before the SDK dispatches a tool call.
@@ -138,9 +138,22 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "create_artifact",
+		Title:       "Create artifact",
+		Description: "Register an external Artifact under an active Claim.",
+		Annotations: mutationAnnotations(false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createArtifactInput) (*mcp.CallToolResult, artifactOutput, error) {
+		artifact, err := service.CreateArtifact(ctx, application.CreateArtifactCommand{
+			TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor,
+			OperationID: input.OperationID, Name: input.Name, URI: input.URI,
+		})
+		return successResult(fmt.Sprintf("Created Artifact %s for Task %s.", artifact.ID, artifact.TaskID)), artifactOutput{Artifact: artifactViewFrom(artifact)}, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "submit_task",
 		Title:       "Submit task result",
-		Description: "Submit an immutable result from an active claim and optionally request review or choose a workflow transition.",
+		Description: "Submit a Claim's result, Artifacts, Review request, and Workflow transition.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitTaskInput) (*mcp.CallToolResult, submissionOutput, error) {
 		var transition *application.WorkflowTransitionCommand
@@ -158,6 +171,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			Identity:      actor,
 			OperationID:   input.OperationID,
 			Result:        input.Result,
+			ArtifactIDs:   artifactIDs(input.ArtifactIDs),
 			RequestReview: input.RequestReview,
 			Transition:    transition,
 		})
@@ -282,28 +296,37 @@ type heartbeatClaimInput struct {
 }
 
 type workflowTransitionInput struct {
-	ChoiceGroupID        string   `json:"choice_group_id" jsonschema:"Workflow choice group selected after completing the task."`
-	SkipOptionalTaskIDs  []string `json:"skip_optional_task_ids,omitempty" jsonschema:"Optional workflow task definition IDs intentionally skipped."`
-	ReviewSkippedTaskIDs []string `json:"review_skipped_task_ids,omitempty" jsonschema:"Subset of skipped IDs that should receive human review."`
-	Reason               string   `json:"reason,omitempty" jsonschema:"Reason for the workflow progression choice."`
+	ChoiceGroupID        string   `json:"choice_group_id"`
+	SkipOptionalTaskIDs  []string `json:"skip_optional_task_ids,omitempty"`
+	ReviewSkippedTaskIDs []string `json:"review_skipped_task_ids,omitempty"`
+	Reason               string   `json:"reason,omitempty"`
 }
 
 type submitTaskInput struct {
-	TaskID        string                   `json:"task_id" jsonschema:"Concrete Kairos task ID."`
-	ClaimID       string                   `json:"claim_id" jsonschema:"Active claim owned by the current actor."`
-	OperationID   string                   `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
-	Result        string                   `json:"result" jsonschema:"Durable task result, including useful deliverables and evidence."`
-	RequestReview bool                     `json:"request_review,omitempty" jsonschema:"Request human review when the task policy allows it."`
-	Transition    *workflowTransitionInput `json:"transition,omitempty" jsonschema:"Required progression choice for a non-terminal workflow task."`
+	TaskID        string                   `json:"task_id"`
+	ClaimID       string                   `json:"claim_id"`
+	OperationID   string                   `json:"operation_id"`
+	Result        string                   `json:"result"`
+	ArtifactIDs   []string                 `json:"artifact_ids,omitempty"`
+	RequestReview bool                     `json:"request_review,omitempty"`
+	Transition    *workflowTransitionInput `json:"transition,omitempty"`
+}
+
+type createArtifactInput struct {
+	TaskID      string `json:"task_id"`
+	ClaimID     string `json:"claim_id"`
+	OperationID string `json:"operation_id"`
+	Name        string `json:"name"`
+	URI         string `json:"uri"`
 }
 
 type failTaskInput struct {
-	TaskID      string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
-	ClaimID     string `json:"claim_id" jsonschema:"Active claim owned by the current actor."`
-	OperationID string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
+	TaskID      string `json:"task_id"`
+	ClaimID     string `json:"claim_id"`
+	OperationID string `json:"operation_id"`
 	Action      string `json:"action" jsonschema:"Failure action: reopen or fail_work_item."`
-	Reason      string `json:"reason" jsonschema:"What prevented successful execution."`
-	RetryPrompt string `json:"retry_prompt,omitempty" jsonschema:"Improved instructions for the next executor when reopening."`
+	Reason      string `json:"reason"`
+	RetryPrompt string `json:"retry_prompt,omitempty"`
 }
 
 type releaseClaimInput struct {
@@ -378,6 +401,14 @@ func workflowTaskIDs(values []string) []domain.WorkflowTaskID {
 	result := make([]domain.WorkflowTaskID, 0, len(values))
 	for _, value := range values {
 		result = append(result, domain.WorkflowTaskID(value))
+	}
+	return result
+}
+
+func artifactIDs(values []string) []domain.ArtifactID {
+	result := make([]domain.ArtifactID, 0, len(values))
+	for _, value := range values {
+		result = append(result, domain.ArtifactID(value))
 	}
 	return result
 }

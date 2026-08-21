@@ -11,8 +11,8 @@ type TaskSubmission struct {
 	TaskID  TaskID
 	ClaimID ClaimID
 
-	// Result summarizes the delivered work. Artifact references can be added
-	// without changing the submission identity or review history.
+	// Result summarizes the delivered work. Artifacts bind to this immutable
+	// Submission through their SubmissionID.
 	Result string
 
 	SubmittedAt time.Time

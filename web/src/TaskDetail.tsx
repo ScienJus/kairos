@@ -403,6 +403,8 @@ function HumanTaskActions({
   const canHumanExecute =
     task.Executor === "human" || task.Executor === "either";
   const [result, setResult] = useState("");
+  const [artifactURIs, setArtifactURIs] = useState<Record<string, string>>({});
+  const [createdArtifactIDs, setCreatedArtifactIDs] = useState<Record<string, string>>({});
   const [requestReview, setRequestReview] = useState(false);
   const [transitionID, setTransitionID] = useState("");
   const [failureReason, setFailureReason] = useState("");
@@ -424,12 +426,39 @@ function HumanTaskActions({
       item.Executor.ID === identity.id,
   );
   const choices = execution.data?.Workflow?.ChoiceGroups ?? [];
+  const expectedArtifacts = execution.data?.ExpectedArtifacts ?? [];
+  const stagedArtifacts = (execution.data?.Artifacts ?? []).filter(
+    (artifact) =>
+      artifact.ClaimID === activeClaim?.ID && !artifact.SubmissionID,
+  );
   const selectedTransition = transitionID || choices[0]?.ID || "";
   const submit = useMutation({
-    mutationFn: () =>
-      api.submitTask(identity, task.ID, {
+    mutationFn: async () => {
+      const created = { ...createdArtifactIDs };
+      for (const expected of expectedArtifacts) {
+        if (
+          stagedArtifacts.some(
+            (artifact) => artifact.Name === expected.Name,
+          ) || created[expected.Name]
+        )
+          continue;
+        const artifact = await api.createArtifact(identity, task.ID, {
+          claim_id: activeClaim!.ID,
+          name: expected.Name,
+          uri: artifactURIs[expected.Name],
+        });
+        created[expected.Name] = artifact.ID;
+        setCreatedArtifactIDs({ ...created });
+      }
+      return api.submitTask(identity, task.ID, {
         claim_id: activeClaim!.ID,
         result,
+        artifact_ids: [
+          ...new Set([
+            ...stagedArtifacts.map((artifact) => artifact.ID),
+            ...Object.values(created),
+          ]),
+        ],
         request_review: requestReview,
         transition: selectedTransition
           ? {
@@ -437,11 +466,14 @@ function HumanTaskActions({
               skip_optional_task_ids: [],
               review_skipped_task_ids: [],
               reason: "",
-            }
+          }
           : null,
-      }),
+      });
+    },
     onSuccess: () => {
       setResult("");
+      setArtifactURIs({});
+      setCreatedArtifactIDs({});
       return refresh();
     },
   });
@@ -497,6 +529,12 @@ function HumanTaskActions({
   const canChooseReview =
     execution.data.WorkItem.Definition.Mode === "blackboard" ||
     task.ReviewPolicy === "executor_decides";
+  const artifactsReady = expectedArtifacts.every(
+    (expected) =>
+      stagedArtifacts.some((artifact) => artifact.Name === expected.Name) ||
+      createdArtifactIDs[expected.Name] ||
+      artifactURIs[expected.Name]?.trim(),
+  );
   return (
     <>
       <OperationPanel
@@ -516,6 +554,38 @@ function HumanTaskActions({
               placeholder={t("workResultPlaceholder")}
             />
           </label>
+          {expectedArtifacts.length > 0 && (
+            <div className="expected-artifacts">
+              <strong>{t("expectedArtifacts")}</strong>
+              {expectedArtifacts.map((expected) => {
+                const existing = stagedArtifacts.find(
+                  (artifact) => artifact.Name === expected.Name,
+                );
+                return (
+                  <label key={expected.Name}>
+                    {expected.Name}
+                    <small>{expected.Description}</small>
+                    {existing || createdArtifactIDs[expected.Name] ? (
+                      <span className="artifact-ready">
+                        {t("artifactReady")}
+                      </span>
+                    ) : (
+                      <input
+                        value={artifactURIs[expected.Name] ?? ""}
+                        onChange={(event) =>
+                          setArtifactURIs((current) => ({
+                            ...current,
+                            [expected.Name]: event.target.value,
+                          }))
+                        }
+                        placeholder={t("artifactURIPlaceholder")}
+                      />
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          )}
           {choices.length > 0 && (
             <label>
               {t("nextPath")}
@@ -548,7 +618,7 @@ function HumanTaskActions({
           <div className="human-action-buttons">
             <button
               className="primary-button"
-              disabled={!result.trim() || submit.isPending}
+              disabled={!result.trim() || !artifactsReady || submit.isPending}
               onClick={() => submit.mutate()}
             >
               {t("submitResult")}

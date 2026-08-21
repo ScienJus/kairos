@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
@@ -43,6 +44,13 @@ type IDGenerator interface {
 	NewID() string
 }
 
+// ArtifactContentStore persists and resolves managed Artifact content for one URI scheme.
+type ArtifactContentStore interface {
+	Scheme() string
+	Put(context.Context, string, io.Reader) (domain.ArtifactBlob, error)
+	Open(context.Context, string) (io.ReadCloser, error)
+}
+
 // WorkCandidateKind distinguishes execution, planning, completion, and acceptance opportunities.
 type WorkCandidateKind string
 
@@ -79,6 +87,9 @@ type ReadStore interface {
 	ListTasks(domain.WorkItemID) ([]domain.Task, error)
 	ListTaskRelations(domain.WorkItemID) ([]domain.TaskRelation, error)
 	ListClaims(domain.TaskID) ([]domain.Claim, error)
+	GetArtifact(domain.ArtifactID) (domain.Artifact, error)
+	ListArtifacts(domain.WorkItemID) ([]domain.Artifact, error)
+	GetArtifactBlob(string) (domain.ArtifactBlob, error)
 	GetWorkflowTaskActivation(domain.WorkflowTaskActivationID) (domain.WorkflowTaskActivation, error)
 	ListWorkflowTaskActivations(domain.WorkItemID) ([]domain.WorkflowTaskActivation, error)
 	ListOpenTasks() ([]WorkCandidate, error)
@@ -113,6 +124,9 @@ type WriteStore interface {
 
 	CreateClaim(domain.Claim) error
 	SaveClaim(domain.Claim) error
+	CreateArtifact(domain.Artifact) error
+	SaveArtifact(domain.Artifact) error
+	CreateArtifactBlob(domain.ArtifactBlob) error
 
 	AppendWorkItemEvent(domain.WorkItemEvent) error
 	LockIdempotencyKey(domain.ActorRef, string) error

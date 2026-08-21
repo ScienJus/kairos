@@ -64,12 +64,14 @@ type BlackboardExecutionContext struct {
 // TaskExecutionContext contains the durable context needed to execute one Task.
 // Task owns its complete Submission, Review, Failure, and Transition histories.
 type TaskExecutionContext struct {
-	WorkItem       domain.WorkItem
-	Task           domain.Task
-	Claims         []domain.Claim
-	Definition     DefinitionExecutionContext
-	Responsibility TaskResponsibility
-	Outcome        TaskOutcome
+	WorkItem          domain.WorkItem
+	Task              domain.Task
+	Claims            []domain.Claim
+	Artifacts         []domain.Artifact
+	ExpectedArtifacts []domain.ArtifactDefinition
+	Definition        DefinitionExecutionContext
+	Responsibility    TaskResponsibility
+	Outcome           TaskOutcome
 
 	Workflow   *WorkflowExecutionContext
 	Blackboard *BlackboardExecutionContext
@@ -127,7 +129,17 @@ func (s *Service) GetTaskExecutionContext(
 			return err
 		}
 
-		result = TaskExecutionContext{WorkItem: workItem, Task: task, Claims: claims}
+		artifacts, err := store.ListArtifacts(workItem.ID)
+		if err != nil {
+			return fmt.Errorf("list artifacts for work item %q: %w", workItem.ID, err)
+		}
+		visibleArtifacts := make([]domain.Artifact, 0, len(artifacts))
+		for _, artifact := range artifacts {
+			if artifact.SubmissionID != nil || claimOwnedByIdentity(claims, artifact.ClaimID, query.Identity) {
+				visibleArtifacts = append(visibleArtifacts, artifact)
+			}
+		}
+		result = TaskExecutionContext{WorkItem: workItem, Task: task, Claims: claims, Artifacts: visibleArtifacts}
 		switch workItem.CoordinationMode() {
 		case domain.CoordinationModeWorkflow:
 			definition, err := store.GetWorkflowDefinition(workItem.Definition.ID, workItem.Definition.Version)
@@ -135,6 +147,11 @@ func (s *Service) GetTaskExecutionContext(
 				return fmt.Errorf("get workflow definition: %w", err)
 			}
 			result.Definition = definitionExecutionContext(definition.DefinitionMetadata)
+			workflowTask, exists := workflowTaskDefinition(definition, *task.WorkflowTaskID)
+			if !exists {
+				return invalidCommand("workflow task definition %q does not exist", *task.WorkflowTaskID)
+			}
+			result.ExpectedArtifacts = append([]domain.ArtifactDefinition{}, workflowTask.Artifacts...)
 			workflow, err := workflowExecutionContext(definition, task)
 			if err != nil {
 				return err
@@ -183,6 +200,12 @@ func (s *Service) GetTaskExecutionContext(
 	result.WorkItem = normalizeWorkItemCollections(result.WorkItem)
 	result.Responsibility, result.Outcome = projectTaskLifecycle(result.Task, result.Claims)
 	result.Task = normalizeTaskCollections(result.Task)
+	if result.Artifacts == nil {
+		result.Artifacts = []domain.Artifact{}
+	}
+	if result.ExpectedArtifacts == nil {
+		result.ExpectedArtifacts = []domain.ArtifactDefinition{}
+	}
 	if result.Claims == nil {
 		result.Claims = []domain.Claim{}
 	}
@@ -198,6 +221,15 @@ func (s *Service) GetTaskExecutionContext(
 		}
 	}
 	return result, nil
+}
+
+func claimOwnedByIdentity(claims []domain.Claim, claimID domain.ClaimID, identity Identity) bool {
+	for _, claim := range claims {
+		if claim.ID == claimID && claim.Active() && sameActor(claim.Executor, identity.Actor) {
+			return true
+		}
+	}
+	return false
 }
 
 func projectTaskLifecycle(task domain.Task, claims []domain.Claim) (TaskResponsibility, TaskOutcome) {

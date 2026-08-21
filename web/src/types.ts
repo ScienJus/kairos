@@ -13,6 +13,11 @@ export interface Review {
   RequestedBy: string; RequestedAt: string; DecidedBy: string | null; DecidedAt: string | null; Feedback: string
 }
 export interface Submission { ID: string; TaskID: string; ClaimID: string; Result: string; SubmittedAt: string }
+export interface ArtifactDefinition { Name: string; Description: string }
+export interface Artifact {
+  ID: string; WorkItemID: string; TaskID: string; ClaimID: string; SubmissionID: string | null
+  Name: string; URI: string; CreatedAt: string
+}
 export interface Failure { ID: string; TaskID: string; ClaimID: string; Action: string; Reason: string; RetryPrompt: string; FailedAt: string }
 export interface Task {
   ID: string; WorkItemID: string; Status: TaskStatus; ActiveClaimID: string | null; ParentTaskID: string | null
@@ -32,7 +37,7 @@ export interface WorkflowChoiceOption {
   SkippableOptionalTasks: Array<{ ID: string; Title: string }>
 }
 export interface TaskExecutionContext {
-  WorkItem: WorkItem; Task: Task; Claims: Claim[]
+  WorkItem: WorkItem; Task: Task; Claims: Claim[]; Artifacts: Artifact[]; ExpectedArtifacts: ArtifactDefinition[]
   Responsibility?: { Kind: string; Actor: ActorRef | null }; Outcome?: { Kind: string; Actor: ActorRef | null; Reason?: string; OccurredAt?: string }
   Workflow: { UpstreamTasks: Task[]; ChoiceGroups: WorkflowChoiceOption[] } | null
   Blackboard: { Tasks: Task[]; Relations: TaskRelation[]; CanDecompose: boolean } | null
@@ -45,7 +50,7 @@ export interface TaskDetailView {
 export interface TaskRelation { WorkItemID: string; FromTaskID: string; ToTaskID: string }
 export interface BlackboardTaskDecomposition { Parent: Task; Children: Task[] }
 export interface DefinitionContext { Name: string; Description: string; AgentInstructions: string; SuggestedTags: string[] }
-export interface WorkItemContext { WorkItem: WorkItem; Definition: DefinitionContext; Tasks: Task[]; Relations: TaskRelation[]; Claims: Claim[]; ActiveClaims: Claim[] }
+export interface WorkItemContext { WorkItem: WorkItem; Definition: DefinitionContext; Tasks: Task[]; Relations: TaskRelation[]; Claims: Claim[]; ActiveClaims: Claim[]; Artifacts: Artifact[] }
 export interface Definition {
   ID: string; Version: number; Name: string; Description: string; AgentInstructions: string
   SuggestedTags: string[]; Status: 'draft' | 'published' | 'archived'; Graph?: unknown
@@ -53,7 +58,7 @@ export interface Definition {
 export interface WorkflowTaskDefinition {
   ID: string; Title: string; Description: string; AcceptanceCriteria: string
   Executor: Task['Executor']; AllowedRoles: string[]; Execution: 'required' | 'optional'
-  ReviewPolicy: 'none' | 'executor_decides' | 'required'; DefaultTags: string[]
+  ReviewPolicy: 'none' | 'executor_decides' | 'required'; DefaultTags: string[]; Artifacts: ArtifactDefinition[]
 }
 export interface WorkflowRelationDefinition { ID: string; FromTaskID: string; ToTaskID: string; Label?: string; AgentGuidance?: string }
 export interface WorkflowDefinition extends Definition {
@@ -67,7 +72,7 @@ export interface TaskDraftInput {
   executor: Task['Executor']; allowed_roles: string[]; tags: string[]
 }
 export interface SubmitTaskInput {
-  claim_id: string; result: string; request_review: boolean
+  claim_id: string; result: string; artifact_ids: string[]; request_review: boolean
   transition: { choice_group_id: string; skip_optional_task_ids: string[]; review_skipped_task_ids: string[]; reason: string } | null
 }
 export interface FailTaskInput { claim_id: string; action: 'reopen' | 'fail_work_item'; reason: string; retry_prompt: string }
@@ -84,6 +89,7 @@ export interface CreateWorkflowDefinitionInput extends CreateDefinitionInput {
       id: string; title: string; description: string; acceptance_criteria: string
       executor: Task['Executor']; allowed_roles: string[]; execution: 'required' | 'optional'
       review_policy: 'none' | 'executor_decides' | 'required'; default_tags: string[]
+      artifacts: Array<{ name: string; description: string }>
     }>
     relations: Array<{ id: string; from_task_id: string; to_task_id: string; label: string; agent_guidance: string }>
     max_task_executions: number

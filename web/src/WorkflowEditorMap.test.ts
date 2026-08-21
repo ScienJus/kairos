@@ -4,7 +4,7 @@ import { workflowEditorLayout, workflowTaskPositionNearAnchor } from './Workflow
 
 const task = (ID: string): WorkflowTaskDefinition => ({
   ID, Title: ID, Description: '', AcceptanceCriteria: '', Executor: 'agent',
-  AllowedRoles: [], Execution: 'required', ReviewPolicy: 'none', DefaultTags: [],
+  AllowedRoles: [], Execution: 'required', ReviewPolicy: 'none', DefaultTags: [], Artifacts: [],
 })
 
 describe('Workflow editor layout', () => {

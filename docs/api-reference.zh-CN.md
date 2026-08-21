@@ -12,6 +12,8 @@
 KAIROS_SQLITE_PATH=kairos.db \
 KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
 KAIROS_AGENT_CLAIM_LEASE=5m \
+KAIROS_ARTIFACT_STORE=kairos:// \
+KAIROS_ARTIFACT_DIR=artifacts \
 go run ./cmd/kairos-server
 ```
 
@@ -46,6 +48,7 @@ go run ./cmd/kairos-server
 | Workflow Definitions | `GET/POST /api/v1/definitions/workflows`、`GET /api/v1/definitions/workflows/{id}/versions/{version}` |
 | Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`、`GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
 | WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance` |
+| Artifacts | `GET /api/v1/work-items/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifact-uploads`、`GET /api/v1/artifacts/{id}/content` |
 | 工作发现 | `GET /api/v1/work` |
 | Task 详情与执行 | `GET /api/v1/tasks/{id}`、`/context`、`/claims`、`/submissions`、`/failures`、`/reviews` |
 | Blackboard 规划 | WorkItem Task、relation、completion；Task decomposition、children 与 skipping |
@@ -60,6 +63,12 @@ Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `a
 
 `GET /api/v1/work-items/{id}/context` 在 WorkItem 终态后仍可读取，返回聚合结果、规范化的 Task 与 relation 集合、`Claims` 中的完整 Claim 历史，以及 `ActiveClaims` 中当前仍存活的子集。完成态 Task 的执行人可通过 `Submission.ClaimID -> Claims[].ID -> Executor` 关联。
 
+Workflow Task Definition 可以声明必交的 `artifacts[]`，每项只有 `name` 和 `description`。Description 是执行指引，不是文件类型 Schema。执行者持有 Claim 时可以用绝对 URI 创建外部 Artifact，或上传托管内容，再通过 `submit_task.artifact_ids` 提交。Submission 在同一事务中绑定暂存 Artifact；缺少 Definition 声明名称的 Workflow 提交会被拒绝。Blackboard Task 没有结构化 Artifact 契约。已提交 Artifact 对整个 WorkItem 可见，暂存 Artifact 只属于创建它的 Claim。
+
+托管上传始终写入服务端配置的 `KAIROS_ARTIFACT_STORE`，调用方不能选择 Store。内置实现把内容寻址 Blob 写入 `KAIROS_ARTIFACT_DIR`，并返回 `kairos://blobs/sha256/...` URI。读取器根据 URI Scheme 解析，因此部署迁移时可以继续注册旧 Store 的读取器。目前只内置 `kairos`。
+
+`POST /tasks/{id}/artifacts` 接受 `claim_id`、`name`、`uri` JSON 字段；`POST /tasks/{id}/artifact-uploads` 接受 `claim_id`、`name`、`file` multipart 字段，不存在 Store 字段。两种变更都使用常规 `Idempotency-Key` Header。
+
 `GET /api/v1/tasks/{id}` 是面向查看者的 Task Detail，不要求当前身份能够执行该 Task。它返回后端计算的 `Responsibility`、`Outcome`、`CurrentReview`、规范化 `History` 和当前身份的 `Capabilities`。`GET /api/v1/tasks/{id}/context` 仍是受执行权限保护的执行者上下文；客户端不得使用它加载普通详情或人工 Review。
 
 ## Claim Lease
@@ -70,10 +79,10 @@ Agent Claim 使用 lease，Human Claim 不使用。Agent Claim 与 heartbeat 可
 
 MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>`；身份不会出现在工具参数中。
 
-执行面包含 15 个工具：
+执行面包含 16 个工具：
 
 - 发现与上下文：`find_work`、`get_task_context`、`get_work_item_context`；
-- Claim 生命周期：`claim_task`、`heartbeat_claim`、`release_claim`、`submit_task`、`fail_task`；
+- Claim 生命周期与交付：`claim_task`、`heartbeat_claim`、`create_artifact`、`release_claim`、`submit_task`、`fail_task`；
 - Blackboard 规划与关闭：`create_blackboard_task`、`add_blackboard_relation`、`decompose_blackboard_task`、`add_blackboard_child_task`、`skip_blackboard_task`、`submit_blackboard_completion`、`accept_blackboard_completion`。
 
 每个 MCP 变更都必须携带 `operation_id`，只有完全相同的重试才能复用。Workflow 候选由 role 与图状态决定，忽略 tag 筛选；Blackboard 可以按 tags 发现。Workflow Task context 提供受控的上游摘要、durable result 和可选 Relation Guidance，但不授予任意读取其他 Task 的权限，也不会因为 Guidance 产生 Definition 未允许的分支。

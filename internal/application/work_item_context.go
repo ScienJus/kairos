@@ -86,6 +86,7 @@ type WorkItemExecutionContext struct {
 	Relations    []domain.TaskRelation
 	Claims       []domain.Claim
 	ActiveClaims []domain.Claim
+	Artifacts    []domain.Artifact
 }
 
 // GetWorkItemExecutionContextQuery identifies one WorkItem and requesting actor.
@@ -131,6 +132,16 @@ func (s *Service) GetWorkItemExecutionContext(
 		if relations == nil {
 			relations = []domain.TaskRelation{}
 		}
+		artifacts, err := store.ListArtifacts(workItem.ID)
+		if err != nil {
+			return fmt.Errorf("list artifacts for work item %q: %w", workItem.ID, err)
+		}
+		committedArtifacts := make([]domain.Artifact, 0, len(artifacts))
+		for _, artifact := range artifacts {
+			if artifact.SubmissionID != nil {
+				committedArtifacts = append(committedArtifacts, artifact)
+			}
+		}
 		claims := []domain.Claim{}
 		activeClaims := []domain.Claim{}
 		for _, task := range tasks {
@@ -151,7 +162,7 @@ func (s *Service) GetWorkItemExecutionContext(
 		}
 		result = WorkItemExecutionContext{
 			WorkItem: normalizeWorkItemCollections(workItem), Definition: normalizeDefinitionContext(definition),
-			Tasks: normalizeTasks(tasks), Relations: relations, Claims: claims, ActiveClaims: activeClaims,
+			Tasks: normalizeTasks(tasks), Relations: relations, Claims: claims, ActiveClaims: activeClaims, Artifacts: committedArtifacts,
 		}
 		return nil
 	})

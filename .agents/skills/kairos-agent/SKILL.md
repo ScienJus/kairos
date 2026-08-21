@@ -1,6 +1,6 @@
 ---
 name: kairos-agent
-description: Execute work coordinated by Kairos through its MCP tools. Use when asked to find available Kairos work, plan an empty Blackboard, claim or release a Task, read Task or WorkItem execution context, submit a result, or report a Task failure. Do not use for Definition or Identity administration.
+description: Execute work coordinated by Kairos through its MCP tools. Use when asked to find available Kairos work, plan an empty Blackboard, claim or release a Task, create Artifacts, read Task or WorkItem execution context, submit a result, or report a Task failure. Do not use for Definition or Identity administration.
 ---
 
 # Kairos Agent
@@ -20,12 +20,13 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 5. Call `claim_task` immediately before beginning execution. Do not work on a Task whose Claim was not acquired successfully.
 6. Perform the requested work outside Kairos using the available repository, browser, API, or other tools. Keep the Claim ID.
    While working, run a background heartbeat loop. Call `heartbeat_claim` before the reported `lease_until` (normally around one third of the remaining lease), and always renew before starting a long-running shell command. Pass `lease_seconds` when the expected next interval changes; the default Agent lease is five minutes. Reaching `lease_until` makes the Claim eligible for the background reaper but does not itself revoke ownership, so a heartbeat may still renew it before reaping. Use a fresh `operation_id` for each new heartbeat request, and reuse it only for an identical retry. Stop work immediately if heartbeat reports that the Claim is no longer active or owned by this agent.
-7. Finish with exactly one lifecycle action:
-   - Call `submit_task` with a durable result when acceptance criteria are met.
+7. Read `expected_artifacts` from Task context. For each required deliverable, create an external Artifact with `create_artifact`; managed files use the server's HTTP upload endpoint. The Agent never selects an Artifact Store.
+8. Finish with exactly one lifecycle action:
+   - Call `submit_task` with a durable result and every staged Artifact ID in `artifact_ids` when acceptance criteria are met. Workflow submissions must include every declared Artifact name; Blackboard submissions may include any useful Artifacts.
    - Call `fail_task` with `reopen` and a useful retry prompt when another attempt can succeed.
    - Call `fail_task` with `fail_work_item` only when the whole WorkItem cannot continue.
    - Call `release_claim` when stopping without a result or failure decision.
-8. When the final WorkItem status or aggregated result matters, call `get_work_item_context` after the lifecycle action. This query works for open, acceptance-pending, and terminal WorkItems. After the last Task ends, call `find_work` again and handle the resulting Blackboard completion candidate.
+9. When the final WorkItem status or aggregated result matters, call `get_work_item_context` after the lifecycle action. This query works for open, acceptance-pending, and terminal WorkItems. After the last Task ends, call `find_work` again and handle the resulting Blackboard completion candidate.
 
 ## Mutation discipline
 

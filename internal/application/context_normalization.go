@@ -99,6 +99,7 @@ func normalizeBlackboardDefinitions(definitions []domain.BlackboardDefinition) [
 func normalizeWorkflowTaskDefinition(task domain.WorkflowTaskDefinition) domain.WorkflowTaskDefinition {
 	task.AllowedRoles = append([]string{}, task.AllowedRoles...)
 	task.DefaultTags = append([]string{}, task.DefaultTags...)
+	task.Artifacts = append([]domain.ArtifactDefinition{}, task.Artifacts...)
 	return task
 }
 

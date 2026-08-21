@@ -253,6 +253,18 @@ input, select { height: 37px; padding: 0 10px; } textarea { padding: 10px; resiz
 .property-form > span { color: #668087; font-size: 9px; text-transform: uppercase; }
 .property-form h2 { margin: 7px 0 4px; overflow-wrap: anywhere; color: #304a4b; font-size: 19px; font-weight: 600; }
 .relation-properties h2 i { color: #7d9691; font-style: normal; font-weight: 400; }
+.artifact-definitions { display: grid; gap: 10px; padding-top: 8px; border-top: 1px solid #e5eae7; }
+.artifact-definitions > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.artifact-definitions > p { margin: 0; color: #66746f; font-size: 13px; }
+.artifact-definition { display: grid; gap: 8px; padding: 12px; border: 1px solid #dfe5e1; border-radius: 8px; background: #fafcfb; }
+.artifact-definition .danger-button { justify-self: start; }
+.expected-artifacts { display: grid; gap: 10px; padding: 12px; border: 1px solid #dfe5e1; border-radius: 8px; }
+.expected-artifacts label { display: grid; gap: 5px; }
+.expected-artifacts small { color: #66746f; }
+.artifact-ready { color: #34755f; font-size: 13px; }
+.artifact-list { display: grid; gap: 8px; }
+.artifact-list > div { display: grid; grid-template-columns: minmax(120px, .35fr) minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.artifact-list a, .artifact-list span { min-width: 0; overflow-wrap: anywhere; }
 .property-form .internal-id { display: block; overflow: hidden; color: #98a19f; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .property-form .property-intro { margin: 16px 0 0; color: #6d7f7b; font-size: 11px; line-height: 1.55; }
 .property-form > label, .property-row label { display: flex; flex-direction: column; gap: 7px; margin-top: 17px; color: #667a76; font-family: Inter, system-ui, sans-serif; font-size: 11px; font-weight: 600; }
