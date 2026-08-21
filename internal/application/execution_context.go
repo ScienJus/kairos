@@ -25,9 +25,22 @@ type WorkflowChoiceOption struct {
 	// Targets are the selected group's direct Task Definitions.
 	Targets []domain.WorkflowTaskDefinition
 
+	// Relations retain the authored guidance for each direct target. Guidance
+	// describes choices already permitted by the compiled Workflow; it does not
+	// make an otherwise automatic relation conditional.
+	Relations []WorkflowChoiceRelation
+
 	// SkippableOptionalTasks are reachable without crossing a Task that must execute.
 	// Executors submit only the IDs they intend to skip.
 	SkippableOptionalTasks []domain.WorkflowTaskDefinition
+}
+
+// WorkflowChoiceRelation describes one direct relation in a legal choice group.
+type WorkflowChoiceRelation struct {
+	RelationID    domain.WorkflowRelationID
+	Target        domain.WorkflowTaskDefinition
+	Label         string
+	AgentGuidance string
 }
 
 // WorkflowExecutionContext contains the choices derived from the bound Definition.
@@ -334,6 +347,9 @@ func workflowExecutionContext(
 				return WorkflowExecutionContext{}, invalidCommand("workflow task definition %q does not exist", relation.ToTaskID)
 			}
 			option.Targets = append(option.Targets, target)
+			option.Relations = append(option.Relations, WorkflowChoiceRelation{
+				RelationID: relation.ID, Target: target, Label: relation.Label, AgentGuidance: relation.AgentGuidance,
+			})
 		}
 		if group.Kind == domain.WorkflowChoiceGroupExit {
 			candidates, err := reachableOptionalTasks(definition, compiled, group)

@@ -113,6 +113,12 @@ func normalizeWorkflowChoiceOptions(options []WorkflowChoiceOption) []WorkflowCh
 		for taskIndex := range options[optionIndex].Targets {
 			options[optionIndex].Targets[taskIndex] = normalizeWorkflowTaskDefinition(options[optionIndex].Targets[taskIndex])
 		}
+		if options[optionIndex].Relations == nil {
+			options[optionIndex].Relations = []WorkflowChoiceRelation{}
+		}
+		for relationIndex := range options[optionIndex].Relations {
+			options[optionIndex].Relations[relationIndex].Target = normalizeWorkflowTaskDefinition(options[optionIndex].Relations[relationIndex].Target)
+		}
 		if options[optionIndex].SkippableOptionalTasks == nil {
 			options[optionIndex].SkippableOptionalTasks = []domain.WorkflowTaskDefinition{}
 		}

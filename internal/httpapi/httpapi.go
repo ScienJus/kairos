@@ -199,9 +199,11 @@ type workflowTaskDefinitionRequest struct {
 }
 
 type workflowRelationRequest struct {
-	ID         domain.WorkflowRelationID `json:"id"`
-	FromTaskID domain.WorkflowTaskID     `json:"from_task_id"`
-	ToTaskID   domain.WorkflowTaskID     `json:"to_task_id"`
+	ID            domain.WorkflowRelationID `json:"id"`
+	FromTaskID    domain.WorkflowTaskID     `json:"from_task_id"`
+	ToTaskID      domain.WorkflowTaskID     `json:"to_task_id"`
+	Label         string                    `json:"label"`
+	AgentGuidance string                    `json:"agent_guidance"`
 }
 
 func (r workflowGraphRequest) domainGraph() domain.WorkflowGraph {
@@ -218,6 +220,7 @@ func (r workflowGraphRequest) domainGraph() domain.WorkflowGraph {
 	for _, relation := range r.Relations {
 		relations = append(relations, domain.WorkflowRelationDefinition{
 			ID: relation.ID, FromTaskID: relation.FromTaskID, ToTaskID: relation.ToTaskID,
+			Label: strings.TrimSpace(relation.Label), AgentGuidance: strings.TrimSpace(relation.AgentGuidance),
 		})
 	}
 	return domain.WorkflowGraph{

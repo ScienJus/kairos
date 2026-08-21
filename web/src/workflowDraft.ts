@@ -43,7 +43,9 @@ export function draftFromDefinition(definition: WorkflowDefinition): WorkflowDra
 export function loadWorkflowDraft(key: string): WorkflowDraft | null {
   try {
     const value = localStorage.getItem(key)
-    return value ? JSON.parse(value) as WorkflowDraft : null
+    if (!value) return null
+    const draft = JSON.parse(value) as WorkflowDraft
+    return { ...draft, relations: draft.relations.map(relation => ({ ...relation, Label: relation.Label ?? '', AgentGuidance: relation.AgentGuidance ?? '' })) }
   } catch { return null }
 }
 
@@ -59,7 +61,7 @@ export function appendWorkflowTask(draft: WorkflowDraft, task: WorkflowTaskDefin
 
 export function connectWorkflowTasks(draft: WorkflowDraft, from: string, to: string, relationID: string) {
   if (draft.relations.some(relation => relation.FromTaskID === from && relation.ToTaskID === to)) return draft
-  return { ...draft, relations: [...draft.relations, { ID: relationID, FromTaskID: from, ToTaskID: to }] }
+  return { ...draft, relations: [...draft.relations, { ID: relationID, FromTaskID: from, ToTaskID: to, Label: '', AgentGuidance: '' }] }
 }
 
 export function deleteWorkflowTask(draft: WorkflowDraft, taskID: string) {
@@ -93,7 +95,7 @@ export function workflowDraftInput(draft: WorkflowDraft): CreateWorkflowDefiniti
     graph: {
       start_task_ids: draft.startTaskIDs,
       tasks: draft.tasks.map(task => ({ id: task.ID, title: task.Title.trim(), description: task.Description.trim(), acceptance_criteria: task.AcceptanceCriteria.trim(), executor: task.Executor, allowed_roles: task.AllowedRoles, execution: task.Execution, review_policy: task.ReviewPolicy, default_tags: task.DefaultTags })),
-      relations: draft.relations.map(relation => ({ id: relation.ID, from_task_id: relation.FromTaskID, to_task_id: relation.ToTaskID })),
+      relations: draft.relations.map(relation => ({ id: relation.ID, from_task_id: relation.FromTaskID, to_task_id: relation.ToTaskID, label: (relation.Label ?? '').trim(), agent_guidance: (relation.AgentGuidance ?? '').trim() })),
       max_task_executions: draft.maxTaskExecutions,
     },
   }

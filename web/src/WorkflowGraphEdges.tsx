@@ -1,17 +1,22 @@
-import { BaseEdge, Handle, Position, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes } from '@xyflow/react'
+import { BaseEdge, EdgeLabelRenderer, Handle, Position, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes } from '@xyflow/react'
 import type { ReactNode } from 'react'
 
-function WorkflowSelfLoopEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style }: EdgeProps) {
+function CurvedEdgeLabel({ label, x, y }: { label: ReactNode; x: number; y: number }) {
+  if (!label) return null
+  return <EdgeLabelRenderer><div className="workflow-edge-label custom" style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px)` }}>{label}</div></EdgeLabelRenderer>
+}
+
+function WorkflowSelfLoopEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style, label }: EdgeProps) {
   const lift = 38
   const spread = 22
   const path = `M ${sourceX} ${sourceY} C ${sourceX + spread} ${sourceY - lift}, ${targetX - spread} ${targetY - lift}, ${targetX} ${targetY}`
-  return <BaseEdge path={path} markerEnd={markerEnd} style={style} />
+  return <><BaseEdge path={path} markerEnd={markerEnd} style={style} /><CurvedEdgeLabel label={label} x={(sourceX + targetX) / 2} y={Math.min(sourceY, targetY) - lift * .7} /></>
 }
 
-function WorkflowCycleBackEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style }: EdgeProps) {
+function WorkflowCycleBackEdge({ sourceX, sourceY, targetX, targetY, markerEnd, style, label }: EdgeProps) {
   const drop = 44
   const path = `M ${sourceX} ${sourceY} C ${sourceX} ${sourceY + drop}, ${targetX} ${targetY + drop}, ${targetX} ${targetY}`
-  return <BaseEdge path={path} markerEnd={markerEnd} style={style} />
+  return <><BaseEdge path={path} markerEnd={markerEnd} style={style} /><CurvedEdgeLabel label={label} x={(sourceX + targetX) / 2} y={Math.max(sourceY, targetY) + drop * .72} /></>
 }
 
 function WorkflowGraphNode({ data }: NodeProps) {

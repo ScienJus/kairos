@@ -16,6 +16,8 @@ Workflow Definition 还可以提供作用于全部运行时 Task 的 Agent Instr
 
 Workflow Graph 由起点、Task Definition、单向 Relation 和 `MaxTaskExecutions` 组成。一个 Workflow 可以有多个起点；WorkItem 创建时同时产生全部起始 Task，因此起始 Task 必须是 required。Task Definition 可以配置 Default Tags，系统在产生运行时 Task 时复制这些标签，执行者仍可按实际情况调整。
 
+Relation 可以配置可选的 `Label` 与 `AgentGuidance`。`Label` 是图上显示的简短交接提示；`AgentGuidance` 进入当前 Task 的 Workflow execution context，帮助执行者判断已有的 optional、continue 或 exit 决策。两者都可以留空，尤其是没有判断空间的简单单通路。Guidance 只解释编译后已经合法的推进方式，不会把普通 Relation 变成条件分支，也不会改变 required、optional、并行或循环语义。
+
 运维 UI 会把不可变的 Definition Graph 与运行时 Task、Relation 合并投影。尚未产生运行时 Task 的 Definition 节点显示为“尚未到达”；它们只用于展示，不能 Claim，也不能打开 Task execution context。完整图展示不会预先创建 Task，也不会改变 Workflow Activation 与 Transition 语义。循环 Relation 保留为返回边；同一循环 Definition 节点的多次运行会在主图节点上汇总执行次数。选择节点时默认打开最新的运行时 Task，并可使用上一项和下一项控件逐个查看保留在执行历史中的具体实例。
 
 Workflow Definition 描述可以重复到达的任务节点和推进关系，运行时则从定义的起点开始，在到达相应节点时产生具体 Task：

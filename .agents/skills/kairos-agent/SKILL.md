@@ -37,7 +37,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 
 ## Workflow submissions
 
-For a non-terminal Workflow Task, use the choice groups returned by `get_task_context`. Pass exactly one legal `transition.choice_group_id` to `submit_task` and only skip IDs listed as skippable. Do not invent runtime Workflow edges. The current Workflow context includes controlled summaries of upstream Tasks and their durable results; use those summaries instead of opening arbitrary upstream Task contexts. Direct `get_task_context` calls remain restricted by the target Task's role and active Claim.
+For a non-terminal Workflow Task, use the choice groups returned by `get_task_context`. Read optional target `relation_guidance` when interpreting the already-legal choices; guidance never creates a branch that is absent from the choice groups. Pass exactly one legal `transition.choice_group_id` to `submit_task` and only skip IDs listed as skippable. Do not invent runtime Workflow edges. The current Workflow context includes controlled summaries of upstream Tasks and their durable results; use those summaries instead of opening arbitrary upstream Task contexts. Direct `get_task_context` calls remain restricted by the target Task's role and active Claim.
 
 For Blackboard Tasks, omit `transition`. Use `create_blackboard_task` only for open or Agent-acceptance Blackboard WorkItems returned by Kairos or already present in Task context. `submit_blackboard_completion` declares that the goal is achieved; `accept_blackboard_completion` is a separate acceptance action.
 

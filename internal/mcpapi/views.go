@@ -134,6 +134,7 @@ type workflowTaskDefinitionView struct {
 	Execution          string   `json:"execution"`
 	ReviewPolicy       string   `json:"review_policy"`
 	Tags               []string `json:"tags"`
+	RelationGuidance   string   `json:"relation_guidance,omitempty"`
 }
 
 type workflowChoiceGroupView struct {
@@ -265,9 +266,13 @@ func taskContextView(value application.TaskExecutionContext) taskContextOutput {
 			ChoiceGroups:  make([]workflowChoiceGroupView, 0, len(value.Workflow.ChoiceGroups)),
 		}
 		for _, group := range value.Workflow.ChoiceGroups {
+			targets := workflowChoiceTargetViews(group.Relations)
+			if len(targets) == 0 && len(group.Targets) > 0 {
+				targets = workflowTaskDefinitionViews(group.Targets)
+			}
 			workflow.ChoiceGroups = append(workflow.ChoiceGroups, workflowChoiceGroupView{
 				ID: string(group.ID), Kind: string(group.Kind),
-				Targets:                workflowTaskDefinitionViews(group.Targets),
+				Targets:                targets,
 				SkippableOptionalTasks: workflowTaskDefinitionViews(group.SkippableOptionalTasks),
 			})
 		}
@@ -430,12 +435,29 @@ func relationViews(values []domain.TaskRelation) []relationView {
 func workflowTaskDefinitionViews(values []domain.WorkflowTaskDefinition) []workflowTaskDefinitionView {
 	result := make([]workflowTaskDefinitionView, 0, len(values))
 	for _, value := range values {
-		result = append(result, workflowTaskDefinitionView{
-			ID: string(value.ID), Title: value.Title, Description: value.Description,
-			AcceptanceCriteria: value.AcceptanceCriteria, Executor: string(value.Executor),
-			AllowedRoles: stringSlice(value.AllowedRoles), Execution: string(value.Execution),
-			ReviewPolicy: string(value.ReviewPolicy), Tags: stringSlice(value.DefaultTags),
-		})
+		result = append(result, workflowTaskDefinitionViewFrom(value))
+	}
+	return result
+}
+
+func workflowTaskDefinitionViewFrom(value domain.WorkflowTaskDefinition) workflowTaskDefinitionView {
+	return workflowTaskDefinitionView{
+		ID: string(value.ID), Title: value.Title, Description: value.Description,
+		AcceptanceCriteria: value.AcceptanceCriteria, Executor: string(value.Executor),
+		AllowedRoles: stringSlice(value.AllowedRoles), Execution: string(value.Execution),
+		ReviewPolicy: string(value.ReviewPolicy), Tags: stringSlice(value.DefaultTags),
+	}
+}
+
+func workflowChoiceTargetViews(values []application.WorkflowChoiceRelation) []workflowTaskDefinitionView {
+	result := make([]workflowTaskDefinitionView, 0, len(values))
+	for _, value := range values {
+		target := workflowTaskDefinitionViewFrom(value.Target)
+		target.RelationGuidance = value.AgentGuidance
+		if target.RelationGuidance == "" {
+			target.RelationGuidance = value.Label
+		}
+		result = append(result, target)
 	}
 	return result
 }

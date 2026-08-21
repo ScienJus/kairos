@@ -81,7 +81,7 @@ Definition Context applies to every WorkItem in the same collaboration space. Wo
 
 An agent can load more history and results on demand. Default context should prioritize information directly relevant to the current Task.
 
-Workflow Context supplies controlled upstream runtime Task summaries ordered by distance, including durable results, currently legal Choice Groups, direct targets, and optional Tasks that can be decided in this progression. The agent submits the Task IDs it wants to skip, and Kairos partitions relations and unfolds paths according to the Workflow Definition. Blackboard Context supplies the current shared Tasks and suggested relations. Full Task context remains restricted to the target Task's role and active Claim.
+Workflow Context supplies controlled upstream runtime Task summaries ordered by distance, including durable results, currently legal Choice Groups, direct targets, optional Relation labels and agent guidance, and optional Tasks that can be decided in this progression. Relation guidance helps the agent interpret existing progression choices but does not create a new conditional branch. The agent submits the Task IDs it wants to skip, and Kairos partitions relations and unfolds paths according to the Workflow Definition. Blackboard Context supplies the current shared Tasks and suggested relations. Full Task context remains restricted to the target Task's role and active Claim.
 
 ## 4. Execution and Submission
 

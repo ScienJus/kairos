@@ -59,11 +59,22 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 				"id": "implement", "title": "Implement", "executor": "agent",
 				"allowed_roles": []string{"database"}, "execution": "required",
 				"review_policy": "none", "default_tags": []string{"backend"},
+			}, {
+				"id": "verify", "title": "Verify", "executor": "agent",
+				"allowed_roles": []string{"database"}, "execution": "optional",
+				"review_policy": "none", "default_tags": []string{},
+			}},
+			"relations": []map[string]any{{
+				"id": "implement-verify", "from_task_id": "implement", "to_task_id": "verify",
+				"label": " Needs verification ", "agent_guidance": " Keep this step when storage behavior changed. ",
 			}},
 		},
 	}, "create-workflow-definition", http.StatusCreated)
-	if len(workflowDefinition.Graph.Tasks) != 1 || workflowDefinition.Graph.Tasks[0].ID != "implement" {
+	if len(workflowDefinition.Graph.Tasks) != 2 || workflowDefinition.Graph.Tasks[0].ID != "implement" {
 		t.Fatalf("workflow graph = %+v", workflowDefinition.Graph)
+	}
+	if len(workflowDefinition.Graph.Relations) != 1 || workflowDefinition.Graph.Relations[0].Label != "Needs verification" || workflowDefinition.Graph.Relations[0].AgentGuidance != "Keep this step when storage behavior changed." {
+		t.Fatalf("workflow relation guidance = %+v", workflowDefinition.Graph.Relations)
 	}
 	if workflowDefinition.SuggestedTags == nil || workflowDefinition.Graph.Relations == nil {
 		t.Fatalf("workflow definition contains nil collections: %#v", workflowDefinition)
@@ -78,6 +89,9 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	retrievedBlackboard := requestData[domain.BlackboardDefinition](t, client, http.MethodGet, server.URL+"/api/v1/definitions/blackboards/engineering/versions/1", nil, "", http.StatusOK)
 	if retrievedWorkflow.ID != workflowDefinition.ID || retrievedBlackboard.ID != blackboardDefinition.ID {
 		t.Fatalf("retrieved definitions = %q and %q", retrievedWorkflow.ID, retrievedBlackboard.ID)
+	}
+	if len(retrievedWorkflow.Graph.Relations) != 1 || retrievedWorkflow.Graph.Relations[0].AgentGuidance != workflowDefinition.Graph.Relations[0].AgentGuidance {
+		t.Fatalf("retrieved workflow relation guidance = %+v", retrievedWorkflow.Graph.Relations)
 	}
 
 	workItem := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{

@@ -214,6 +214,31 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	}
 }
 
+func TestTaskContextViewIncludesOptionalWorkflowRelationGuidance(t *testing.T) {
+	t.Parallel()
+	target := domain.WorkflowTaskDefinition{
+		ID: "verify", Title: "Verify", Executor: domain.ExecutorAgent,
+		Execution: domain.ExecutionOptional, ReviewPolicy: domain.ReviewNone,
+	}
+	view := taskContextView(application.TaskExecutionContext{
+		Workflow: &application.WorkflowExecutionContext{ChoiceGroups: []application.WorkflowChoiceOption{{
+			ID: "exit:implement", Kind: domain.WorkflowChoiceGroupExit,
+			Targets: []domain.WorkflowTaskDefinition{target},
+			Relations: []application.WorkflowChoiceRelation{{
+				RelationID: "implement-verify", Target: target, Label: "Needs verification",
+				AgentGuidance: "Keep this step when behavior changed.",
+			}},
+		}}},
+	})
+	if view.Workflow == nil || len(view.Workflow.ChoiceGroups) != 1 {
+		t.Fatalf("workflow context = %#v", view.Workflow)
+	}
+	targets := view.Workflow.ChoiceGroups[0].Targets
+	if len(targets) != 1 || targets[0].ID != "verify" || targets[0].RelationGuidance != "Keep this step when behavior changed." {
+		t.Fatalf("workflow relation guidance = %#v", targets)
+	}
+}
+
 func TestAuthenticatedMCPRequiresBearerAndUsesManagedIdentity(t *testing.T) {
 	ctx := context.Background()
 	service, repo := newMCPFixture(t)

@@ -54,6 +54,8 @@ Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes
 
 Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. After Blackboard Tasks converge, `find_work` returns `blackboard_completion`; a collaborator either creates more Tasks or posts a durable completion result. That submission then applies `acceptance_mode`: `none` (default) completes immediately, `agent` returns `work_item_acceptance`, and `human` enters human acceptance. Acceptance is a separate `POST /acceptance` action. Agent acceptance candidates are visible only to Agent identities. Lifecycle decisions are returned before executable or planning candidates, and `limit` applies globally across those candidate kinds.
 
+Each Workflow Definition `graph.relations[]` entry accepts optional `label` and `agent_guidance` strings. Empty strings mean no additional guidance. Neither field changes graph compilation or progression semantics. HTTP Workflow Task context exposes complete guidance in each Choice Group's `Relations`. MCP `get_task_context` annotates the corresponding `targets[]` entry with merged `relation_guidance` (preferring `agent_guidance`, then `label`), avoiding duplicate target structures.
+
 While acceptance is pending, `WorkItem.Result` contains the submitted completion proposal. After acceptance, the same field contains the accepted final outcome. Reopening Agent acceptance by creating another Task clears the stale proposal.
 
 `GET /api/v1/work-items/{id}/context` remains available after terminal completion and returns the aggregate result, normalized Task and relation collections, complete Claim history in `Claims`, and the currently live subset in `ActiveClaims`. A completed Task's executor can be resolved through `Submission.ClaimID -> Claims[].ID -> Executor`.
@@ -74,6 +76,6 @@ The execution surface contains fifteen tools:
 - Claim lifecycle: `claim_task`, `heartbeat_claim`, `release_claim`, `submit_task`, `fail_task`;
 - Blackboard planning and closure: `create_blackboard_task`, `add_blackboard_relation`, `decompose_blackboard_task`, `add_blackboard_child_task`, `skip_blackboard_task`, `submit_blackboard_completion`, `accept_blackboard_completion`.
 
-Every MCP mutation requires an `operation_id`. Reuse it only for an identical retry. Workflow discovery is determined by role and graph state and ignores tag filters; Blackboard discovery may use tags. Workflow Task context exposes controlled upstream summaries and durable results without granting arbitrary access to other Tasks.
+Every MCP mutation requires an `operation_id`. Reuse it only for an identical retry. Workflow discovery is determined by role and graph state and ignores tag filters; Blackboard discovery may use tags. Workflow Task context exposes controlled upstream summaries, durable results, and optional Relation guidance without granting arbitrary access to other Tasks or creating branches absent from the Definition.
 
 Project Codex configuration is in `.codex/config.toml`; execution guidance is in `.agents/skills/kairos-agent/SKILL.md`.

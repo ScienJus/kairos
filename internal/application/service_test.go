@@ -53,6 +53,9 @@ func TestGetWorkflowTaskExecutionContext(t *testing.T) {
 	if choice.ID != "exit:implement" || len(choice.Targets) != 1 || choice.Targets[0].ID != "docs" {
 		t.Fatalf("exit choice: %#v", choice)
 	}
+	if len(choice.Relations) != 1 || choice.Relations[0].RelationID != "implement-docs" || choice.Relations[0].Label != "Documentation needed" || choice.Relations[0].AgentGuidance != "Keep documentation when the change affects users." {
+		t.Fatalf("relation guidance: %#v", choice.Relations)
+	}
 	if got := workflowDefinitionTaskIDs(choice.SkippableOptionalTasks); !slices.Equal(got, []domain.WorkflowTaskID{"docs", "examples"}) {
 		t.Fatalf("skip candidates: got %v", got)
 	}
@@ -1759,7 +1762,7 @@ func consecutiveOptionalWorkflowDefinition() domain.WorkflowDefinition {
 				{ID: "integration", Title: "Integration test", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone},
 			},
 			Relations: []domain.WorkflowRelationDefinition{
-				{ID: "implement-docs", FromTaskID: "implement", ToTaskID: "docs"},
+				{ID: "implement-docs", FromTaskID: "implement", ToTaskID: "docs", Label: "Documentation needed", AgentGuidance: "Keep documentation when the change affects users."},
 				{ID: "docs-examples", FromTaskID: "docs", ToTaskID: "examples"},
 				{ID: "examples-integration", FromTaskID: "examples", ToTaskID: "integration"},
 			},

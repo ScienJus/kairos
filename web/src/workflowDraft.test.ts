@@ -7,7 +7,7 @@ import { appendWorkflowTask, connectWorkflowTasks, deleteWorkflowTask, draftFrom
 const task = (ID: string): WorkflowTaskDefinition => ({ ID, Title: ID, Description: '', AcceptanceCriteria: '', Executor: 'agent', AllowedRoles: [], Execution: 'required', ReviewPolicy: 'none', DefaultTags: [] })
 const definition: WorkflowDefinition = {
   ID: 'release', Version: 2, Name: 'Release', Description: '', AgentInstructions: '', SuggestedTags: [], Status: 'published',
-  Graph: { StartTaskIDs: ['a'], Tasks: [task('a'), task('b')], Relations: [{ ID: 'ab', FromTaskID: 'a', ToTaskID: 'b' }], MaxTaskExecutions: 10 },
+  Graph: { StartTaskIDs: ['a'], Tasks: [task('a'), task('b')], Relations: [{ ID: 'ab', FromTaskID: 'a', ToTaskID: 'b', Label: 'Ready', AgentGuidance: 'Continue when implementation is ready.' }], MaxTaskExecutions: 10 },
 }
 
 beforeEach(() => {
@@ -45,8 +45,17 @@ describe('Workflow local drafts', () => {
 
     expect(draft.startTaskIDs).toEqual(['a'])
     expect(draft.relations).toHaveLength(1)
+    expect(draft.relations[0]).toMatchObject({ Label: '', AgentGuidance: '' })
     expect(toggleWorkflowStartTask(draft, 'b').startTaskIDs).toEqual(['a', 'b'])
     expect(deleteWorkflowTask(draft, 'a')).toMatchObject({ tasks: [{ ID: 'b' }], relations: [], startTaskIDs: [] })
+  })
+
+  it('normalizes relation guidance missing from an older local draft', () => {
+    const legacy = newWorkflowDraft()
+    legacy.relations = [{ ID: 'ab', FromTaskID: 'a', ToTaskID: 'b' }]
+    localStorage.setItem(workflowDraftKey(null, null), JSON.stringify(legacy))
+
+    expect(loadWorkflowDraft(workflowDraftKey(null, null))?.relations[0]).toMatchObject({ Label: '', AgentGuidance: '' })
   })
 
   it('preserves a self relation because the backend treats it as a workflow cycle', () => {
@@ -56,7 +65,7 @@ describe('Workflow local drafts', () => {
 
     expect(validateWorkflowDraft(draft)).toEqual([])
     expect(workflowDraftInput(draft).graph.relations).toEqual([
-      { id: 'retry', from_task_id: 'a', to_task_id: 'a' },
+      { id: 'retry', from_task_id: 'a', to_task_id: 'a', label: '', agent_guidance: '' },
     ])
   })
 
@@ -68,6 +77,6 @@ describe('Workflow local drafts', () => {
     const input = workflowDraftInput(draft)
     expect(validateWorkflowDraft(draft)).toEqual([])
     expect(input).toMatchObject({ id: 'release', version: 3, status: 'published', graph: { start_task_ids: ['a'], max_task_executions: 10 } })
-    expect(input.graph.relations).toEqual([{ id: 'ab', from_task_id: 'a', to_task_id: 'b' }])
+    expect(input.graph.relations).toEqual([{ id: 'ab', from_task_id: 'a', to_task_id: 'b', label: 'Ready', agent_guidance: 'Continue when implementation is ready.' }])
   })
 })

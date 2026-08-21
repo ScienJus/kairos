@@ -28,6 +28,7 @@ export interface Claim { ID: string; TaskID: string; Executor: ActorRef; Claimed
 export interface WorkflowChoiceOption {
   ID: string; Kind: 'continue' | 'exit'
   Targets: Array<{ ID: string; Title: string }>
+  Relations: Array<{ RelationID: string; Target: { ID: string; Title: string }; Label: string; AgentGuidance: string }>
   SkippableOptionalTasks: Array<{ ID: string; Title: string }>
 }
 export interface TaskExecutionContext {
@@ -54,7 +55,7 @@ export interface WorkflowTaskDefinition {
   Executor: Task['Executor']; AllowedRoles: string[]; Execution: 'required' | 'optional'
   ReviewPolicy: 'none' | 'executor_decides' | 'required'; DefaultTags: string[]
 }
-export interface WorkflowRelationDefinition { ID: string; FromTaskID: string; ToTaskID: string }
+export interface WorkflowRelationDefinition { ID: string; FromTaskID: string; ToTaskID: string; Label?: string; AgentGuidance?: string }
 export interface WorkflowDefinition extends Definition {
   Graph: { StartTaskIDs: string[]; Tasks: WorkflowTaskDefinition[]; Relations: WorkflowRelationDefinition[]; MaxTaskExecutions: number }
 }
@@ -84,7 +85,7 @@ export interface CreateWorkflowDefinitionInput extends CreateDefinitionInput {
       executor: Task['Executor']; allowed_roles: string[]; execution: 'required' | 'optional'
       review_policy: 'none' | 'executor_decides' | 'required'; default_tags: string[]
     }>
-    relations: Array<{ id: string; from_task_id: string; to_task_id: string }>
+    relations: Array<{ id: string; from_task_id: string; to_task_id: string; label: string; agent_guidance: string }>
     max_task_executions: number
   }
 }

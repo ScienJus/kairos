@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { ArrowLeft, Check, GitBranch, Plus, Trash2, XCircle } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, APIError } from './api'
 import { useI18n } from './i18n'
 import type { RouteState } from './route'
-import type { Identity, WorkflowTaskDefinition } from './types'
+import type { Identity, WorkflowRelationDefinition, WorkflowTaskDefinition } from './types'
 import { FormError } from './ui'
-import { WorkflowEditorMap } from './WorkflowEditorMap'
+import { WorkflowEditorMap, type WorkflowTaskPlacement } from './WorkflowEditorMap'
 import { appendWorkflowTask, connectWorkflowTasks, deleteWorkflowTask, draftFromDefinition, loadWorkflowDraft, newWorkflowDraft, removeWorkflowDraft, saveWorkflowDraft, toggleWorkflowStartTask, validateWorkflowDraft, workflowDraftInput, workflowDraftKey, type WorkflowDraft } from './workflowDraft'
 
 export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navigate }: {
@@ -29,6 +29,8 @@ export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navi
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [saved, setSaved] = useState(true)
   const [mobileTab, setMobileTab] = useState<'canvas' | 'properties'>('canvas')
+  const [newTaskPlacement, setNewTaskPlacement] = useState<WorkflowTaskPlacement | null>(null)
+  const [automaticallySelectedTaskID, setAutomaticallySelectedTaskID] = useState<string | null>(null)
 
   useEffect(() => {
     if (!workflowID || !base || draft) return
@@ -43,8 +45,11 @@ export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navi
   }, [draft, storageKey])
 
   const selectedTask = draft?.tasks.find(task => task.ID === selectedTaskID) ?? null
+  const selectedRelation = draft?.relations.find(relation => relation.ID === selectedRelationID) ?? null
   const updateDraft = (update: (current: WorkflowDraft) => WorkflowDraft) => setDraft(current => current ? update(current) : current)
   const updateTask = (update: Partial<WorkflowTaskDefinition>) => updateDraft(current => ({ ...current, tasks: current.tasks.map(task => task.ID === selectedTaskID ? { ...task, ...update } : task) }))
+  const updateRelation = (update: Partial<WorkflowRelationDefinition>) => updateDraft(current => ({ ...current, relations: current.relations.map(relation => relation.ID === selectedRelationID ? { ...relation, ...update } : relation) }))
+  const handleTaskPlaced = useCallback((taskID: string) => setNewTaskPlacement(current => current?.taskID === taskID ? null : current), [])
 
   const publish = useMutation({
     mutationFn: (current: WorkflowDraft) => api.createWorkflowDefinition(identity, workflowDraftInput(current)),
@@ -59,7 +64,9 @@ export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navi
     event.preventDefault()
     if (!newTaskTitle.trim()) return
     const task: WorkflowTaskDefinition = { ID: crypto.randomUUID(), Title: newTaskTitle.trim(), Description: '', AcceptanceCriteria: '', Executor: 'agent', AllowedRoles: [], Execution: 'required', ReviewPolicy: 'none', DefaultTags: [] }
+    setNewTaskPlacement({ taskID: task.ID, anchorTaskID: selectedTaskID === automaticallySelectedTaskID ? null : selectedTaskID })
     updateDraft(current => appendWorkflowTask(current, task))
+    setAutomaticallySelectedTaskID(task.ID)
     setSelectedTaskID(task.ID); setSelectedRelationID(null); setNewTaskTitle(''); setAddingTask(false); setMobileTab('properties')
   }
 
@@ -70,7 +77,7 @@ export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navi
   function deleteTask() {
     if (!selectedTaskID) return
     updateDraft(current => deleteWorkflowTask(current, selectedTaskID))
-    setSelectedTaskID(null); setConfirmDelete(false)
+    setSelectedTaskID(null); setAutomaticallySelectedTaskID(null); setConfirmDelete(false)
   }
 
   function tryPublish() {
@@ -95,10 +102,17 @@ export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navi
     {confirmDiscard && <div className="inline-confirm editor-discard"><p>{t('discardDraftBody')}</p><button onClick={() => setConfirmDiscard(false)}>{t('keepEditing')}</button><button className="danger-button" onClick={discard}>{t('confirmDiscard')}</button></div>}
     <div className="editor-mobile-tabs"><button className={mobileTab === 'canvas' ? 'active' : ''} onClick={() => setMobileTab('canvas')}>{t('canvas')}</button><button className={mobileTab === 'properties' ? 'active' : ''} onClick={() => setMobileTab('properties')}>{t('properties')}</button></div>
     <div className="workflow-editor-layout">
-      <div className={`editor-canvas ${mobileTab === 'canvas' ? 'mobile-active' : ''}`}><div className="editor-toolbar"><div>{addingTask ? <form onSubmit={addTask}><input autoFocus value={newTaskTitle} onChange={event => setNewTaskTitle(event.target.value)} placeholder={t('taskTitle')} /><button className="primary-button" disabled={!newTaskTitle.trim()}>{t('add')}</button><button type="button" onClick={() => { setAddingTask(false); setNewTaskTitle('') }}>{t('cancel')}</button></form> : <button className="text-button" onClick={() => setAddingTask(true)}><Plus size={15} />{t('addTask')}</button>}</div>{selectedRelationID && <button className="quiet-button danger-button" onClick={() => { updateDraft(current => ({ ...current, relations: current.relations.filter(relation => relation.ID !== selectedRelationID) })); setSelectedRelationID(null) }}><Trash2 size={14} />{t('deleteConnection')}</button>}</div><WorkflowEditorMap draft={draft} selectedTaskID={selectedTaskID} selectedRelationID={selectedRelationID} onSelectTask={id => { setSelectedTaskID(id || null); setSelectedRelationID(null); setConfirmDelete(false) }} onSelectRelation={id => { setSelectedRelationID(id); if (id) setSelectedTaskID(null) }} onConnect={connect} onDeleteRelation={id => updateDraft(current => ({ ...current, relations: current.relations.filter(relation => relation.ID !== id) }))} /></div>
-      <aside className={`editor-properties ${mobileTab === 'properties' ? 'mobile-active' : ''}`}>{selectedTask ? <TaskProperties task={selectedTask} isStart={draft.startTaskIDs.includes(selectedTask.ID)} onChange={updateTask} onToggleStart={() => updateDraft(current => toggleWorkflowStartTask(current, selectedTask.ID))} confirmDelete={confirmDelete} onRequestDelete={() => setConfirmDelete(true)} onCancelDelete={() => setConfirmDelete(false)} onDelete={deleteTask} /> : <WorkflowProperties draft={draft} onChange={update => updateDraft(current => ({ ...current, ...update }))} />}</aside>
+      <div className={`editor-canvas ${mobileTab === 'canvas' ? 'mobile-active' : ''}`}><div className="editor-toolbar"><div>{addingTask ? <form onSubmit={addTask}><input autoFocus value={newTaskTitle} onChange={event => setNewTaskTitle(event.target.value)} placeholder={t('taskTitle')} /><button className="primary-button" disabled={!newTaskTitle.trim()}>{t('add')}</button><button type="button" onClick={() => { setAddingTask(false); setNewTaskTitle('') }}>{t('cancel')}</button></form> : <button className="text-button" onClick={() => setAddingTask(true)}><Plus size={15} />{t('addTask')}</button>}</div>{selectedRelationID && <button className="quiet-button danger-button" onClick={() => { updateDraft(current => ({ ...current, relations: current.relations.filter(relation => relation.ID !== selectedRelationID) })); setSelectedRelationID(null) }}><Trash2 size={14} />{t('deleteConnection')}</button>}</div><WorkflowEditorMap draft={draft} selectedTaskID={selectedTaskID} selectedRelationID={selectedRelationID} newTaskPlacement={newTaskPlacement} onTaskPlaced={handleTaskPlaced} onSelectTask={id => { setSelectedTaskID(id || null); setAutomaticallySelectedTaskID(null); setSelectedRelationID(null); setConfirmDelete(false) }} onSelectRelation={id => { setSelectedRelationID(id); setAutomaticallySelectedTaskID(null); if (id) setSelectedTaskID(null) }} onConnect={connect} onDeleteRelation={id => updateDraft(current => ({ ...current, relations: current.relations.filter(relation => relation.ID !== id) }))} /></div>
+      <aside className={`editor-properties ${mobileTab === 'properties' ? 'mobile-active' : ''}`}>{selectedRelation ? <RelationProperties relation={selectedRelation} draft={draft} onChange={updateRelation} /> : selectedTask ? <TaskProperties task={selectedTask} isStart={draft.startTaskIDs.includes(selectedTask.ID)} onChange={updateTask} onToggleStart={() => updateDraft(current => toggleWorkflowStartTask(current, selectedTask.ID))} confirmDelete={confirmDelete} onRequestDelete={() => setConfirmDelete(true)} onCancelDelete={() => setConfirmDelete(false)} onDelete={deleteTask} /> : <WorkflowProperties draft={draft} onChange={update => updateDraft(current => ({ ...current, ...update }))} />}</aside>
     </div>
   </section>
+}
+
+function RelationProperties({ relation, draft, onChange }: { relation: WorkflowRelationDefinition; draft: WorkflowDraft; onChange: (update: Partial<WorkflowRelationDefinition>) => void }) {
+  const { t } = useI18n()
+  const from = draft.tasks.find(task => task.ID === relation.FromTaskID)?.Title ?? relation.FromTaskID
+  const to = draft.tasks.find(task => task.ID === relation.ToTaskID)?.Title ?? relation.ToTaskID
+  return <div className="property-form relation-properties"><span>{t('relationSettings')}</span><h2>{from} <i aria-hidden="true">→</i> {to}</h2><small className="internal-id">{relation.ID}</small><p className="property-intro">{t('relationGuidanceBody')}</p><label>{t('relationLabel')}<input value={relation.Label ?? ''} onChange={event => onChange({ Label: event.target.value })} placeholder={t('relationLabelPlaceholder')} /><small>{t('relationLabelHint')}</small></label><label>{t('relationAgentGuidance')}<textarea rows={7} value={relation.AgentGuidance ?? ''} onChange={event => onChange({ AgentGuidance: event.target.value })} placeholder={t('relationGuidancePlaceholder')} /><small>{t('relationGuidanceHint')}</small></label></div>
 }
 
 function WorkflowProperties({ draft, onChange }: { draft: WorkflowDraft; onChange: (update: Partial<WorkflowDraft>) => void }) {

@@ -61,6 +61,14 @@ type WorkflowRelationDefinition struct {
 
 	FromTaskID WorkflowTaskID
 	ToTaskID   WorkflowTaskID
+
+	// Label is optional concise text shown on the Workflow graph.
+	Label string
+
+	// AgentGuidance optionally explains how an executor should interpret this
+	// transition. It guides decisions already allowed by the compiled graph and
+	// does not introduce a new branching condition.
+	AgentGuidance string
 }
 
 // Validate checks the WorkflowRelationDefinition's local invariants.

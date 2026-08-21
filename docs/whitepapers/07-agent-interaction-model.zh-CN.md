@@ -81,7 +81,7 @@ Definition Context 对同一协作空间中的全部 WorkItem 生效。Workflow 
 
 Agent 可以按需读取更多历史和成果。默认上下文应优先提供与当前 Task 直接相关的信息。
 
-Workflow Context 提供按距离排列的受控上游运行时 Task 摘要（包括 durable result）、当前合法的 Choice Group、直接目标和本次可判断的 optional Task。Agent 提交需要跳过的 Task ID，Kairos 根据 Workflow Definition 负责关系分区和路径展开。Blackboard Context 提供当前共享的 Task 与建议关系，并支持 tags 筛选。直接读取其他 Task 的完整上下文仍受目标 Task 的 role 与 active Claim 限制。
+Workflow Context 提供按距离排列的受控上游运行时 Task 摘要（包括 durable result）、当前合法的 Choice Group、直接目标、Relation 的可选 Label 与 Agent Guidance，以及本次可判断的 optional Task。Relation Guidance 帮助 Agent 理解已有的推进选择，但不会创建新的条件分支。Agent 提交需要跳过的 Task ID，Kairos 根据 Workflow Definition 负责关系分区和路径展开。Blackboard Context 提供当前共享的 Task 与建议关系，并支持 tags 筛选。直接读取其他 Task 的完整上下文仍受目标 Task 的 role 与 active Claim 限制。
 
 ## 4. 执行与提交
 

@@ -16,6 +16,8 @@ A Workflow Definition can also provide Agent Instructions and Suggested Tags tha
 
 A Workflow Graph consists of start points, Task Definitions, directed Relations, and `MaxTaskExecutions`. A Workflow can have multiple start points. All start Tasks are created with the WorkItem and must therefore be required. A Task Definition can include Default Tags, which the system copies to runtime Tasks; executors can still adjust them as needed.
 
+A Relation may provide an optional `Label` and `AgentGuidance`. `Label` is concise handoff text shown on the graph. `AgentGuidance` enters the current Task's Workflow execution context and helps the executor make existing optional, continue, or exit decisions. Both may be blank, especially on a simple single path with no judgment to exercise. Guidance only explains progression already permitted by the compiled graph; it does not turn a regular Relation into a conditional branch or change required, optional, parallel, or cycle semantics.
+
 The Workflow Definition describes revisitable task nodes and progression relations. Runtime execution starts from the definition’s start points and creates concrete Tasks as nodes are reached:
 
 ```text

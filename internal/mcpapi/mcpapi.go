@@ -90,7 +90,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_work_item_context",
 		Title:       "Get work item context",
-		Description: "Get one open or terminal WorkItem with its Definition, task summaries, relations, final result, and status.",
+		Description: "Get an open or terminal WorkItem with its Definition, tasks, relations, result, and status.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input workItemContextInput) (*mcp.CallToolResult, workItemContextOutput, error) {
 		result, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{
@@ -104,7 +104,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_task_context",
 		Title:       "Get task context",
-		Description: "Get the durable execution context for a task, including instructions, history, and coordination state.",
+		Description: "Get a task's durable instructions, history, and coordination context.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input taskContextInput) (*mcp.CallToolResult, taskContextOutput, error) {
 		result, err := service.GetTaskExecutionContext(ctx, application.GetTaskExecutionContextQuery{
@@ -118,7 +118,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "claim_task",
 		Title:       "Claim task",
-		Description: "Atomically claim a pending task before starting work. Reuse operation_id when retrying the same call.",
+		Description: "Atomically claim a pending task before work begins.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input claimTaskInput) (*mcp.CallToolResult, claimOutput, error) {
 		claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{
@@ -201,7 +201,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_blackboard_task",
 		Title:       "Create blackboard task",
-		Description: "Plan one executable task in an open blackboard, including an empty blackboard returned by find_work.",
+		Description: "Plan an executable task in an open or empty Blackboard.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createBlackboardTaskInput) (*mcp.CallToolResult, taskOutput, error) {
 		task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
@@ -242,7 +242,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		return successResult(fmt.Sprintf("Skipped Task %s.", input.TaskID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
 	})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "submit_blackboard_completion", Title: "Submit blackboard completion", Description: "Declare that an open, converged Blackboard achieved its goal and submit its durable result for the configured acceptance policy.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "submit_blackboard_completion", Title: "Submit blackboard completion", Description: "Submit a converged Blackboard's durable result for acceptance.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
 		workItem, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID, Result: input.Result})
 		return successResult(fmt.Sprintf("Submitted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
 	})

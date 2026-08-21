@@ -238,6 +238,9 @@ input, select { height: 37px; padding: 0 10px; } textarea { padding: 10px; resiz
 .workflow-editor-graph { width: 100%; height: 100%; min-height: 420px; background: #fbfcfa; }
 .workflow-editor-graph .react-flow__edge-path { stroke: #88a4a0; stroke-width: 1.5; }
 .workflow-editor-graph .selected-relation .react-flow__edge-path { stroke: #b05252; stroke-width: 2.2; }
+.workflow-edge-label { color: #4f6663; fill: #4f6663; font-family: Inter, system-ui, sans-serif; font-size: 9px; font-weight: 650; letter-spacing: .01em; }
+.react-flow__edge-textbg { fill: rgba(249, 251, 249, .96); stroke: #dbe5e0; stroke-width: .7; }
+.workflow-edge-label.custom { position: absolute; padding: 4px 7px; color: #4f6663; background: rgba(249, 251, 249, .96); border: 1px solid #dbe5e0; border-radius: 5px; font-family: Inter, system-ui, sans-serif; font-size: 9px; font-weight: 650; line-height: 1; pointer-events: none; white-space: nowrap; }
 .definition-flow-node.editable { cursor: grab; }
 .definition-flow-node.editable:active { cursor: grabbing; }
 .workflow-editor-graph .workflow-loop-handle,
@@ -249,8 +252,11 @@ input, select { height: 37px; padding: 0 10px; } textarea { padding: 10px; resiz
 .editor-properties { overflow-y: auto; padding: 22px; }
 .property-form > span { color: #668087; font-size: 9px; text-transform: uppercase; }
 .property-form h2 { margin: 7px 0 4px; overflow-wrap: anywhere; color: #304a4b; font-size: 19px; font-weight: 600; }
+.relation-properties h2 i { color: #7d9691; font-style: normal; font-weight: 400; }
 .property-form .internal-id { display: block; overflow: hidden; color: #98a19f; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.property-form .property-intro { margin: 16px 0 0; color: #6d7f7b; font-size: 11px; line-height: 1.55; }
 .property-form > label, .property-row label { display: flex; flex-direction: column; gap: 7px; margin-top: 17px; color: #667a76; font-family: Inter, system-ui, sans-serif; font-size: 11px; font-weight: 600; }
+.property-form > label > small { color: #8a9996; font-size: 9px; font-weight: 400; line-height: 1.45; }
 .property-form input, .property-form textarea, .property-form select { color: #334b48; background: #fbfcfa; border-color: #d9e2dd; border-radius: 7px; font-family: Inter, system-ui, sans-serif; font-size: 12px; }
 .property-form input, .property-form select { height: 39px; }
 .property-form textarea { line-height: 1.55; }
