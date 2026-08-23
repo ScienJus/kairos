@@ -1,0 +1,60 @@
+name: Bug report
+description: Report reproducible behavior that does not work as expected
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, tokens, private Artifact content, or vulnerability details. Use the Security page for suspected vulnerabilities.
+  - type: input
+    id: version
+    attributes:
+      label: Kairos version
+      description: Provide a release tag or commit SHA.
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - SQLite
+        - PostgreSQL
+        - Not applicable
+    validations:
+      required: true
+  - type: dropdown
+    id: auth_mode
+    attributes:
+      label: Authentication mode
+      options:
+        - Trusted Mode
+        - Authenticated Mode
+        - Not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include the smallest sequence that reliably reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include sanitized logs or API responses when useful.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Go or container version, browser, and relevant configuration with secrets removed.

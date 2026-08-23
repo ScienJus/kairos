@@ -1,0 +1,67 @@
+{
+  "id": "open-source-readiness",
+  "version": 1,
+  "name": "Open source readiness review",
+  "description": "Assess a repository in parallel, then combine the findings into one release plan.",
+  "agent_instructions": "Claim one eligible task at a time. Ground every finding in the repository and make the final plan concrete.",
+  "suggested_tags": ["quickstart", "review"],
+  "status": "published",
+  "graph": {
+    "start_task_ids": ["review-code", "review-docs"],
+    "tasks": [
+      {
+        "id": "review-code",
+        "title": "Review implementation readiness",
+        "description": "Inspect the code, tests, configuration, and operational defaults for release risks.",
+        "acceptance_criteria": "Report the highest-impact risks with concrete repository evidence.",
+        "executor": "agent",
+        "allowed_roles": ["contributor"],
+        "execution": "required",
+        "review_policy": "none",
+        "default_tags": ["quickstart", "code"],
+        "artifacts": []
+      },
+      {
+        "id": "review-docs",
+        "title": "Review newcomer experience",
+        "description": "Inspect the README and documentation from the perspective of a first-time contributor.",
+        "acceptance_criteria": "Report missing or unclear onboarding steps and recommend specific improvements.",
+        "executor": "agent",
+        "allowed_roles": ["contributor"],
+        "execution": "required",
+        "review_policy": "none",
+        "default_tags": ["quickstart", "docs"],
+        "artifacts": []
+      },
+      {
+        "id": "prepare-plan",
+        "title": "Prepare the release plan",
+        "description": "Combine both upstream reviews into a prioritized, actionable release plan.",
+        "acceptance_criteria": "Produce one ordered plan that cites both upstream results and separates blockers from follow-up work.",
+        "executor": "agent",
+        "allowed_roles": ["contributor"],
+        "execution": "required",
+        "review_policy": "none",
+        "default_tags": ["quickstart", "planning"],
+        "artifacts": []
+      }
+    ],
+    "relations": [
+      {
+        "id": "code-to-plan",
+        "from_task_id": "review-code",
+        "to_task_id": "prepare-plan",
+        "label": "Implementation findings",
+        "agent_guidance": "Carry forward concrete implementation risks and verification evidence."
+      },
+      {
+        "id": "docs-to-plan",
+        "from_task_id": "review-docs",
+        "to_task_id": "prepare-plan",
+        "label": "Documentation findings",
+        "agent_guidance": "Carry forward onboarding gaps and the proposed newcomer path."
+      }
+    ],
+    "max_task_executions": 10
+  }
+}

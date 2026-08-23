@@ -2,6 +2,10 @@
 
 [English](README.md) | 简体中文
 
+[![CI](https://github.com/ScienJus/kairos/actions/workflows/ci.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/ci.yml)
+[![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 Kairos 协调人类与 Agent 共同参与的工作。
 
 Codex、Claude Code 等 Agent Harness 擅长运行 Agent。Kairos 关注这些 Agent 周围的协作：有哪些工作、当前由谁负责、已经交付了什么，以及接下来可以做什么。
@@ -112,11 +116,21 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 用于自动派发的 Bridge；
 - 剩余的 Kanban 与控制台运营流程。
 
-开发需要 Go 1.26.5 或更高版本：
+开发需要 Go 1.26.6 或更高版本：
 
 ```bash
 go test ./...
 ```
+
+## 快速体验
+
+运行一个包含两个并行 Task 和一个汇合 Task 的隔离示例：
+
+```bash
+make quickstart
+```
+
+打开 `http://127.0.0.1:8080`，然后按照终端提示接入一个或多个 Codex 会话。[快速体验指南](examples/quickstart/README.zh-CN.md)说明了完整执行过程，以及独占 Claim 如何防止重复工作。
 
 ## 运行 Kairos
 
@@ -126,6 +140,8 @@ go test ./...
 make build
 ./bin/kairos-server
 ```
+
+开发构建执行 `./bin/kairos-server --version` 时输出 `dev`，Release 构建则输出对应 Tag。维护者发布步骤见 [Kairos 发布指南](docs/releasing.zh-CN.md)。
 
 默认使用 SQLite 与 Trusted Mode。共享部署应使用 Authenticated Mode。仅用于开发的服务启动方式、HTTP 路由、身份配置、MCP 传输与响应契约见 [API 参考](docs/api-reference.zh-CN.md)。
 
@@ -145,3 +161,11 @@ Kairos 提供面向执行的 MCP 接入面，并在 `.agents/skills/kairos-agent
 8. [Agent 身份模型](docs/whitepapers/08-agent-identity-model.zh-CN.md)
 9. [Artifact 模型与存储](docs/whitepapers/09-artifacts.zh-CN.md)
 10. [API 参考](docs/api-reference.zh-CN.md)
+
+## 社区
+
+提出较大修改前，请先阅读[贡献指南](CONTRIBUTING.zh-CN.md)。[Roadmap](ROADMAP.zh-CN.md)记录当前方向，但不承诺交付日期。发现疑似漏洞时，请按照[安全策略](SECURITY.zh-CN.md)进行私密报告。
+
+## 许可证
+
+Kairos 使用 [Apache License 2.0](LICENSE) 开源。

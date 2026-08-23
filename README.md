@@ -2,6 +2,10 @@
 
 English | [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/ScienJus/kairos/actions/workflows/ci.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/ci.yml)
+[![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 Kairos coordinates tasks shared by people and agents.
 
 Agent harnesses such as Codex and Claude Code are good at running an agent. Kairos focuses on the collaboration around those agents: what work exists, who is responsible for it, what has already been delivered, and what can happen next.
@@ -112,11 +116,21 @@ Still to be built:
 - a Bridge for automatic dispatch;
 - the remaining Kanban and operational-console workflows.
 
-For development, use Go 1.26.5 or later and run:
+For development, use Go 1.26.6 or later and run:
 
 ```bash
 go test ./...
 ```
+
+## Quickstart
+
+Run an isolated example with two parallel Tasks followed by a join Task:
+
+```bash
+make quickstart
+```
+
+Open `http://127.0.0.1:8080`, then follow the printed instructions to connect one or more Codex sessions. The [quickstart guide](examples/quickstart/README.md) explains the execution flow and how exclusive Claims prevent duplicate work.
 
 ## Running Kairos
 
@@ -126,6 +140,8 @@ Build the operations console and embedded server, then open `http://127.0.0.1:80
 make build
 ./bin/kairos-server
 ```
+
+Development builds report `dev`; release builds report their tag with `./bin/kairos-server --version`. Maintainer release steps are documented in [Releasing Kairos](docs/releasing.md).
 
 The default uses SQLite and Trusted Mode. Shared deployments should use Authenticated Mode. See the [API Reference](docs/api-reference.md) for development-only server startup, HTTP routes, identity configuration, MCP transport, and response contracts.
 
@@ -145,3 +161,11 @@ Kairos exposes an execution-focused MCP surface and a repository-level Codex Ski
 8. [Agent Identity Model](docs/whitepapers/08-agent-identity-model.md)
 9. [Artifact Model and Store](docs/whitepapers/09-artifacts.md)
 10. [API Reference](docs/api-reference.md)
+
+## Community
+
+See the [contribution guide](CONTRIBUTING.md) before proposing a substantial change. The [roadmap](ROADMAP.md) records current direction without promising delivery dates. Report suspected vulnerabilities privately according to the [security policy](SECURITY.md).
+
+## License
+
+Kairos is licensed under the [Apache License 2.0](LICENSE).

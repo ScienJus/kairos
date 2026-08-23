@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -23,10 +24,30 @@ import (
 	webui "github.com/ScienJus/kairos/web"
 )
 
+var version = "dev"
+
 func main() {
+	handled, err := handleCommand(os.Args[1:], os.Stdout)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if handled {
+		return
+	}
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func handleCommand(args []string, output io.Writer) (bool, error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+	if len(args) == 1 && args[0] == "--version" {
+		_, err := fmt.Fprintf(output, "kairos-server %s\n", version)
+		return true, err
+	}
+	return true, errors.New("usage: kairos-server [--version]")
 }
 
 func run() error {
