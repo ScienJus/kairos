@@ -12,8 +12,10 @@
 KAIROS_SQLITE_PATH=kairos.db \
 KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
 KAIROS_AGENT_CLAIM_LEASE=5m \
-KAIROS_ARTIFACT_STORE=kairos:// \
 KAIROS_ARTIFACT_DIR=artifacts \
+KAIROS_ARTIFACT_MAX_UPLOAD_BYTES=16777216 \
+KAIROS_ARTIFACT_GC_RETENTION=24h \
+KAIROS_ARTIFACT_GC_INTERVAL=15m \
 go run ./cmd/kairos-server
 ```
 
@@ -65,11 +67,13 @@ Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `a
 
 Workflow Task Definition 可以声明必交的 `artifacts[]`，每项只有 `name` 和 `description`。Description 是执行指引，不是文件类型 Schema。执行者持有 Claim 时可以用绝对 URI 创建外部 Artifact，或上传托管内容，再通过 `submit_task.artifact_ids` 提交。Submission 在同一事务中绑定暂存 Artifact；缺少 Definition 声明名称的 Workflow 提交会被拒绝。Blackboard Task 没有结构化 Artifact 契约。已提交 Artifact 对整个 WorkItem 可见，暂存 Artifact 只属于创建它的 Claim。
 
-托管上传始终写入服务端配置的 `KAIROS_ARTIFACT_STORE`，调用方不能选择 Store。内置实现把内容寻址 Blob 写入 `KAIROS_ARTIFACT_DIR`，并返回 `kairos://blobs/sha256/...` URI。读取器根据 URI Scheme 解析，因此部署迁移时可以继续注册旧 Store 的读取器。目前只内置 `kairos`。
+托管上传始终写入服务端唯一的托管 Store，调用方不能选择 Store。内置实现会先把稳定的 `kairos://` 上传 URI 和 pending 状态登记到数据库，再向 `KAIROS_ARTIFACT_DIR` 写入文件，并在完成数据库操作前同步文件和目录链；写入后的 Blob 元数据单独保存 SHA-256 完整性 Digest。
 
-`POST /tasks/{id}/artifacts` 接受 `claim_id`、`name`、`uri` JSON 字段；`POST /tasks/{id}/artifact-uploads` 接受 `claim_id`、`name`、`file` multipart 字段，不存在 Store 字段。两种变更都使用常规 `Idempotency-Key` Header。
+`POST /tasks/{id}/artifacts` 接受 `claim_id`、`name`、`uri` JSON 字段；`POST /tasks/{id}/artifact-uploads` 接受 `claim_id`、`name`、`file` multipart 字段，不存在 Store 字段。`KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` 限制上传文件内容大小，默认 16 MiB；超限返回 `413 artifact_too_large`。内置托管上传是面向小文件的便捷通道；大文件应先发布到 S3 等持久外部存储，再通过 URI 接口登记。外部 URI 创建使用常规的可选 `Idempotency-Key`；托管上传必须提供该 Header，以便服务端在写文件前先登记上传 URI 和 pending 状态。Store 流式写入并返回 Digest 和大小，服务端随后更新 pending 记录，再通过最终事务创建 Blob 元数据、暂存 Artifact，并把操作更新为 completed。Pending 重试会覆盖已登记 URI，并校验此前记录的 Digest 和大小，因此即使清理流程删除了文件却未能删除 pending 记录也能恢复。完全相同的 completed 上传可以在 Claim 结束后通过原 key 找回仍处于保留期内的暂存 Artifact；Artifact 被 GC 删除后不能再通过旧 key 恢复。
 
-`GET /api/v1/tasks/{id}` 是面向查看者的 Task Detail，不要求当前身份能够执行该 Task。它返回后端计算的 `Responsibility`、`Outcome`、`CurrentReview`、规范化 `History` 和当前身份的 `Capabilities`。`GET /api/v1/tasks/{id}/context` 仍是受执行权限保护的执行者上下文；客户端不得使用它加载普通详情或人工 Review。
+Artifact GC 默认每隔 `KAIROS_ARTIFACT_GC_INTERVAL`（15 分钟）执行一次。Claim 已不再 Active 且 Artifact 创建时间超过 `KAIROS_ARTIFACT_GC_RETENTION`（默认 24 小时）的未提交 Artifact 会进入回收；超过相同保留时间的 pending 托管上传记录及其已登记文件也会删除，completed 幂等记录会保留；已提交 Artifact 始终保留。只有 Blob URI 已不再被任何 Artifact 引用时，托管内容和元数据才会删除。三个 Artifact 数值或时长配置都必须为正数。
+
+`GET /api/v1/tasks/{id}` 是面向查看者的 Task Detail，不要求当前身份能够执行该 Task。它返回后端计算的 `Responsibility`、`Outcome`、`CurrentReview`、规范化 `History`、属于该 Task 的已提交 `Artifacts` 和当前身份的 `Capabilities`。Task 没有已提交交付物时，`Artifacts` 编码为 `[]`。`GET /api/v1/tasks/{id}/context` 仍是受执行权限保护的执行者上下文；客户端不得使用它加载普通详情或人工 Review。
 
 ## Claim Lease
 
@@ -79,12 +83,14 @@ Agent Claim 使用 lease，Human Claim 不使用。Agent Claim 与 heartbeat 可
 
 MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>`；身份不会出现在工具参数中。
 
-执行面包含 16 个工具：
+执行面包含 17 个工具：
 
 - 发现与上下文：`find_work`、`get_task_context`、`get_work_item_context`；
-- Claim 生命周期与交付：`claim_task`、`heartbeat_claim`、`create_artifact`、`release_claim`、`submit_task`、`fail_task`；
+- Claim 生命周期与交付：`claim_task`、`heartbeat_claim`、`create_artifact`、`upload_artifact`、`release_claim`、`submit_task`、`fail_task`；
 - Blackboard 规划与关闭：`create_blackboard_task`、`add_blackboard_relation`、`decompose_blackboard_task`、`add_blackboard_child_task`、`skip_blackboard_task`、`submit_blackboard_completion`、`accept_blackboard_completion`。
 
 每个 MCP 变更都必须携带 `operation_id`，只有完全相同的重试才能复用。Workflow 候选由 role 与图状态决定，忽略 tag 筛选；Blackboard 可以按 tags 发现。Workflow Task context 提供受控的上游摘要、durable result 和可选 Relation Guidance，但不授予任意读取其他 Task 的权限，也不会因为 Guidance 产生 Definition 未允许的分支。
+
+`upload_artifact` 通过不带 data URI 前缀的 `content_base64` 接受标准 Base64 字节，解码后写入服务端配置的 Artifact Store，并返回供 `submit_task.artifact_ids` 使用的暂存 Artifact ID。解码后的大小上限与 HTTP multipart 上传共用 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES`；MCP 请求体上限会包含对应的 Base64 膨胀。该工具只面向小文件，因为 Base64 会增加约三分之一传输体积，且 MCP 请求会完整缓存在内存中。大文件应使用 `create_artifact` 登记 S3 或其他持久外部 URI。
 
 项目 Codex 配置位于 `.codex/config.toml`，执行指引位于 `.agents/skills/kairos-agent/SKILL.md`。

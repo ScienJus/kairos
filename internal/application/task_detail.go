@@ -37,6 +37,7 @@ type TaskDetail struct {
 	Outcome        TaskOutcome
 	CurrentReview  *domain.Review
 	History        TaskHistory
+	Artifacts      []domain.Artifact
 	Capabilities   TaskCapabilities
 }
 
@@ -58,9 +59,19 @@ func (s *Service) GetTaskDetail(ctx context.Context, query GetTaskDetailQuery) (
 		if err != nil {
 			return fmt.Errorf("list claims for task %q: %w", task.ID, err)
 		}
+		artifacts, err := store.ListArtifacts(task.WorkItemID)
+		if err != nil {
+			return fmt.Errorf("list artifacts for work item %q: %w", task.WorkItemID, err)
+		}
 		result.Task = normalizeTaskCollections(task)
 		result.Responsibility, result.Outcome = projectTaskLifecycle(task, claims)
 		result.History = TaskHistory{Claims: normalizeClaims(claims), Submissions: normalizeSubmissions(task.Submissions), Reviews: normalizeReviews(task.Reviews), Failures: normalizeFailures(task.Failures), TransitionDecisions: normalizeTransitionDecisions(task.TransitionDecisions)}
+		result.Artifacts = make([]domain.Artifact, 0)
+		for _, artifact := range artifacts {
+			if artifact.TaskID == task.ID && artifact.SubmissionID != nil {
+				result.Artifacts = append(result.Artifacts, artifact)
+			}
+		}
 		if len(task.Reviews) > 0 {
 			review := task.Reviews[len(task.Reviews)-1]
 			result.CurrentReview = &review

@@ -22,3 +22,8 @@ CREATE INDEX artifacts_work_item_time_idx ON artifacts (work_item_id, created_at
 CREATE INDEX artifacts_task_time_idx ON artifacts (task_id, created_at_ns, id);
 -- +kairos StatementBreak
 CREATE INDEX artifacts_claim_submission_idx ON artifacts (claim_id, submission_id, id);
+-- +kairos StatementBreak
+CREATE INDEX artifacts_gc_idx
+    ON artifacts (submission_id, created_at_ns, claim_id, id);
+-- +kairos StatementBreak
+CREATE INDEX artifacts_uri_idx ON artifacts (uri);

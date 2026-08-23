@@ -2,10 +2,13 @@
 package mcpapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/ScienJus/kairos/internal/application"
 	"github.com/ScienJus/kairos/internal/domain"
@@ -13,9 +16,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const maxRequestBodyBytes = 1 << 20
+const (
+	defaultMaxArtifactUploadBytes int64 = 16 << 20
+	mcpRequestOverheadBytes       int64 = 1 << 20
+)
 
-const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. Follow expected_artifacts, create external deliverables with create_artifact, and pass their IDs to submit_task; managed files use the HTTP upload endpoint. End every claim with submit_task, fail_task, or release_claim. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
+const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. End every claim with submit_task, fail_task, or release_claim. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
+
+// Options configures MCP transport limits.
+type Options struct {
+	MaxArtifactUploadBytes int64
+}
 
 // Handler serves a stateless Streamable HTTP MCP endpoint. Every request is
 // authenticated independently before the SDK dispatches a tool call.
@@ -26,12 +37,20 @@ type Handler struct {
 }
 
 // New creates an MCP handler backed by the Kairos application service.
-func New(service *application.Service, resolver identity.Resolver) (*Handler, error) {
+func New(service *application.Service, resolver identity.Resolver, options ...Options) (*Handler, error) {
 	if service == nil {
 		return nil, errors.New("application service is required")
 	}
 	if resolver == nil {
 		return nil, errors.New("identity resolver is required")
+	}
+	configured, err := mcpOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	maxRequestBodyBytes, err := maxMCPRequestBodyBytes(configured.MaxArtifactUploadBytes)
+	if err != nil {
+		return nil, err
 	}
 
 	h := &Handler{service: service, identity: resolver}
@@ -41,7 +60,7 @@ func New(service *application.Service, resolver identity.Resolver) (*Handler, er
 		if !ok {
 			return nil
 		}
-		return newServer(service, actor, schemaCache)
+		return newServer(service, actor, schemaCache, configured.MaxArtifactUploadBytes)
 	}, &mcp.StreamableHTTPOptions{
 		Stateless:                    true,
 		JSONResponse:                 true,
@@ -50,6 +69,27 @@ func New(service *application.Service, resolver identity.Resolver) (*Handler, er
 	})
 	h.handler = http.NewCrossOriginProtection().Handler(streamable)
 	return h, nil
+}
+
+func mcpOptions(values []Options) (Options, error) {
+	if len(values) > 1 {
+		return Options{}, errors.New("MCP options must be provided at most once")
+	}
+	if len(values) == 0 {
+		return Options{MaxArtifactUploadBytes: defaultMaxArtifactUploadBytes}, nil
+	}
+	if values[0].MaxArtifactUploadBytes <= 0 {
+		return Options{}, errors.New("max Artifact upload bytes must be positive")
+	}
+	return values[0], nil
+}
+
+func maxMCPRequestBodyBytes(maxUploadBytes int64) (int64, error) {
+	const maxInt64 = int64(^uint64(0) >> 1)
+	if maxUploadBytes > ((maxInt64-mcpRequestOverheadBytes)/4)*3-2 {
+		return 0, errors.New("max Artifact upload bytes is too large for Base64 MCP transport")
+	}
+	return ((maxUploadBytes + 2) / 3 * 4) + mcpRequestOverheadBytes, nil
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -66,7 +106,7 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	h.handler.ServeHTTP(writer, request.WithContext(withIdentity(request.Context(), actor)))
 }
 
-func newServer(service *application.Service, actor identity.Identity, schemaCache *mcp.SchemaCache) *mcp.Server {
+func newServer(service *application.Service, actor identity.Identity, schemaCache *mcp.SchemaCache, maxArtifactUploadBytes int64) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "kairos", Version: "v1"}, &mcp.ServerOptions{
 		Instructions: serverInstructions,
 		SchemaCache:  schemaCache,
@@ -85,6 +125,30 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		})
 		output := findWorkView(candidates)
 		return successResult(fmt.Sprintf("Found %d eligible candidate(s).", len(output.Candidates))), output, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "upload_artifact",
+		Title:       "Upload artifact",
+		Description: "Upload a small managed file as Base64 under an active Claim; use create_artifact with a durable external URI for large files.",
+		Annotations: mutationAnnotations(false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input uploadArtifactInput) (*mcp.CallToolResult, artifactOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, artifactOutput{}, err
+		}
+		content := strings.TrimSpace(input.ContentBase64)
+		decoded, err := base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return nil, artifactOutput{}, fmt.Errorf("decode artifact content_base64: %w", err)
+		}
+		if int64(len(decoded)) > maxArtifactUploadBytes {
+			return nil, artifactOutput{}, fmt.Errorf("artifact content exceeds %d bytes", maxArtifactUploadBytes)
+		}
+		artifact, err := service.UploadArtifact(ctx, application.UploadArtifactCommand{
+			TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor,
+			OperationID: input.OperationID, Name: input.Name,
+		}, bytes.NewReader(decoded))
+		return successResult(fmt.Sprintf("Uploaded Artifact %s for Task %s.", artifact.ID, artifact.TaskID)), artifactOutput{Artifact: artifactViewFrom(artifact)}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -121,6 +185,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Description: "Atomically claim a pending task before work begins.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input claimTaskInput) (*mcp.CallToolResult, claimOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, claimOutput{}, err
+		}
 		claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{
 			TaskID:       domain.TaskID(input.TaskID),
 			Identity:     actor,
@@ -133,6 +200,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "heartbeat_claim", Title: "Heartbeat claim", Description: "Extend an active claim before reaping. Reuse operation_id only for an identical retry.", Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input heartbeatClaimInput) (*mcp.CallToolResult, claimOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, claimOutput{}, err
+		}
 		claim, err := service.HeartbeatClaim(ctx, application.HeartbeatClaimCommand{TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor, OperationID: input.OperationID, LeaseSeconds: input.LeaseSeconds})
 		return successResult(fmt.Sprintf("Heartbeated Claim %s.", input.ClaimID)), claimOutput{Claim: claimViewFrom(claim)}, err
 	})
@@ -143,6 +213,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Description: "Register an external Artifact under an active Claim.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createArtifactInput) (*mcp.CallToolResult, artifactOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, artifactOutput{}, err
+		}
 		artifact, err := service.CreateArtifact(ctx, application.CreateArtifactCommand{
 			TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor,
 			OperationID: input.OperationID, Name: input.Name, URI: input.URI,
@@ -156,6 +229,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Description: "Submit a Claim's result, Artifacts, Review request, and Workflow transition.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitTaskInput) (*mcp.CallToolResult, submissionOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, submissionOutput{}, err
+		}
 		var transition *application.WorkflowTransitionCommand
 		if input.Transition != nil {
 			transition = &application.WorkflowTransitionCommand{
@@ -184,6 +260,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Description: "End an active claim by reopening the task for retry or failing the whole work item.",
 		Annotations: mutationAnnotations(true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input failTaskInput) (*mcp.CallToolResult, failureOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, failureOutput{}, err
+		}
 		failure, err := service.FailTask(ctx, application.FailTaskCommand{
 			TaskID:      domain.TaskID(input.TaskID),
 			ClaimID:     domain.ClaimID(input.ClaimID),
@@ -202,6 +281,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Description: "Release an active claim and return the task to the pending candidate set.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input releaseClaimInput) (*mcp.CallToolResult, releasedOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, releasedOutput{}, err
+		}
 		err := service.ReleaseClaim(ctx, application.ReleaseClaimCommand{
 			TaskID:      domain.TaskID(input.TaskID),
 			ClaimID:     domain.ClaimID(input.ClaimID),
@@ -218,6 +300,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Description: "Plan an executable task in an open or empty Blackboard.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input createBlackboardTaskInput) (*mcp.CallToolResult, taskOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, taskOutput{}, err
+		}
 		task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
 			WorkItemID:         domain.WorkItemID(input.WorkItemID),
 			Identity:           actor,
@@ -233,11 +318,17 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "add_blackboard_relation", Title: "Add blackboard relation", Description: "Add a suggested dependency relation between two tasks in an open Blackboard.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input addBlackboardRelationInput) (*mcp.CallToolResult, relationOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, relationOutput{}, err
+		}
 		relation, err := service.AddBlackboardRelation(ctx, application.AddBlackboardRelationCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), FromTaskID: domain.TaskID(input.FromTaskID), ToTaskID: domain.TaskID(input.ToTaskID), Identity: actor, OperationID: input.OperationID})
 		return successResult(fmt.Sprintf("Added relation from Task %s to Task %s.", input.FromTaskID, input.ToTaskID)), relationOutput{Relation: relationViewFrom(relation)}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "decompose_blackboard_task", Title: "Decompose blackboard task", Description: "Turn an actively claimed Blackboard task into an aggregate and create its initial child tasks.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input decomposeBlackboardTaskInput) (*mcp.CallToolResult, decompositionOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, decompositionOutput{}, err
+		}
 		children := make([]application.BlackboardTaskSpec, 0, len(input.Children))
 		for _, child := range input.Children {
 			children = append(children, child.spec())
@@ -247,21 +338,33 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "add_blackboard_child_task", Title: "Add blackboard child task", Description: "Append one child task while a Blackboard aggregate remains open.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input addBlackboardChildTaskInput) (*mcp.CallToolResult, taskOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, taskOutput{}, err
+		}
 		task, err := service.AddBlackboardChildTask(ctx, application.AddBlackboardChildTaskCommand{ParentTaskID: domain.TaskID(input.ParentTaskID), Identity: actor, OperationID: input.OperationID, Task: input.Task.spec()})
 		return successResult(fmt.Sprintf("Added child Task %s.", task.ID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "skip_blackboard_task", Title: "Skip blackboard task", Description: "Skip an obsolete unclaimed pending Blackboard task with a durable reason.", Annotations: mutationAnnotations(true)}, func(ctx context.Context, _ *mcp.CallToolRequest, input skipBlackboardTaskInput) (*mcp.CallToolResult, taskOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, taskOutput{}, err
+		}
 		task, err := service.SkipBlackboardTask(ctx, application.SkipBlackboardTaskCommand{TaskID: domain.TaskID(input.TaskID), Identity: actor, OperationID: input.OperationID, Reason: input.Reason})
 		return successResult(fmt.Sprintf("Skipped Task %s.", input.TaskID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "submit_blackboard_completion", Title: "Submit blackboard completion", Description: "Submit a converged Blackboard's durable result for acceptance.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, workItemOutput{}, err
+		}
 		workItem, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID, Result: input.Result})
 		return successResult(fmt.Sprintf("Submitted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "accept_blackboard_completion", Title: "Accept blackboard completion", Description: "Accept a pending Blackboard completion proposal.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input acceptBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, workItemOutput{}, err
+		}
 		workItem, err := service.AcceptBlackboardCompletion(ctx, application.AcceptBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID})
 		return successResult(fmt.Sprintf("Accepted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
 	})
@@ -318,6 +421,14 @@ type createArtifactInput struct {
 	OperationID string `json:"operation_id"`
 	Name        string `json:"name"`
 	URI         string `json:"uri"`
+}
+
+type uploadArtifactInput struct {
+	TaskID        string `json:"task_id"`
+	ClaimID       string `json:"claim_id"`
+	OperationID   string `json:"operation_id"`
+	Name          string `json:"name"`
+	ContentBase64 string `json:"content_base64" jsonschema:"Standard Base64 file bytes without a data URI prefix."`
 }
 
 type failTaskInput struct {
@@ -415,6 +526,13 @@ func artifactIDs(values []string) []domain.ArtifactID {
 
 func successResult(message string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: message}}}
+}
+
+func requireOperationID(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return errors.New("operation_id is required")
+	}
+	return nil
 }
 
 func readOnlyAnnotations() *mcp.ToolAnnotations {

@@ -26,12 +26,10 @@ func (s *Service) idempotentUpdate(
 	if normalizedOperationID == "" || normalizedOperationID != operationID {
 		return invalidCommand("operation id must not have surrounding whitespace")
 	}
-	requestPayload, err := json.Marshal(request)
+	requestHash, err := idempotencyRequestHash(request)
 	if err != nil {
-		return fmt.Errorf("encode idempotent request: %w", err)
+		return err
 	}
-	digest := sha256.Sum256(requestPayload)
-	requestHash := hex.EncodeToString(digest[:])
 
 	return s.repository.Update(ctx, func(store WriteStore) error {
 		if err := store.LockIdempotencyKey(identity.Actor, operationID); err != nil {
@@ -40,7 +38,7 @@ func (s *Service) idempotentUpdate(
 		record, err := store.GetIdempotencyRecord(identity.Actor, operationID)
 		switch {
 		case err == nil:
-			if record.Operation != operation || record.RequestHash != requestHash {
+			if record.Status != IdempotencyCompleted || record.Operation != operation || record.RequestHash != requestHash {
 				return conflict("operation id %q was already used for another request", operationID)
 			}
 			if err := json.Unmarshal([]byte(record.Response), result); err != nil {
@@ -54,17 +52,35 @@ func (s *Service) idempotentUpdate(
 		if err := update(store); err != nil {
 			return err
 		}
-		response, err := json.Marshal(result)
+		response, err := idempotencyResponse(result)
 		if err != nil {
-			return fmt.Errorf("encode idempotent response: %w", err)
+			return err
 		}
 		return store.CreateIdempotencyRecord(IdempotencyRecord{
 			Actor:       identity.Actor,
 			OperationID: operationID,
 			Operation:   operation,
+			Status:      IdempotencyCompleted,
 			RequestHash: requestHash,
-			Response:    string(response),
+			Response:    response,
 			CreatedAt:   s.clock.Now(),
 		})
 	})
+}
+
+func idempotencyRequestHash(request any) (string, error) {
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return "", fmt.Errorf("encode idempotent request: %w", err)
+	}
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func idempotencyResponse(result any) (string, error) {
+	response, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("encode idempotent response: %w", err)
+	}
+	return string(response), nil
 }

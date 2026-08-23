@@ -257,14 +257,36 @@ input, select { height: 37px; padding: 0 10px; } textarea { padding: 10px; resiz
 .artifact-definitions > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .artifact-definitions > p { margin: 0; color: #66746f; font-size: 13px; }
 .artifact-definition { display: grid; gap: 8px; padding: 12px; border: 1px solid #dfe5e1; border-radius: 8px; background: #fafcfb; }
+.artifact-definition label { display: flex; flex-direction: column; gap: 7px; color: #667a76; font-family: Inter, system-ui, sans-serif; font-size: 11px; font-weight: 600; }
 .artifact-definition .danger-button { justify-self: start; }
 .expected-artifacts { display: grid; gap: 10px; padding: 12px; border: 1px solid #dfe5e1; border-radius: 8px; }
-.expected-artifacts label { display: grid; gap: 5px; }
+.expected-artifact { display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+.expected-artifact:first-of-type { padding-top: 0; border-top: 0; }
+.expected-artifact > strong { color: var(--text); font-size: 12px; }
 .expected-artifacts small { color: #66746f; }
+.artifact-delivery-modes { width: fit-content; display: inline-grid; grid-template-columns: 1fr 1fr; padding: 2px; background: #edf1ee; border-radius: 7px; }
+.artifact-delivery-modes button { min-height: 30px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 4px 9px; color: #71817e; background: transparent; border: 0; border-radius: 5px; font-size: 10px; cursor: pointer; }
+.artifact-delivery-modes button[aria-pressed="true"] { color: #315f65; background: #fff; box-shadow: 0 1px 3px rgba(40, 55, 51, .12); }
+.artifact-file-input, .artifact-uri-input { display: grid; gap: 5px; color: #66746f; font-size: 10px; }
+.artifact-file-input input { width: 100%; padding: 7px; color: #5d706d; background: #fbfcfa; border: 1px solid #d9e2dd; border-radius: 7px; font-size: 11px; }
 .artifact-ready { color: #34755f; font-size: 13px; }
 .artifact-list { display: grid; gap: 8px; }
 .artifact-list > div { display: grid; grid-template-columns: minmax(120px, .35fr) minmax(0, 1fr); gap: 12px; align-items: baseline; }
 .artifact-list a, .artifact-list span { min-width: 0; overflow-wrap: anywhere; }
+.task-artifacts { display: grid; gap: 12px; margin: 20px 20px 0; padding: 15px 16px; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft); }
+.task-artifacts-heading { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.task-artifacts-heading span { font-family: Inter, system-ui, sans-serif; font-size: 10px; font-weight: 600; }
+.task-artifact-list { display: grid; gap: 10px; }
+.task-artifact-list > div { display: grid; grid-template-columns: minmax(100px, .4fr) minmax(0, 1fr); gap: 10px; align-items: center; }
+.task-artifact-list strong { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.task-artifact-list a { min-width: 0; display: flex; align-items: center; gap: 5px; color: var(--signal); font-size: 11px; text-decoration: none; }
+.task-artifact-list a span, .task-artifact-list > div > span { min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
+.task-artifact-list a svg { flex: 0 0 auto; }
+.task-artifact-list .quiet-button { width: fit-content; min-height: 30px; padding: 5px 8px; }
+@media (max-width: 760px) {
+  .task-artifact-list > div { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .task-artifact-list a span, .task-artifact-list > div > span { word-break: break-all; }
+}
 .property-form .internal-id { display: block; overflow: hidden; color: #98a19f; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .property-form .property-intro { margin: 16px 0 0; color: #6d7f7b; font-size: 11px; line-height: 1.55; }
 .property-form > label, .property-row label { display: flex; flex-direction: column; gap: 7px; margin-top: 17px; color: #667a76; font-family: Inter, system-ui, sans-serif; font-size: 11px; font-weight: 600; }
@@ -963,7 +985,7 @@ body { background: #f6f7f4; }
   .hero-title h1 { font-size: 26px; }
   .goal { font-size: 14px; }
   .section-heading { align-items: flex-start; }
-  .task-panel, .task-panel.mobile-task { top: 64px; }
+  .task-panel, .task-panel.mobile-task { top: 64px; right: 8px; bottom: 8px; left: 8px; width: auto; }
   .empty-planning > div { width: 100%; flex-direction: column; align-items: stretch; }
   .empty-planning details { width: 100%; }
   .empty-planning textarea { min-width: 0; width: 100%; }

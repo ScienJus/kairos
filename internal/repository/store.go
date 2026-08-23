@@ -246,6 +246,82 @@ func (s *sqlStore) GetArtifactBlob(uri string) (domain.ArtifactBlob, error) {
 	return blob, nil
 }
 
+func (s *sqlStore) ListArtifactGarbage(before time.Time) ([]domain.Artifact, error) {
+	rows, err := s.query(`
+		SELECT a.id, a.work_item_id, a.task_id, a.claim_id, a.submission_id, a.name, a.uri, a.created_at_ns
+		FROM artifacts a
+		JOIN claims c ON c.id = a.claim_id
+		WHERE a.submission_id IS NULL AND c.active = ? AND a.created_at_ns <= ?
+		ORDER BY a.created_at_ns, a.id`, false, before.UnixNano())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]domain.Artifact, 0)
+	for rows.Next() {
+		artifact, err := scanArtifact(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, artifact)
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) ListUnreferencedArtifactBlobs(before time.Time) ([]domain.ArtifactBlob, error) {
+	rows, err := s.query(`
+		SELECT b.uri, b.digest, b.size, b.created_at_ns
+		FROM artifact_blobs b
+		WHERE b.created_at_ns <= ?
+		  AND NOT EXISTS (SELECT 1 FROM artifacts a WHERE a.uri = b.uri)
+		ORDER BY b.created_at_ns, b.uri`, before.UnixNano())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]domain.ArtifactBlob, 0)
+	for rows.Next() {
+		var blob domain.ArtifactBlob
+		var createdAtNS int64
+		if err := rows.Scan(&blob.URI, &blob.Digest, &blob.Size, &createdAtNS); err != nil {
+			return nil, normalizeError(err)
+		}
+		blob.CreatedAt = time.Unix(0, createdAtNS).UTC()
+		result = append(result, blob)
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) ArtifactBlobReferenced(uri string) (bool, error) {
+	var referenced bool
+	if err := s.queryRow("SELECT EXISTS (SELECT 1 FROM artifacts WHERE uri = ?)", uri).Scan(&referenced); err != nil {
+		return false, normalizeError(err)
+	}
+	return referenced, nil
+}
+
+type artifactScanner interface {
+	Scan(...any) error
+}
+
+func scanArtifact(scanner artifactScanner) (domain.Artifact, error) {
+	var artifact domain.Artifact
+	var submissionID sql.NullString
+	var createdAtNS int64
+	if err := scanner.Scan(
+		&artifact.ID, &artifact.WorkItemID, &artifact.TaskID, &artifact.ClaimID,
+		&submissionID, &artifact.Name, &artifact.URI, &createdAtNS,
+	); err != nil {
+		return domain.Artifact{}, normalizeError(err)
+	}
+	if submissionID.Valid {
+		value := domain.SubmissionID(submissionID.String)
+		artifact.SubmissionID = &value
+	}
+	artifact.CreatedAt = time.Unix(0, createdAtNS).UTC()
+	return artifact, nil
+}
+
 func (s *sqlStore) GetWorkflowTaskActivation(
 	id domain.WorkflowTaskActivationID,
 ) (domain.WorkflowTaskActivation, error) {
@@ -539,7 +615,7 @@ func (s *sqlStore) GetIdempotencyRecord(
 	var actorKind, actorID string
 	var createdAtNS int64
 	err := s.queryRow(`
-		SELECT actor_kind, actor_id, operation_id, operation, request_hash, response, created_at_ns
+		SELECT actor_kind, actor_id, operation_id, operation, status, request_hash, response, created_at_ns
 		FROM idempotency_records
 		WHERE actor_kind = ? AND actor_id = ? AND operation_id = ?`,
 		actor.Kind, actor.ID, operationID,
@@ -548,6 +624,7 @@ func (s *sqlStore) GetIdempotencyRecord(
 		&actorID,
 		&record.OperationID,
 		&record.Operation,
+		&record.Status,
 		&record.RequestHash,
 		&record.Response,
 		&createdAtNS,
@@ -558,6 +635,31 @@ func (s *sqlStore) GetIdempotencyRecord(
 	record.Actor = domain.ActorRef{Kind: domain.ActorKind(actorKind), ID: domain.ActorID(actorID)}
 	record.CreatedAt = time.Unix(0, createdAtNS).UTC()
 	return record, nil
+}
+
+func (s *sqlStore) ListPendingIdempotencyRecords(before time.Time) ([]application.IdempotencyRecord, error) {
+	rows, err := s.query(`
+		SELECT actor_kind, actor_id, operation_id, operation, status, request_hash, response, created_at_ns
+		FROM idempotency_records
+		WHERE status = ? AND created_at_ns <= ?
+		ORDER BY created_at_ns, actor_kind, actor_id, operation_id`, application.IdempotencyPending, before.UnixNano())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]application.IdempotencyRecord, 0)
+	for rows.Next() {
+		var record application.IdempotencyRecord
+		var actorKind, actorID string
+		var createdAtNS int64
+		if err := rows.Scan(&actorKind, &actorID, &record.OperationID, &record.Operation, &record.Status, &record.RequestHash, &record.Response, &createdAtNS); err != nil {
+			return nil, normalizeError(err)
+		}
+		record.Actor = domain.ActorRef{Kind: domain.ActorKind(actorKind), ID: domain.ActorID(actorID)}
+		record.CreatedAt = time.Unix(0, createdAtNS).UTC()
+		result = append(result, record)
+	}
+	return result, normalizeError(rows.Err())
 }
 
 func (s *sqlStore) CreateWorkflowDefinition(value domain.WorkflowDefinition) error {
@@ -849,17 +951,52 @@ func (s *sqlStore) SaveArtifact(value domain.Artifact) error {
 	return s.requireUpdated(result, "artifacts", value.ID)
 }
 
+func (s *sqlStore) DeleteArtifact(id domain.ArtifactID) error {
+	result, err := s.exec("DELETE FROM artifacts WHERE id = ? AND submission_id IS NULL", id)
+	if err != nil {
+		return err
+	}
+	return s.requireUpdated(result, "artifacts", id)
+}
+
 func (s *sqlStore) CreateArtifactBlob(value domain.ArtifactBlob) error {
 	if err := value.Validate(); err != nil {
 		return err
 	}
-	_, err := s.exec(`
+	result, err := s.exec(`
 		INSERT INTO artifact_blobs (uri, digest, size, created_at_ns)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT (uri) DO NOTHING`,
 		value.URI, value.Digest, value.Size, value.CreatedAt.UnixNano(),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return normalizeError(err)
+	}
+	if count == 1 {
+		return nil
+	}
+	existing, err := s.GetArtifactBlob(value.URI)
+	if err != nil {
+		return err
+	}
+	if existing.Digest != value.Digest || existing.Size != value.Size {
+		return application.ErrConflict
+	}
+	return nil
+}
+
+func (s *sqlStore) DeleteArtifactBlob(uri string) error {
+	result, err := s.exec(`
+		DELETE FROM artifact_blobs
+		WHERE uri = ? AND NOT EXISTS (SELECT 1 FROM artifacts WHERE uri = ?)`, uri, uri)
+	if err != nil {
+		return err
+	}
+	return s.requireUpdated(result, "artifact_blobs", uri)
 }
 
 func claimLeaseColumns(value domain.Claim) (any, any, any) {
@@ -897,17 +1034,62 @@ func (s *sqlStore) LockIdempotencyKey(actor domain.ActorRef, operationID string)
 func (s *sqlStore) CreateIdempotencyRecord(value application.IdempotencyRecord) error {
 	_, err := s.exec(`
 		INSERT INTO idempotency_records
-			(actor_kind, actor_id, operation_id, operation, request_hash, response, created_at_ns)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			(actor_kind, actor_id, operation_id, operation, status, request_hash, response, created_at_ns)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.Actor.Kind,
 		value.Actor.ID,
 		value.OperationID,
 		value.Operation,
+		value.Status,
 		value.RequestHash,
 		value.Response,
 		value.CreatedAt.UnixNano(),
 	)
 	return err
+}
+
+func (s *sqlStore) SaveIdempotencyRecord(value application.IdempotencyRecord) error {
+	result, err := s.exec(`
+		UPDATE idempotency_records
+		SET operation = ?, status = ?, request_hash = ?, response = ?
+		WHERE actor_kind = ? AND actor_id = ? AND operation_id = ?`,
+		value.Operation,
+		value.Status,
+		value.RequestHash,
+		value.Response,
+		value.Actor.Kind,
+		value.Actor.ID,
+		value.OperationID,
+	)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return normalizeError(err)
+	}
+	if count != 1 {
+		return application.ErrNotFound
+	}
+	return nil
+}
+
+func (s *sqlStore) DeleteIdempotencyRecord(actor domain.ActorRef, operationID string) error {
+	result, err := s.exec(`
+		DELETE FROM idempotency_records
+		WHERE actor_kind = ? AND actor_id = ? AND operation_id = ? AND status = ?`,
+		actor.Kind, actor.ID, operationID, application.IdempotencyPending)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return normalizeError(err)
+	}
+	if count != 1 {
+		return application.ErrNotFound
+	}
+	return nil
 }
 
 func (s *sqlStore) workItemMode(workItemID domain.WorkItemID) (domain.CoordinationMode, error) {

@@ -2,14 +2,18 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
+	"github.com/ScienJus/kairos/internal/artifactstore"
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
@@ -86,8 +90,8 @@ func TestGetWorkflowTaskExecutionContext(t *testing.T) {
 	if detail.Capabilities.CanClaim || detail.Capabilities.CanSubmit || detail.Capabilities.CanReview {
 		t.Fatalf("completed task capabilities: %#v", detail.Capabilities)
 	}
-	if detail.History.Reviews == nil || detail.History.Failures == nil {
-		t.Fatalf("empty histories must be normalized: %#v", detail.History)
+	if detail.History.Reviews == nil || detail.History.Failures == nil || detail.Artifacts == nil {
+		t.Fatalf("empty detail collections must be normalized: %#v", detail)
 	}
 	integration := workflowTasksByDefinition(repository.tasksFor(workItem.ID))["integration"]
 	if _, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: integration.ID, Identity: agent}); err != nil {
@@ -169,6 +173,319 @@ func TestWorkflowArtifactsGuideAndGateSubmission(t *testing.T) {
 			t.Fatalf("artifact was not bound to submission: %#v", artifact)
 		}
 	}
+	detail, err := service.GetTaskDetail(context.Background(), GetTaskDetailQuery{
+		TaskID: task.ID, Identity: Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}},
+	})
+	if err != nil {
+		t.Fatalf("get task detail with artifacts: %v", err)
+	}
+	if len(detail.Artifacts) != 2 || detail.Artifacts[0].TaskID != task.ID || detail.Artifacts[0].SubmissionID == nil {
+		t.Fatalf("task detail Artifacts = %#v", detail.Artifacts)
+	}
+}
+
+func TestManagedArtifactUploadRetryAfterClaimEnds(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := blackboardDefinition()
+	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	local, err := artifactstore.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local Artifact Store: %v", err)
+	}
+	if err := service.ConfigureArtifactStore(local); err != nil {
+		t.Fatalf("configure Artifact Store: %v", err)
+	}
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "upload-agent"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Managed upload retry", Goal: "Retain an upload response",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent, Title: "Upload", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim task: %v", err)
+	}
+	command := UploadArtifactCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, OperationID: "upload-report", Name: "report",
+	}
+	withoutOperationID := command
+	withoutOperationID.OperationID = ""
+	if _, err := service.UploadArtifact(context.Background(), withoutOperationID, strings.NewReader("report content")); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("upload without operation id: %v", err)
+	}
+	if _, err := service.UploadArtifact(context.Background(), command, iotest.ErrReader(errors.New("upload interrupted"))); err == nil {
+		t.Fatal("expected interrupted upload to fail")
+	}
+	pending := repository.idempotency[idempotencyTestKey(agent.Actor, command.OperationID)]
+	if pending.Operation != artifactUploadOperation || pending.Status != IdempotencyPending || len(repository.artifacts) != 0 || len(repository.blobs) != 0 {
+		t.Fatalf("pending upload state = %#v, Artifacts = %#v, Blobs = %#v", pending, repository.artifacts, repository.blobs)
+	}
+	created, err := service.UploadArtifact(context.Background(), command, strings.NewReader("report content"))
+	if err != nil {
+		t.Fatalf("resume pending Artifact upload: %v", err)
+	}
+	completed := repository.idempotency[idempotencyTestKey(agent.Actor, command.OperationID)]
+	if completed.Operation != artifactUploadOperation || completed.Status != IdempotencyCompleted || len(repository.artifacts) != 1 || len(repository.blobs) != 1 {
+		t.Fatalf("completed upload state = %#v, Artifacts = %#v, Blobs = %#v", completed, repository.artifacts, repository.blobs)
+	}
+	if err := service.ReleaseClaim(context.Background(), ReleaseClaimCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, OperationID: "release-upload-claim",
+	}); err != nil {
+		t.Fatalf("release Claim: %v", err)
+	}
+
+	retried, err := service.UploadArtifact(context.Background(), command, strings.NewReader("report content"))
+	if err != nil {
+		t.Fatalf("retry upload after Claim ended: %v", err)
+	}
+	if retried.ID != created.ID || retried.URI != created.URI {
+		t.Fatalf("retried Artifact = %#v, want %#v", retried, created)
+	}
+	if _, err := service.UploadArtifact(context.Background(), command, strings.NewReader("changed content")); !errors.Is(err, ErrConflict) {
+		t.Fatalf("retry changed upload: %v", err)
+	}
+	delete(repository.artifacts, created.ID)
+	if _, err := service.UploadArtifact(context.Background(), command, strings.NewReader("report content")); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "no longer retained") {
+		t.Fatalf("retry collected upload: %v", err)
+	}
+}
+
+func TestManagedArtifactUploadSerializesConcurrentRetry(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := blackboardDefinition()
+	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	local, err := artifactstore.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local Artifact Store: %v", err)
+	}
+	if err := service.ConfigureArtifactStore(local); err != nil {
+		t.Fatalf("configure Artifact Store: %v", err)
+	}
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "concurrent-upload-agent"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Concurrent managed upload", Goal: "Keep content and metadata consistent",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent, Title: "Upload", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim task: %v", err)
+	}
+	command := UploadArtifactCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, OperationID: "same-upload", Name: "report",
+	}
+	type uploadResult struct {
+		artifact domain.Artifact
+		content  string
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan uploadResult, 2)
+	for _, content := range []string{"first content", "second content"} {
+		go func() {
+			<-start
+			artifact, err := service.UploadArtifact(context.Background(), command, strings.NewReader(content))
+			results <- uploadResult{artifact: artifact, content: content, err: err}
+		}()
+	}
+	close(start)
+
+	var succeeded *uploadResult
+	conflicts := 0
+	for range 2 {
+		result := <-results
+		switch {
+		case result.err == nil:
+			copy := result
+			succeeded = &copy
+		case errors.Is(result.err, ErrConflict):
+			conflicts++
+		default:
+			t.Fatalf("concurrent upload result: %v", result.err)
+		}
+	}
+	if succeeded == nil || conflicts != 1 {
+		t.Fatalf("concurrent upload: succeeded=%#v conflicts=%d", succeeded, conflicts)
+	}
+	reader, err := local.Open(context.Background(), succeeded.artifact.URI)
+	if err != nil {
+		t.Fatalf("open uploaded content: %v", err)
+	}
+	defer reader.Close()
+	content, err := io.ReadAll(reader)
+	if err != nil || string(content) != succeeded.content {
+		t.Fatalf("stored content = %q, err=%v; want %q", content, err, succeeded.content)
+	}
+}
+
+func TestManagedArtifactUploadRewritesFileAfterPendingGCDeleteFailure(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := blackboardDefinition()
+	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	local, err := artifactstore.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local Artifact Store: %v", err)
+	}
+	if err := service.ConfigureArtifactStore(local); err != nil {
+		t.Fatalf("configure Artifact Store: %v", err)
+	}
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "gc-retry-agent"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "GC retry", Goal: "Recover a deleted pending file",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent, Title: "Upload", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim task: %v", err)
+	}
+	command := UploadArtifactCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, OperationID: "pending-upload", Name: "report",
+	}
+	uploadKey, err := artifactUploadStorageKey(agent.Actor, command.OperationID)
+	if err != nil {
+		t.Fatalf("prepare upload key: %v", err)
+	}
+	uploadURI, err := local.UploadURI(uploadKey)
+	if err != nil {
+		t.Fatalf("prepare upload URI: %v", err)
+	}
+	blob, err := local.Put(context.Background(), uploadURI, strings.NewReader("recoverable content"))
+	if err != nil {
+		t.Fatalf("write pending content: %v", err)
+	}
+	requestHash, err := idempotencyRequestHash(artifactUploadReservation{TaskID: task.ID, ClaimID: claim.ID, Name: command.Name})
+	if err != nil {
+		t.Fatalf("hash reservation: %v", err)
+	}
+	repository.idempotency[idempotencyTestKey(agent.Actor, command.OperationID)] = IdempotencyRecord{
+		Actor: agent.Actor, OperationID: command.OperationID, Operation: artifactUploadOperation,
+		Status: IdempotencyPending, RequestHash: requestHash,
+		Response:  mustArtifactUploadState(artifactUploadState{BlobURI: blob.URI, Digest: blob.Digest, Size: blob.Size}),
+		CreatedAt: applicationTestTime.Add(-2 * time.Hour),
+	}
+	deleteFailure := errors.New("delete pending record")
+	repository.deleteIdempotencyError = deleteFailure
+	if _, err := service.GarbageCollectArtifacts(context.Background(), time.Hour); !errors.Is(err, deleteFailure) {
+		t.Fatalf("garbage collection error = %v, want %v", err, deleteFailure)
+	}
+	if _, err := local.Open(context.Background(), blob.URI); err == nil {
+		t.Fatal("pending file was not deleted")
+	}
+	repository.deleteIdempotencyError = nil
+
+	created, err := service.UploadArtifact(context.Background(), command, strings.NewReader("recoverable content"))
+	if err != nil {
+		t.Fatalf("retry pending upload: %v", err)
+	}
+	reader, err := local.Open(context.Background(), created.URI)
+	if err != nil {
+		t.Fatalf("open recovered content: %v", err)
+	}
+	defer reader.Close()
+	content, err := io.ReadAll(reader)
+	if err != nil || string(content) != "recoverable content" {
+		t.Fatalf("recovered content = %q, err=%v", content, err)
+	}
+}
+
+func TestManagedArtifactUploadStorageKeyIsUnambiguous(t *testing.T) {
+	first, err := artifactUploadStorageKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "a:b"}, "c")
+	if err != nil {
+		t.Fatalf("first storage key: %v", err)
+	}
+	second, err := artifactUploadStorageKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "a"}, "b:c")
+	if err != nil {
+		t.Fatalf("second storage key: %v", err)
+	}
+	if first == second {
+		t.Fatalf("storage key collision: %q", first)
+	}
+}
+
+func TestArtifactDownloadDoesNotBlockManagedUpload(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	service := newTestService(t, repository)
+	local, err := artifactstore.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local Artifact Store: %v", err)
+	}
+	if err := service.ConfigureArtifactStore(local); err != nil {
+		t.Fatalf("configure Artifact Store: %v", err)
+	}
+	identity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "download-agent"}, Role: "generalist"}
+	claimID := domain.ClaimID("claim")
+	task := domain.Task{ID: "task", WorkItemID: "work-item", Status: domain.TaskStatusWorking, ActiveClaimID: &claimID}
+	claim := domain.Claim{ID: claimID, TaskID: task.ID, Executor: identity.Actor, ClaimedAt: applicationTestTime}
+	repository.tasks[task.ID] = task
+	repository.claims[claim.ID] = claim
+	uploadURI, err := local.UploadURI("downloaded-artifact")
+	if err != nil {
+		t.Fatalf("prepare downloaded Artifact URI: %v", err)
+	}
+	if _, err := local.Put(context.Background(), uploadURI, strings.NewReader("download content")); err != nil {
+		t.Fatalf("write downloaded Artifact: %v", err)
+	}
+	artifact := domain.Artifact{
+		ID: "downloaded-artifact", WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID,
+		Name: "download", URI: uploadURI, CreatedAt: applicationTestTime,
+	}
+	repository.artifacts[artifact.ID] = artifact
+	_, reader, err := service.OpenArtifact(context.Background(), artifact.ID, identity)
+	if err != nil {
+		t.Fatalf("open Artifact download: %v", err)
+	}
+	defer reader.Close()
+
+	uploadDone := make(chan error, 1)
+	go func() {
+		_, err := service.UploadArtifact(context.Background(), UploadArtifactCommand{
+			TaskID: task.ID, ClaimID: claim.ID, Identity: identity, OperationID: "parallel-upload", Name: "parallel",
+		}, strings.NewReader("parallel content"))
+		uploadDone <- err
+	}()
+	select {
+	case err := <-uploadDone:
+		if err != nil {
+			t.Fatalf("upload while download is open: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		reader.Close()
+		<-uploadDone
+		t.Fatal("open Artifact download blocked managed upload")
+	}
 }
 
 func TestSubmittedArtifactIsVisibleToOtherBlackboardTask(t *testing.T) {
@@ -225,6 +542,133 @@ func TestSubmittedArtifactIsVisibleToOtherBlackboardTask(t *testing.T) {
 	}
 	if len(contextView.Artifacts) != 1 || contextView.Artifacts[0].ID != artifact.ID {
 		t.Fatalf("consumer Artifacts = %#v", contextView.Artifacts)
+	}
+}
+
+func TestArtifactGarbageCollectionRemovesOnlyAbandonedContent(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	service := newTestService(t, repository)
+	local, err := artifactstore.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local Artifact Store: %v", err)
+	}
+	if err := service.ConfigureArtifactStore(local); err != nil {
+		t.Fatalf("configure Artifact Store: %v", err)
+	}
+	put := func(content string) domain.ArtifactBlob {
+		t.Helper()
+		uploadURI, err := local.UploadURI("gc:" + content)
+		if err != nil {
+			t.Fatalf("prepare %q: %v", content, err)
+		}
+		blob, err := local.Put(context.Background(), uploadURI, strings.NewReader(content))
+		if err != nil {
+			t.Fatalf("put %q: %v", content, err)
+		}
+		blob.CreatedAt = applicationTestTime.Add(-2 * time.Hour)
+		repository.blobs[blob.URI] = blob
+		return blob
+	}
+	shared := put("shared")
+	orphan := put("orphan")
+	active := put("active")
+	young := put("young")
+	endedAt := applicationTestTime.Add(-90 * time.Minute)
+	repository.claims["ended"] = domain.Claim{ID: "ended", TaskID: "task", EndedAt: &endedAt}
+	repository.claims["active"] = domain.Claim{ID: "active", TaskID: "task"}
+	submissionID := domain.SubmissionID("submission")
+	old := applicationTestTime.Add(-2 * time.Hour)
+	recent := applicationTestTime.Add(-30 * time.Minute)
+	repository.artifacts["abandoned-shared"] = domain.Artifact{ID: "abandoned-shared", ClaimID: "ended", URI: shared.URI, CreatedAt: old}
+	repository.artifacts["committed-shared"] = domain.Artifact{ID: "committed-shared", ClaimID: "ended", SubmissionID: &submissionID, URI: shared.URI, CreatedAt: old}
+	repository.artifacts["abandoned-orphan"] = domain.Artifact{ID: "abandoned-orphan", ClaimID: "ended", URI: orphan.URI, CreatedAt: old}
+	repository.artifacts["active-staged"] = domain.Artifact{ID: "active-staged", ClaimID: "active", URI: active.URI, CreatedAt: old}
+	repository.artifacts["young-abandoned"] = domain.Artifact{ID: "young-abandoned", ClaimID: "ended", URI: young.URI, CreatedAt: recent}
+	repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload"}, "upload-old")] = IdempotencyRecord{
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload"}, OperationID: "upload-old", Operation: artifactUploadOperation,
+		Status: IdempotencyPending, CreatedAt: old,
+	}
+	registeredURI, err := local.UploadURI("stale-upload-with-file")
+	if err != nil {
+		t.Fatalf("prepare registered upload URI: %v", err)
+	}
+	registeredBlob, err := local.Put(context.Background(), registeredURI, strings.NewReader("pending content"))
+	if err != nil {
+		t.Fatalf("write registered pending upload: %v", err)
+	}
+	state, err := json.Marshal(artifactUploadState{BlobURI: registeredBlob.URI, Digest: registeredBlob.Digest, Size: registeredBlob.Size})
+	if err != nil {
+		t.Fatalf("encode pending upload state: %v", err)
+	}
+	repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload-file"}, "upload-old-file")] = IdempotencyRecord{
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload-file"}, OperationID: "upload-old-file", Operation: artifactUploadOperation,
+		Status: IdempotencyPending, Response: string(state), CreatedAt: old,
+	}
+	repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "kept-upload"}, "upload-recent")] = IdempotencyRecord{
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "kept-upload"}, OperationID: "upload-recent", Operation: artifactUploadOperation,
+		Status: IdempotencyPending, CreatedAt: recent,
+	}
+	completedUploadKey := idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "completed-upload"}, "upload-completed")
+	repository.idempotency[completedUploadKey] = IdempotencyRecord{
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "completed-upload"}, OperationID: "upload-completed", Operation: artifactUploadOperation,
+		Status: IdempotencyCompleted, CreatedAt: old,
+	}
+	otherPendingKey := idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "other-pending"}, "other-operation")
+	repository.idempotency[otherPendingKey] = IdempotencyRecord{
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "other-pending"}, OperationID: "other-operation", Operation: "other_pending_operation",
+		Status: IdempotencyPending, CreatedAt: old,
+	}
+
+	result, err := service.GarbageCollectArtifacts(context.Background(), time.Hour)
+	if err != nil {
+		t.Fatalf("garbage collect Artifacts: %v", err)
+	}
+	if result.ArtifactsDeleted != 2 || result.BlobsDeleted != 1 || result.PendingDeleted != 2 {
+		t.Fatalf("GC result = %#v", result)
+	}
+	if _, exists := repository.artifacts["abandoned-shared"]; exists {
+		t.Fatal("shared abandoned Artifact was not deleted")
+	}
+	if _, exists := repository.artifacts["abandoned-orphan"]; exists {
+		t.Fatal("orphaned abandoned Artifact was not deleted")
+	}
+	for _, id := range []domain.ArtifactID{"committed-shared", "active-staged", "young-abandoned"} {
+		if _, exists := repository.artifacts[id]; !exists {
+			t.Fatalf("Artifact %q should have been retained", id)
+		}
+	}
+	if _, exists := repository.blobs[orphan.URI]; exists {
+		t.Fatal("unreferenced Blob metadata was not deleted")
+	}
+	if _, exists := repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload"}, "upload-old")]; exists {
+		t.Fatal("stale pending upload was not collected")
+	}
+	if _, exists := repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload-file"}, "upload-old-file")]; exists {
+		t.Fatal("stale pending upload with file was not collected")
+	}
+	if _, err := local.Open(context.Background(), registeredBlob.URI); err == nil {
+		t.Fatal("pending registered file was not deleted")
+	}
+	if _, exists := repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "kept-upload"}, "upload-recent")]; !exists {
+		t.Fatal("recent pending upload was collected")
+	}
+	if _, exists := repository.idempotency[completedUploadKey]; !exists {
+		t.Fatal("completed upload idempotency record was collected")
+	}
+	if _, exists := repository.idempotency[otherPendingKey]; !exists {
+		t.Fatal("non-upload pending operation was collected")
+	}
+	if _, err := local.Open(context.Background(), orphan.URI); err == nil {
+		t.Fatal("unreferenced Blob content was not deleted")
+	}
+	for _, uri := range []string{shared.URI, active.URI, young.URI} {
+		reader, err := local.Open(context.Background(), uri)
+		if err != nil {
+			t.Fatalf("retained Blob %q: %v", uri, err)
+		}
+		_ = reader.Close()
 	}
 }
 
@@ -1957,17 +2401,18 @@ func definitionKey(id domain.DefinitionID, version int64) string {
 }
 
 type testRepository struct {
-	workItems   map[domain.WorkItemID]domain.WorkItem
-	tasks       map[domain.TaskID]domain.Task
-	relations   []domain.TaskRelation
-	claims      map[domain.ClaimID]domain.Claim
-	artifacts   map[domain.ArtifactID]domain.Artifact
-	blobs       map[string]domain.ArtifactBlob
-	activations map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation
-	events      []domain.WorkItemEvent
-	workflows   map[string]domain.WorkflowDefinition
-	blackboards map[string]domain.BlackboardDefinition
-	idempotency map[string]IdempotencyRecord
+	workItems              map[domain.WorkItemID]domain.WorkItem
+	tasks                  map[domain.TaskID]domain.Task
+	relations              []domain.TaskRelation
+	claims                 map[domain.ClaimID]domain.Claim
+	artifacts              map[domain.ArtifactID]domain.Artifact
+	blobs                  map[string]domain.ArtifactBlob
+	activations            map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation
+	events                 []domain.WorkItemEvent
+	workflows              map[string]domain.WorkflowDefinition
+	blackboards            map[string]domain.BlackboardDefinition
+	idempotency            map[string]IdempotencyRecord
+	deleteIdempotencyError error
 }
 
 func newTestRepository() *testRepository {
@@ -2078,6 +2523,41 @@ func (r *testRepository) GetArtifactBlob(uri string) (domain.ArtifactBlob, error
 		return domain.ArtifactBlob{}, ErrNotFound
 	}
 	return value, nil
+}
+
+func (r *testRepository) ListArtifactGarbage(before time.Time) ([]domain.Artifact, error) {
+	result := make([]domain.Artifact, 0)
+	for _, artifact := range r.artifacts {
+		claim, exists := r.claims[artifact.ClaimID]
+		if artifact.SubmissionID == nil && exists && !claim.Active() && !artifact.CreatedAt.After(before) {
+			result = append(result, artifact)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	return result, nil
+}
+
+func (r *testRepository) ListUnreferencedArtifactBlobs(before time.Time) ([]domain.ArtifactBlob, error) {
+	result := make([]domain.ArtifactBlob, 0)
+	for _, blob := range r.blobs {
+		if blob.CreatedAt.After(before) {
+			continue
+		}
+		referenced, _ := r.ArtifactBlobReferenced(blob.URI)
+		if !referenced {
+			result = append(result, blob)
+		}
+	}
+	return result, nil
+}
+
+func (r *testRepository) ArtifactBlobReferenced(uri string) (bool, error) {
+	for _, artifact := range r.artifacts {
+		if artifact.URI == uri {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (r *testRepository) GetWorkflowTaskActivation(id domain.WorkflowTaskActivationID) (domain.WorkflowTaskActivation, error) {
@@ -2238,6 +2718,16 @@ func (r *testRepository) GetIdempotencyRecord(actor domain.ActorRef, operationID
 	return value, nil
 }
 
+func (r *testRepository) ListPendingIdempotencyRecords(before time.Time) ([]IdempotencyRecord, error) {
+	result := make([]IdempotencyRecord, 0)
+	for _, record := range r.idempotency {
+		if record.Status == IdempotencyPending && !record.CreatedAt.After(before) {
+			result = append(result, record)
+		}
+	}
+	return result, nil
+}
+
 func (r *testRepository) CreateWorkflowDefinition(value domain.WorkflowDefinition) error {
 	key := definitionKey(value.ID, value.Version)
 	if _, exists := r.workflows[key]; exists {
@@ -2341,11 +2831,35 @@ func (r *testRepository) SaveArtifact(value domain.Artifact) error {
 	return nil
 }
 
+func (r *testRepository) DeleteArtifact(id domain.ArtifactID) error {
+	value, exists := r.artifacts[id]
+	if !exists {
+		return ErrNotFound
+	}
+	if value.SubmissionID != nil {
+		return ErrConflict
+	}
+	delete(r.artifacts, id)
+	return nil
+}
+
 func (r *testRepository) CreateArtifactBlob(value domain.ArtifactBlob) error {
-	if existing, exists := r.blobs[value.URI]; exists && existing.Digest != value.Digest {
+	if existing, exists := r.blobs[value.URI]; exists && (existing.Digest != value.Digest || existing.Size != value.Size) {
 		return ErrConflict
 	}
 	r.blobs[value.URI] = value
+	return nil
+}
+
+func (r *testRepository) DeleteArtifactBlob(uri string) error {
+	if _, exists := r.blobs[uri]; !exists {
+		return ErrNotFound
+	}
+	referenced, _ := r.ArtifactBlobReferenced(uri)
+	if referenced {
+		return ErrConflict
+	}
+	delete(r.blobs, uri)
 	return nil
 }
 
@@ -2362,6 +2876,28 @@ func (r *testRepository) CreateIdempotencyRecord(value IdempotencyRecord) error 
 		return ErrConflict
 	}
 	r.idempotency[key] = value
+	return nil
+}
+
+func (r *testRepository) SaveIdempotencyRecord(value IdempotencyRecord) error {
+	key := idempotencyTestKey(value.Actor, value.OperationID)
+	if _, exists := r.idempotency[key]; !exists {
+		return ErrNotFound
+	}
+	r.idempotency[key] = value
+	return nil
+}
+
+func (r *testRepository) DeleteIdempotencyRecord(actor domain.ActorRef, operationID string) error {
+	if r.deleteIdempotencyError != nil {
+		return r.deleteIdempotencyError
+	}
+	key := idempotencyTestKey(actor, operationID)
+	record, exists := r.idempotency[key]
+	if !exists || record.Status != IdempotencyPending {
+		return ErrNotFound
+	}
+	delete(r.idempotency, key)
 	return nil
 }
 

@@ -54,6 +54,12 @@ func TestSQLRepositoryContract(t *testing.T) {
 		t.Run("claim lease columns", func(t *testing.T) {
 			testClaimLeaseColumns(t, repository, blackboard)
 		})
+		t.Run("artifact garbage collection", func(t *testing.T) {
+			testArtifactGarbageCollection(t, repository, blackboard)
+		})
+		t.Run("artifact blob conflict", func(t *testing.T) {
+			testArtifactBlobConflict(t, repository)
+		})
 		t.Run("concurrent blackboard appends", func(t *testing.T) {
 			testConcurrentBlackboardPlanning(t, repository, openPeer(t), blackboard)
 		})
@@ -75,6 +81,96 @@ func TestSQLRepositoryContract(t *testing.T) {
 			})
 		}
 	})
+}
+
+func testArtifactBlobConflict(t *testing.T, repository *SQLRepository) {
+	t.Helper()
+	ctx := context.Background()
+	original := domain.ArtifactBlob{
+		URI:    "kairos://blobs/uploads/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Digest: "sha256:first", Size: 5, CreatedAt: repositoryTestTime,
+	}
+	if err := repository.Update(ctx, func(store application.WriteStore) error {
+		return store.CreateArtifactBlob(original)
+	}); err != nil {
+		t.Fatalf("create Artifact Blob: %v", err)
+	}
+	if err := repository.Update(ctx, func(store application.WriteStore) error {
+		return store.CreateArtifactBlob(original)
+	}); err != nil {
+		t.Fatalf("repeat identical Artifact Blob: %v", err)
+	}
+	for _, changed := range []domain.ArtifactBlob{
+		{URI: original.URI, Digest: "sha256:changed", Size: original.Size, CreatedAt: original.CreatedAt},
+		{URI: original.URI, Digest: original.Digest, Size: original.Size + 1, CreatedAt: original.CreatedAt},
+	} {
+		if err := repository.Update(ctx, func(store application.WriteStore) error {
+			return store.CreateArtifactBlob(changed)
+		}); !errors.Is(err, application.ErrConflict) {
+			t.Fatalf("create conflicting Artifact Blob %#v: %v", changed, err)
+		}
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		persisted, err := store.GetArtifactBlob(original.URI)
+		if err != nil {
+			return err
+		}
+		if persisted.Digest != original.Digest || persisted.Size != original.Size {
+			return fmt.Errorf("Artifact Blob = %#v, want %#v", persisted, original)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verify Artifact Blob: %v", err)
+	}
+}
+
+func testArtifactGarbageCollection(t *testing.T, repository *SQLRepository, definition domain.BlackboardDefinition) {
+	t.Helper()
+	ctx := context.Background()
+	service := repositoryTestService(t, repository)
+	agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "artifact-gc-agent"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Artifact GC", Goal: "Collect an abandoned Artifact",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent, Title: "Upload", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim task: %v", err)
+	}
+	artifact, err := service.CreateArtifact(ctx, application.CreateArtifactCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Name: "branch", URI: "https://example.test/abandoned",
+	})
+	if err != nil {
+		t.Fatalf("create Artifact: %v", err)
+	}
+	if err := service.ReleaseClaim(ctx, application.ReleaseClaimCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: agent}); err != nil {
+		t.Fatalf("release claim: %v", err)
+	}
+	collector, err := application.NewService(repository, repositoryTestClockAt{now: repositoryTestTime.Add(2 * time.Hour)}, &repositoryTestIDs{})
+	if err != nil {
+		t.Fatalf("new collector: %v", err)
+	}
+	result, err := collector.GarbageCollectArtifacts(ctx, time.Hour)
+	if err != nil {
+		t.Fatalf("collect Artifact garbage: %v", err)
+	}
+	if result.ArtifactsDeleted != 1 {
+		t.Fatalf("GC result = %#v", result)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		_, err := store.GetArtifact(artifact.ID)
+		return err
+	}); !errors.Is(err, application.ErrNotFound) {
+		t.Fatalf("get collected Artifact: %v", err)
+	}
 }
 
 func testDefinitionMetadataBatch(t *testing.T, repository *SQLRepository, workflow domain.WorkflowDefinition, blackboard domain.BlackboardDefinition) {
@@ -1009,6 +1105,10 @@ func repositoryTaskByDefinition(
 type repositoryTestClock struct{}
 
 func (repositoryTestClock) Now() time.Time { return repositoryTestTime }
+
+type repositoryTestClockAt struct{ now time.Time }
+
+func (c repositoryTestClockAt) Now() time.Time { return c.now }
 
 type repositoryTestIDs struct{}
 

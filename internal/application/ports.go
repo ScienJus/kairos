@@ -44,11 +44,14 @@ type IDGenerator interface {
 	NewID() string
 }
 
-// ArtifactContentStore persists and resolves managed Artifact content for one URI scheme.
+// ArtifactContentStore persists and resolves managed Artifact content.
 type ArtifactContentStore interface {
 	Scheme() string
+	// UploadURI returns the final managed location registered before bytes are written.
+	UploadURI(key string) (string, error)
 	Put(context.Context, string, io.Reader) (domain.ArtifactBlob, error)
 	Open(context.Context, string) (io.ReadCloser, error)
+	Delete(context.Context, string) error
 }
 
 // WorkCandidateKind distinguishes execution, planning, completion, and acceptance opportunities.
@@ -69,11 +72,19 @@ type WorkCandidate struct {
 	Definition DefinitionExecutionContext
 }
 
-// IdempotencyRecord stores the durable result of one actor mutation.
+// IdempotencyRecord stores the durable progress or result of one actor mutation.
+type IdempotencyStatus string
+
+const (
+	IdempotencyPending   IdempotencyStatus = "pending"
+	IdempotencyCompleted IdempotencyStatus = "completed"
+)
+
 type IdempotencyRecord struct {
 	Actor       domain.ActorRef
 	OperationID string
 	Operation   string
+	Status      IdempotencyStatus
 	RequestHash string
 	Response    string
 	CreatedAt   time.Time
@@ -90,6 +101,9 @@ type ReadStore interface {
 	GetArtifact(domain.ArtifactID) (domain.Artifact, error)
 	ListArtifacts(domain.WorkItemID) ([]domain.Artifact, error)
 	GetArtifactBlob(string) (domain.ArtifactBlob, error)
+	ListArtifactGarbage(time.Time) ([]domain.Artifact, error)
+	ListUnreferencedArtifactBlobs(time.Time) ([]domain.ArtifactBlob, error)
+	ArtifactBlobReferenced(string) (bool, error)
 	GetWorkflowTaskActivation(domain.WorkflowTaskActivationID) (domain.WorkflowTaskActivation, error)
 	ListWorkflowTaskActivations(domain.WorkItemID) ([]domain.WorkflowTaskActivation, error)
 	ListOpenTasks() ([]WorkCandidate, error)
@@ -105,6 +119,7 @@ type ReadStore interface {
 
 	LastWorkItemEventSequence(domain.WorkItemID) (int64, error)
 	GetIdempotencyRecord(domain.ActorRef, string) (IdempotencyRecord, error)
+	ListPendingIdempotencyRecords(time.Time) ([]IdempotencyRecord, error)
 }
 
 // WriteStore exposes mutations performed inside one repository transaction.
@@ -126,11 +141,15 @@ type WriteStore interface {
 	SaveClaim(domain.Claim) error
 	CreateArtifact(domain.Artifact) error
 	SaveArtifact(domain.Artifact) error
+	DeleteArtifact(domain.ArtifactID) error
 	CreateArtifactBlob(domain.ArtifactBlob) error
+	DeleteArtifactBlob(string) error
 
 	AppendWorkItemEvent(domain.WorkItemEvent) error
 	LockIdempotencyKey(domain.ActorRef, string) error
 	CreateIdempotencyRecord(IdempotencyRecord) error
+	SaveIdempotencyRecord(IdempotencyRecord) error
+	DeleteIdempotencyRecord(domain.ActorRef, string) error
 }
 
 // Repository provides consistent reads and atomic updates. Update implementations

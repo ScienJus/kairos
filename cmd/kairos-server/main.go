@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -47,7 +48,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if err := service.ConfigureArtifactStores(environment("KAIROS_ARTIFACT_STORE", artifactstore.LocalStoreURI), localArtifacts); err != nil {
+	if err := service.ConfigureArtifactStore(localArtifacts); err != nil {
 		return err
 	}
 	claimLease, err := time.ParseDuration(environment("KAIROS_AGENT_CLAIM_LEASE", "5m"))
@@ -59,6 +60,24 @@ func run() error {
 	}
 	stopReaper := service.StartLeaseReaper(ctx, 15*time.Second)
 	defer stopReaper()
+	artifactGCRetention, err := time.ParseDuration(environment("KAIROS_ARTIFACT_GC_RETENTION", application.DefaultArtifactGCRetention.String()))
+	if err != nil {
+		return fmt.Errorf("parse KAIROS_ARTIFACT_GC_RETENTION: %w", err)
+	}
+	artifactGCInterval, err := time.ParseDuration(environment("KAIROS_ARTIFACT_GC_INTERVAL", application.DefaultArtifactGCInterval.String()))
+	if err != nil {
+		return fmt.Errorf("parse KAIROS_ARTIFACT_GC_INTERVAL: %w", err)
+	}
+	stopArtifactGC, err := service.StartArtifactGarbageCollector(ctx, artifactGCRetention, artifactGCInterval)
+	if err != nil {
+		return err
+	}
+	defer stopArtifactGC()
+	maxArtifactUploadBytes, err := strconv.ParseInt(environment("KAIROS_ARTIFACT_MAX_UPLOAD_BYTES", strconv.FormatInt(httpapi.DefaultMaxArtifactUploadBytes, 10)), 10, 64)
+	if err != nil || maxArtifactUploadBytes <= 0 {
+		return fmt.Errorf("KAIROS_ARTIFACT_MAX_UPLOAD_BYTES must be a positive integer")
+	}
+	httpOptions := httpapi.Options{MaxArtifactUploadBytes: maxArtifactUploadBytes}
 	identityService, err := identity.NewService(repo, systemClock{}, identity.SecureTokenGenerator{})
 	if err != nil {
 		return err
@@ -78,16 +97,16 @@ func run() error {
 		return fmt.Errorf("unsupported KAIROS_AUTH_MODE %q", authMode)
 	}
 
-	var apiHandler http.Handler
+	var apiHandler *httpapi.Handler
 	if adminToken != "" {
-		apiHandler, err = httpapi.NewWithIdentityManagement(service, resolver, identityService, adminToken)
+		apiHandler, err = httpapi.NewWithIdentityManagement(service, resolver, identityService, adminToken, httpOptions)
 	} else {
-		apiHandler, err = httpapi.New(service, resolver)
+		apiHandler, err = httpapi.New(service, resolver, httpOptions)
 	}
 	if err != nil {
 		return err
 	}
-	mcpHandler, err := mcpapi.New(service, resolver)
+	mcpHandler, err := mcpapi.New(service, resolver, mcpapi.Options{MaxArtifactUploadBytes: maxArtifactUploadBytes})
 	if err != nil {
 		return err
 	}

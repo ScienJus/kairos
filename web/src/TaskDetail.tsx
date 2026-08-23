@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -18,9 +19,14 @@ import {
   ChevronsDown,
   ChevronsUp,
   CircleDot,
+  Download,
+  ExternalLink,
+  Link,
+  Paperclip,
   Plus,
   ShieldCheck,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { api } from "./api";
@@ -59,6 +65,17 @@ type TaskOperation =
   | "decompose"
   | "add-child"
   | "skip";
+type ArtifactDeliveryMode = "upload" | "uri";
+
+function uniqueArtifactIDsByName(artifacts: TaskExecutionContext["Artifacts"]) {
+  const names = new Set<string>();
+  return artifacts.flatMap((artifact) => {
+    if (names.has(artifact.Name)) return [];
+    names.add(artifact.Name);
+    return [artifact.ID];
+  });
+}
+
 const emptyTaskDraft = (): TaskDraft => ({
   title: "",
   description: "",
@@ -245,6 +262,9 @@ export function TaskDetail({
           <pre>{latestResult}</pre>
         </div>
       )}
+      {detail.data.Artifacts.length > 0 && (
+        <TaskArtifacts artifacts={detail.data.Artifacts} identity={identity} />
+      )}
       {detail.data.History.Reviews.length > 0 && (
         <div className="timeline">
           <span>{t("reviewChannel")}</span>
@@ -352,6 +372,66 @@ export function TaskDetail({
   );
 }
 
+function TaskArtifacts({
+  artifacts,
+  identity,
+}: {
+  artifacts: TaskDetailView["Artifacts"];
+  identity: Identity;
+}) {
+  const { t } = useI18n();
+  const [error, setError] = useState<Error | null>(null);
+
+  async function download(artifact: TaskDetailView["Artifacts"][number]) {
+    try {
+      setError(null);
+      const blob = await api.downloadArtifact(identity, artifact.ID);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = artifact.Name;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : new Error(t("unreachable")));
+    }
+  }
+
+  return (
+    <section className="task-artifacts" aria-label={t("taskArtifacts")}>
+      <div className="task-artifacts-heading">
+        <Paperclip size={15} />
+        <span>{t("taskArtifacts")}</span>
+      </div>
+      <div className="task-artifact-list">
+        {artifacts.map((artifact) => (
+          <div key={artifact.ID}>
+            <strong>{artifact.Name}</strong>
+            {artifact.URI.startsWith("kairos://") ? (
+              <button
+                type="button"
+                className="quiet-button"
+                onClick={() => void download(artifact)}
+              >
+                <Download size={14} />
+                {t("downloadArtifact")}
+              </button>
+            ) : /^https?:\/\//.test(artifact.URI) ? (
+              <a href={artifact.URI} target="_blank" rel="noreferrer">
+                <span>{artifact.URI}</span>
+                <ExternalLink size={13} />
+              </a>
+            ) : (
+              <span>{artifact.URI}</span>
+            )}
+          </div>
+        ))}
+      </div>
+      {error && <FormError error={error} />}
+    </section>
+  );
+}
+
 function OperationPanel({
   operation,
   activeOperation,
@@ -403,8 +483,11 @@ function HumanTaskActions({
   const canHumanExecute =
     task.Executor === "human" || task.Executor === "either";
   const [result, setResult] = useState("");
+  const [artifactModes, setArtifactModes] = useState<Record<string, ArtifactDeliveryMode>>({});
+  const [artifactFiles, setArtifactFiles] = useState<Record<string, File>>({});
   const [artifactURIs, setArtifactURIs] = useState<Record<string, string>>({});
   const [createdArtifactIDs, setCreatedArtifactIDs] = useState<Record<string, string>>({});
+  const artifactOperationIDs = useRef<Record<string, string>>({});
   const [requestReview, setRequestReview] = useState(false);
   const [transitionID, setTransitionID] = useState("");
   const [failureReason, setFailureReason] = useState("");
@@ -425,6 +508,22 @@ function HumanTaskActions({
       item.Executor.Kind === identity.kind &&
       item.Executor.ID === identity.id,
   );
+  const resetClaimState = () => {
+    setResult("");
+    setArtifactModes({});
+    setArtifactFiles({});
+    setArtifactURIs({});
+    setCreatedArtifactIDs({});
+    artifactOperationIDs.current = {};
+    setRequestReview(false);
+    setTransitionID("");
+    setFailureReason("");
+    setRetryPrompt("");
+    setFailureAction("reopen");
+  };
+  useEffect(() => {
+    resetClaimState();
+  }, [activeClaim?.ID]);
   const choices = execution.data?.Workflow?.ChoiceGroups ?? [];
   const expectedArtifacts = execution.data?.ExpectedArtifacts ?? [];
   const stagedArtifacts = (execution.data?.Artifacts ?? []).filter(
@@ -442,11 +541,21 @@ function HumanTaskActions({
           ) || created[expected.Name]
         )
           continue;
-        const artifact = await api.createArtifact(identity, task.ID, {
-          claim_id: activeClaim!.ID,
-          name: expected.Name,
-          uri: artifactURIs[expected.Name],
-        });
+        const artifact = (artifactModes[expected.Name] ?? "upload") === "upload"
+          ? await api.uploadArtifact(
+              identity,
+              task.ID,
+              activeClaim!.ID,
+              expected.Name,
+              artifactFiles[expected.Name],
+              artifactOperationIDs.current[expected.Name] ??=
+                crypto.randomUUID(),
+            )
+          : await api.createArtifact(identity, task.ID, {
+              claim_id: activeClaim!.ID,
+              name: expected.Name,
+              uri: artifactURIs[expected.Name],
+            });
         created[expected.Name] = artifact.ID;
         setCreatedArtifactIDs({ ...created });
       }
@@ -455,7 +564,7 @@ function HumanTaskActions({
         result,
         artifact_ids: [
           ...new Set([
-            ...stagedArtifacts.map((artifact) => artifact.ID),
+            ...uniqueArtifactIDsByName(stagedArtifacts),
             ...Object.values(created),
           ]),
         ],
@@ -471,15 +580,16 @@ function HumanTaskActions({
       });
     },
     onSuccess: () => {
-      setResult("");
-      setArtifactURIs({});
-      setCreatedArtifactIDs({});
+      resetClaimState();
       return refresh();
     },
   });
   const release = useMutation({
     mutationFn: () => api.releaseClaim(identity, task.ID, activeClaim!.ID),
-    onSuccess: refresh,
+    onSuccess: () => {
+      resetClaimState();
+      return refresh();
+    },
   });
   const fail = useMutation({
     mutationFn: () =>
@@ -490,9 +600,7 @@ function HumanTaskActions({
         retry_prompt: failureAction === "reopen" ? retryPrompt : "",
       }),
     onSuccess: () => {
-      setFailureReason("");
-      setRetryPrompt("");
-      setFailureAction("reopen");
+      resetClaimState();
       return refresh();
     },
   });
@@ -533,7 +641,9 @@ function HumanTaskActions({
     (expected) =>
       stagedArtifacts.some((artifact) => artifact.Name === expected.Name) ||
       createdArtifactIDs[expected.Name] ||
-      artifactURIs[expected.Name]?.trim(),
+      ((artifactModes[expected.Name] ?? "upload") === "upload"
+        ? artifactFiles[expected.Name]
+        : artifactURIs[expected.Name]?.trim()),
   );
   return (
     <>
@@ -561,27 +671,71 @@ function HumanTaskActions({
                 const existing = stagedArtifacts.find(
                   (artifact) => artifact.Name === expected.Name,
                 );
+                const mode = artifactModes[expected.Name] ?? "upload";
                 return (
-                  <label key={expected.Name}>
-                    {expected.Name}
+                  <div className="expected-artifact" key={expected.Name}>
+                    <strong>{expected.Name}</strong>
                     <small>{expected.Description}</small>
                     {existing || createdArtifactIDs[expected.Name] ? (
                       <span className="artifact-ready">
                         {t("artifactReady")}
                       </span>
                     ) : (
-                      <input
-                        value={artifactURIs[expected.Name] ?? ""}
-                        onChange={(event) =>
-                          setArtifactURIs((current) => ({
-                            ...current,
-                            [expected.Name]: event.target.value,
-                          }))
-                        }
-                        placeholder={t("artifactURIPlaceholder")}
-                      />
+                      <>
+                        <div className="artifact-delivery-modes" aria-label={`${expected.Name}: ${t("artifactDeliveryMode")}`} role="group">
+                          <button
+                            type="button"
+                            aria-pressed={mode === "upload"}
+                            onClick={() => setArtifactModes((current) => ({ ...current, [expected.Name]: "upload" }))}
+                          >
+                            <Upload size={14} />
+                            {t("uploadFile")}
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={mode === "uri"}
+                            onClick={() => setArtifactModes((current) => ({ ...current, [expected.Name]: "uri" }))}
+                          >
+                            <Link size={14} />
+                            {t("externalURI")}
+                          </button>
+                        </div>
+                        {mode === "upload" ? (
+                          <label className="artifact-file-input">
+                            <span>{t("uploadFile")}</span>
+                            <input
+                              type="file"
+                              aria-label={`${expected.Name}: ${t("uploadFile")}`}
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                delete artifactOperationIDs.current[expected.Name];
+                                setArtifactFiles((current) => {
+                                  const next = { ...current };
+                                  if (file) next[expected.Name] = file;
+                                  else delete next[expected.Name];
+                                  return next;
+                                });
+                              }}
+                            />
+                          </label>
+                        ) : (
+                          <label className="artifact-uri-input">
+                            <span>{t("externalURI")}</span>
+                            <input
+                              value={artifactURIs[expected.Name] ?? ""}
+                              onChange={(event) =>
+                                setArtifactURIs((current) => ({
+                                  ...current,
+                                  [expected.Name]: event.target.value,
+                                }))
+                              }
+                              placeholder={t("artifactURIPlaceholder")}
+                            />
+                          </label>
+                        )}
+                      </>
                     )}
-                  </label>
+                  </div>
                 );
               })}
             </div>

@@ -2,7 +2,7 @@
 
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
@@ -48,7 +48,7 @@ function detail(task: Task, claims: Claim[] = []): TaskDetailView {
   const canExecute = task.Executor === 'human' || task.Executor === 'either'
   return {
     Task: task, Responsibility: { Kind: kind, Actor: actor }, Outcome: { Kind: task.Status, Actor: actor, Reason: task.SkipReason }, CurrentReview: task.Reviews.at(-1) ?? null,
-    History: { Claims: claims, Submissions: task.Submissions, Reviews: task.Reviews, Failures: task.Failures, TransitionDecisions: task.TransitionDecisions },
+    History: { Claims: claims, Submissions: task.Submissions, Reviews: task.Reviews, Failures: task.Failures, TransitionDecisions: task.TransitionDecisions }, Artifacts: [],
     Capabilities: { CanClaim: task.Status === 'pending' && canExecute, CanSubmit: task.Status === 'working' && ownsClaim, CanRelease: task.Status === 'working' && ownsClaim, CanFail: task.Status === 'working' && ownsClaim, CanReview: task.Status === 'in_review', CanSkip: task.Status === 'pending', CanDecompose: false, CanAddChild: task.Status === 'waiting_children' },
   }
 }
@@ -56,7 +56,10 @@ function detail(task: Task, claims: Claim[] = []): TaskDetailView {
 function renderTask(task: Task, activeClaim: Claim | null = null, mode = 'blackboard', executionClaim: Claim | null = null) {
   vi.spyOn(api, 'getTaskDetail').mockResolvedValue(detail(task, activeClaim ? [activeClaim] : executionClaim ? [executionClaim] : []))
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><I18nProvider><TaskDetail task={task} activeClaim={activeClaim} executionClaim={executionClaim} identity={identity} mode={mode} /></I18nProvider></QueryClientProvider>)
+  return Object.assign(
+    render(<QueryClientProvider client={queryClient}><I18nProvider><TaskDetail task={task} activeClaim={activeClaim} executionClaim={executionClaim} identity={identity} mode={mode} /></I18nProvider></QueryClientProvider>),
+    { queryClient },
+  )
 }
 
 beforeEach(() => {
@@ -70,6 +73,25 @@ afterEach(() => {
 })
 
 describe('Task detail operations', () => {
+  it('shows artifacts delivered by the selected task', async () => {
+    const task = makeTask({ Status: 'completed', ActiveClaimID: null })
+    const view = detail(task)
+    view.Artifacts = [
+      { ID: 'artifact-1', WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: 'claim-1', SubmissionID: 'submission-1', Name: 'release-notes', URI: 'https://example.test/releases/notes', CreatedAt: '2026-08-17T09:00:00Z' },
+      { ID: 'artifact-2', WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: 'claim-1', SubmissionID: 'submission-1', Name: 'release-package', URI: 'kairos://blobs/sha256/abc', CreatedAt: '2026-08-17T09:00:00Z' },
+    ]
+    vi.spyOn(api, 'getTaskDetail').mockResolvedValue(view)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(<QueryClientProvider client={queryClient}><I18nProvider><TaskDetail task={task} activeClaim={null} identity={identity} mode="workflow" /></I18nProvider></QueryClientProvider>)
+
+    expect(await screen.findByRole('region', { name: 'Task artifacts' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /https:\/\/example\.test\/releases\/notes/ })).toHaveAttribute('href', 'https://example.test/releases/notes')
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
+    expect(screen.getByText('release-notes')).toBeInTheDocument()
+    expect(screen.getByText('release-package')).toBeInTheDocument()
+  })
+
   it('shows the executor from the completed task submission claim', async () => {
     const endedClaim = { ...claim, Executor: { Kind: 'agent' as const, ID: 'codex-backend' }, EndedAt: '2026-08-17T09:00:00Z', EndReason: 'submitted' }
     const task = makeTask({
@@ -133,6 +155,155 @@ describe('Task detail operations', () => {
 
     await user.click(screen.getByRole('button', { name: 'Complete this task' }))
     expect(screen.getByRole('textbox', { name: 'What was accomplished?' })).toHaveValue('Release notes drafted')
+  })
+
+  it('uploads a managed file and submits its Artifact ID', async () => {
+    const task = makeTask()
+    const context = execution(task, [claim])
+    context.WorkItem.Definition.Mode = 'workflow'
+    context.ExpectedArtifacts = [{ Name: 'release-package', Description: 'Upload the release archive.' }]
+    context.Workflow = { UpstreamTasks: [], ChoiceGroups: [] }
+    context.Blackboard = null
+    vi.spyOn(api, 'getTaskContext').mockResolvedValue(context)
+    const artifact = {
+      ID: 'artifact-uploaded', WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID,
+      SubmissionID: null, Name: 'release-package', URI: 'kairos://blobs/sha256/abc', CreatedAt: '2026-08-17T09:00:00Z',
+    }
+    const upload = vi.spyOn(api, 'uploadArtifact').mockResolvedValue(artifact)
+    const submit = vi.spyOn(api, 'submitTask').mockResolvedValue({
+      ID: 'submission-1', TaskID: task.ID, ClaimID: claim.ID, Result: 'Release ready', SubmittedAt: '2026-08-17T09:01:00Z',
+    })
+    const user = userEvent.setup()
+    const file = new File(['release bytes'], 'release.zip', { type: 'application/zip' })
+
+    renderTask(task, claim, 'workflow')
+
+    await user.type(await screen.findByRole('textbox', { name: 'What was accomplished?' }), 'Release ready')
+    await user.upload(screen.getByLabelText('release-package: Upload file'), file)
+    await user.click(screen.getByRole('button', { name: 'Complete task' }))
+
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(identity, task.ID, claim.ID, 'release-package', file, expect.any(String)))
+    expect(submit).toHaveBeenCalledWith(identity, task.ID, expect.objectContaining({
+      claim_id: claim.ID, artifact_ids: [artifact.ID], result: 'Release ready',
+    }))
+  })
+
+  it('reuses the managed upload operation ID for an identical retry', async () => {
+    const task = makeTask()
+    const context = execution(task, [claim])
+    context.WorkItem.Definition.Mode = 'workflow'
+    context.ExpectedArtifacts = [{ Name: 'release-package', Description: 'Upload the release archive.' }]
+    context.Workflow = { UpstreamTasks: [], ChoiceGroups: [] }
+    context.Blackboard = null
+    vi.spyOn(api, 'getTaskContext').mockResolvedValue(context)
+    const artifact = {
+      ID: 'artifact-uploaded', WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID,
+      SubmissionID: null, Name: 'release-package', URI: 'kairos://blobs/uploads/retry', CreatedAt: '2026-08-17T09:00:00Z',
+    }
+    const upload = vi.spyOn(api, 'uploadArtifact')
+      .mockRejectedValueOnce(new Error('Upload interrupted'))
+      .mockResolvedValueOnce(artifact)
+    vi.spyOn(api, 'submitTask').mockResolvedValue({
+      ID: 'submission-1', TaskID: task.ID, ClaimID: claim.ID, Result: 'Release ready', SubmittedAt: '2026-08-17T09:01:00Z',
+    })
+    const user = userEvent.setup()
+    const file = new File(['release bytes'], 'release.zip', { type: 'application/zip' })
+
+    renderTask(task, claim, 'workflow')
+
+    await user.type(await screen.findByRole('textbox', { name: 'What was accomplished?' }), 'Release ready')
+    await user.upload(screen.getByLabelText('release-package: Upload file'), file)
+    await user.click(screen.getByRole('button', { name: 'Complete task' }))
+    expect(await screen.findByText('Upload interrupted')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Complete task' }))
+
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(2))
+    expect(upload.mock.calls[1][5]).toBe(upload.mock.calls[0][5])
+  })
+
+  it('clears staged Artifact state when the active Claim changes', async () => {
+    const task = makeTask()
+    const firstContext = execution(task, [claim])
+    firstContext.WorkItem.Definition.Mode = 'workflow'
+    firstContext.ExpectedArtifacts = [{ Name: 'release-package', Description: 'Upload the release archive.' }]
+    firstContext.Workflow = { UpstreamTasks: [], ChoiceGroups: [] }
+    firstContext.Blackboard = null
+    vi.spyOn(api, 'getTaskContext').mockResolvedValue(firstContext)
+    const firstArtifact = {
+      ID: 'artifact-first-claim', WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID,
+      SubmissionID: null, Name: 'release-package', URI: 'kairos://blobs/uploads/first-claim', CreatedAt: '2026-08-17T09:00:00Z',
+    }
+    const secondClaim = { ...claim, ID: 'claim-2' }
+    const secondArtifact = {
+      ...firstArtifact, ID: 'artifact-second-claim', ClaimID: secondClaim.ID, URI: 'kairos://blobs/uploads/second-claim',
+    }
+    const upload = vi.spyOn(api, 'uploadArtifact')
+      .mockResolvedValueOnce(firstArtifact)
+      .mockResolvedValueOnce(secondArtifact)
+    const submit = vi.spyOn(api, 'submitTask')
+      .mockRejectedValueOnce(new Error('Submission needs another attempt'))
+      .mockResolvedValueOnce({
+        ID: 'submission-2', TaskID: task.ID, ClaimID: secondClaim.ID, Result: 'Second result', SubmittedAt: '2026-08-17T10:01:00Z',
+      })
+    const user = userEvent.setup()
+    const { queryClient } = renderTask(task, claim, 'workflow')
+
+    await user.type(await screen.findByRole('textbox', { name: 'What was accomplished?' }), 'First result')
+    await user.upload(screen.getByLabelText('release-package: Upload file'), new File(['first'], 'first.zip'))
+    await user.click(screen.getByRole('button', { name: 'Complete task' }))
+    expect(await screen.findByText('Submission needs another attempt')).toBeInTheDocument()
+
+    const secondTask = { ...task, ActiveClaimID: secondClaim.ID }
+    const secondContext = execution(secondTask, [
+      { ...claim, EndedAt: '2026-08-17T09:30:00Z', EndReason: 'released' },
+      secondClaim,
+    ])
+    secondContext.WorkItem.Definition.Mode = 'workflow'
+    secondContext.ExpectedArtifacts = firstContext.ExpectedArtifacts
+    secondContext.Workflow = { UpstreamTasks: [], ChoiceGroups: [] }
+    secondContext.Blackboard = null
+    act(() => queryClient.setQueryData(['task-context', identity, task.ID], secondContext))
+
+    const secondFileInput = await screen.findByLabelText('release-package: Upload file')
+    await user.type(screen.getByRole('textbox', { name: 'What was accomplished?' }), 'Second result')
+    await user.upload(secondFileInput, new File(['second'], 'second.zip'))
+    await user.click(screen.getByRole('button', { name: 'Complete task' }))
+
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(2))
+    expect(upload.mock.calls[1][2]).toBe(secondClaim.ID)
+    expect(upload.mock.calls[1][5]).not.toBe(upload.mock.calls[0][5])
+    expect(submit).toHaveBeenLastCalledWith(identity, task.ID, expect.objectContaining({
+      claim_id: secondClaim.ID, artifact_ids: [secondArtifact.ID], result: 'Second result',
+    }))
+  })
+
+  it('submits only one staged Artifact for each name', async () => {
+    const task = makeTask()
+    const context = execution(task, [claim])
+    context.WorkItem.Definition.Mode = 'workflow'
+    context.ExpectedArtifacts = [{ Name: 'release-package', Description: 'Upload the release archive.' }]
+    context.Artifacts = [
+      { ID: 'artifact-first', WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID, SubmissionID: null, Name: 'release-package', URI: 'kairos://blobs/uploads/first', CreatedAt: '2026-08-17T09:00:00Z' },
+      { ID: 'artifact-duplicate', WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID, SubmissionID: null, Name: 'release-package', URI: 'kairos://blobs/uploads/duplicate', CreatedAt: '2026-08-17T09:01:00Z' },
+    ]
+    context.Workflow = { UpstreamTasks: [], ChoiceGroups: [] }
+    context.Blackboard = null
+    vi.spyOn(api, 'getTaskContext').mockResolvedValue(context)
+    const upload = vi.spyOn(api, 'uploadArtifact')
+    const submit = vi.spyOn(api, 'submitTask').mockResolvedValue({
+      ID: 'submission-1', TaskID: task.ID, ClaimID: claim.ID, Result: 'Release ready', SubmittedAt: '2026-08-17T09:02:00Z',
+    })
+    const user = userEvent.setup()
+
+    renderTask(task, claim, 'workflow')
+
+    await user.type(await screen.findByRole('textbox', { name: 'What was accomplished?' }), 'Release ready')
+    await user.click(screen.getByRole('button', { name: 'Complete task' }))
+
+    await waitFor(() => expect(submit).toHaveBeenCalledWith(identity, task.ID, expect.objectContaining({
+      artifact_ids: ['artifact-first'],
+    })))
+    expect(upload).not.toHaveBeenCalled()
   })
 
   it('disables the completion action while its mutation is pending', async () => {

@@ -45,7 +45,7 @@ export interface TaskExecutionContext {
 export interface TaskCapabilities { CanClaim: boolean; CanSubmit: boolean; CanRelease: boolean; CanFail: boolean; CanReview: boolean; CanSkip: boolean; CanDecompose: boolean; CanAddChild: boolean }
 export interface TaskDetailView {
   Task: Task; Responsibility: { Kind: string; Actor: ActorRef | null }; Outcome: { Kind: string; Actor: ActorRef | null; Reason?: string; OccurredAt?: string }
-  CurrentReview: Review | null; History: { Claims: Claim[]; Submissions: Submission[]; Reviews: Review[]; Failures: Failure[]; TransitionDecisions: unknown[] }; Capabilities: TaskCapabilities
+  CurrentReview: Review | null; History: { Claims: Claim[]; Submissions: Submission[]; Reviews: Review[]; Failures: Failure[]; TransitionDecisions: unknown[] }; Artifacts: Artifact[]; Capabilities: TaskCapabilities
 }
 export interface TaskRelation { WorkItemID: string; FromTaskID: string; ToTaskID: string }
 export interface BlackboardTaskDecomposition { Parent: Task; Children: Task[] }

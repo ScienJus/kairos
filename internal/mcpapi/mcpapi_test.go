@@ -3,6 +3,7 @@ package mcpapi
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,11 +16,23 @@ import (
 	"time"
 
 	"github.com/ScienJus/kairos/internal/application"
+	"github.com/ScienJus/kairos/internal/artifactstore"
 	"github.com/ScienJus/kairos/internal/domain"
 	"github.com/ScienJus/kairos/internal/identity"
 	"github.com/ScienJus/kairos/internal/repository"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestRequireOperationID(t *testing.T) {
+	for _, value := range []string{"", " ", "\t"} {
+		if err := requireOperationID(value); err == nil {
+			t.Fatalf("requireOperationID(%q) unexpectedly succeeded", value)
+		}
+	}
+	if err := requireOperationID("operation-1"); err != nil {
+		t.Fatalf("requireOperationID valid value: %v", err)
+	}
+}
 
 func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	ctx := context.Background()
@@ -50,7 +63,7 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 		"accept_blackboard_completion", "add_blackboard_child_task", "add_blackboard_relation", "claim_task",
 		"create_artifact", "create_blackboard_task", "decompose_blackboard_task", "fail_task", "find_work",
 		"get_task_context", "get_work_item_context", "heartbeat_claim", "release_claim",
-		"skip_blackboard_task", "submit_blackboard_completion", "submit_task",
+		"skip_blackboard_task", "submit_blackboard_completion", "submit_task", "upload_artifact",
 	}
 	gotTools := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
@@ -64,15 +77,15 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal tool definitions: %v", err)
 	}
-	if len(toolPayload) > 32_000 {
-		t.Fatalf("tool definitions are %d bytes, want at most 32000", len(toolPayload))
+	if len(toolPayload) > 34_000 {
+		t.Fatalf("tool definitions are %d bytes, want at most 34000", len(toolPayload))
 	}
 	prettyToolPayload, err := json.MarshalIndent(tools.Tools, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal formatted tool definitions: %v", err)
 	}
-	if len(prettyToolPayload) > 76_000 {
-		t.Fatalf("formatted tool definitions are %d bytes, want at most 76000", len(prettyToolPayload))
+	if len(prettyToolPayload) > 78_000 {
+		t.Fatalf("formatted tool definitions are %d bytes, want at most 78000", len(prettyToolPayload))
 	}
 
 	find := callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{})
@@ -148,10 +161,27 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	claimed = callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
 		TaskID: created.Task.ID, OperationID: "claim-task-2",
 	})
+	missingOperation, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "create_artifact", Arguments: createArtifactInput{
+		TaskID: created.Task.ID, ClaimID: claimed.Claim.ID, Name: "missing-operation", URI: "https://example.test/missing-operation",
+	}})
+	if err != nil {
+		t.Fatalf("call create_artifact without operation_id: %v", err)
+	}
+	if !missingOperation.IsError {
+		t.Fatal("create_artifact without operation_id unexpectedly succeeded")
+	}
+	artifactContent := []byte("managed MCP artifact content\x00\xff")
+	uploaded := callTool[artifactOutput](t, ctx, session, "upload_artifact", uploadArtifactInput{
+		TaskID: created.Task.ID, ClaimID: claimed.Claim.ID, OperationID: "upload-task-artifact-1",
+		Name: "managed-report", ContentBase64: base64.StdEncoding.EncodeToString(artifactContent),
+	})
+	if uploaded.Artifact.URI[:len("kairos://")] != "kairos://" {
+		t.Fatalf("uploaded Artifact URI = %q", uploaded.Artifact.URI)
+	}
 
 	submitted := callTool[submissionOutput](t, ctx, session, "submit_task", submitTaskInput{
 		TaskID: created.Task.ID, ClaimID: claimed.Claim.ID,
-		OperationID: "submit-task-1", Result: "MCP lifecycle verified end to end.",
+		OperationID: "submit-task-1", Result: "MCP lifecycle verified end to end.", ArtifactIDs: []string{uploaded.Artifact.ID},
 	})
 	if submitted.Submission.TaskID != created.Task.ID {
 		t.Fatalf("submission = %+v", submitted.Submission)
@@ -205,8 +235,17 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	workItemContext := callTool[workItemContextOutput](t, ctx, session, "get_work_item_context", workItemContextInput{
 		WorkItemID: workItemID,
 	})
-	if workItemContext.WorkItem.Status != string(domain.WorkItemStatusCompleted) || workItemContext.WorkItem.Result == "" || len(workItemContext.Tasks) != 3 {
+	if workItemContext.WorkItem.Status != string(domain.WorkItemStatusCompleted) || workItemContext.WorkItem.Result == "" || len(workItemContext.Tasks) != 3 || len(workItemContext.Artifacts) != 1 || workItemContext.Artifacts[0].ID != uploaded.Artifact.ID {
 		t.Fatalf("completed work item context = %+v", workItemContext)
+	}
+	storedArtifact, content, err := service.OpenArtifact(ctx, domain.ArtifactID(uploaded.Artifact.ID), identity.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "codex-backend"}, Role: "backend"})
+	if err != nil {
+		t.Fatalf("open uploaded Artifact %q: %v", uploaded.Artifact.ID, err)
+	}
+	downloaded, readErr := io.ReadAll(content)
+	content.Close()
+	if readErr != nil || !bytes.Equal(downloaded, artifactContent) || storedArtifact.SubmissionID == nil {
+		t.Fatalf("downloaded Artifact = %q, read error = %v, metadata = %#v", downloaded, readErr, storedArtifact)
 	}
 	find = callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{Tags: []string{"mcp"}})
 	if find.Candidates == nil || len(find.Candidates) != 0 {
@@ -342,6 +381,13 @@ func newMCPFixture(t *testing.T, acceptanceModes ...domain.WorkItemAcceptanceMod
 	service, err := application.NewService(repo, mcpClock{}, &mcpIDs{})
 	if err != nil {
 		t.Fatalf("new application service: %v", err)
+	}
+	localArtifacts, err := artifactstore.NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatalf("new local Artifact Store: %v", err)
+	}
+	if err := service.ConfigureArtifactStore(localArtifacts); err != nil {
+		t.Fatalf("configure Artifact Store: %v", err)
 	}
 	setup := identity.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "setup"}}
 	definition, err := service.CreateBlackboardDefinition(ctx, application.CreateBlackboardDefinitionCommand{

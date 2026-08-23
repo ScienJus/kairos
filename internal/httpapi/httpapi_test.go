@@ -24,6 +24,55 @@ import (
 
 var endToEndTime = time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 
+func TestArtifactUploadLimitIsConfigurable(t *testing.T) {
+	ctx := context.Background()
+	repo, err := repository.OpenSQLite(ctx, filepath.Join(t.TempDir(), "kairos.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+	service, err := application.NewService(repo, endToEndClock{}, &endToEndIDs{})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	handler, err := httpapi.New(service, identity.TrustedResolver{}, httpapi.Options{MaxArtifactUploadBytes: 64})
+	if err != nil {
+		t.Fatalf("new HTTP API: %v", err)
+	}
+	var body bytes.Buffer
+	multipartWriter := multipart.NewWriter(&body)
+	part, err := multipartWriter.CreateFormFile("file", "large.bin")
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+	if _, err := part.Write(bytes.Repeat([]byte("x"), 65)); err != nil {
+		t.Fatalf("write multipart file: %v", err)
+	}
+	if err := multipartWriter.Close(); err != nil {
+		t.Fatalf("close multipart body: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/task/artifact-uploads", &body)
+	request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	request.Header.Set(identity.HeaderActorID, "operator")
+	request.Header.Set(identity.HeaderActorKind, string(domain.ActorHuman))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("upload status = %d, want %d: %s", recorder.Code, http.StatusRequestEntityTooLarge, recorder.Body.String())
+	}
+	var response struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Code != "artifact_too_large" {
+		t.Fatalf("error code = %q", response.Error.Code)
+	}
+}
+
 func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	repo, err := repository.OpenSQLite(ctx, filepath.Join(t.TempDir(), "kairos.db"))
@@ -40,7 +89,7 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new local Artifact Store: %v", err)
 	}
-	if err := service.ConfigureArtifactStores(artifactstore.LocalStoreURI, localArtifacts); err != nil {
+	if err := service.ConfigureArtifactStore(localArtifacts); err != nil {
 		t.Fatalf("configure Artifact Stores: %v", err)
 	}
 	handler, err := httpapi.New(service, identity.TrustedResolver{})
@@ -174,6 +223,11 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if submission.Result != "Migration implemented and tested" {
 		t.Fatalf("submission result = %q", submission.Result)
 	}
+	taskDetail := requestData[application.TaskDetail](t, client, http.MethodGet,
+		server.URL+"/api/v1/tasks/"+string(task.ID), nil, "", http.StatusOK)
+	if len(taskDetail.Artifacts) != 2 || taskDetail.Artifacts[0].TaskID != task.ID || taskDetail.Artifacts[0].SubmissionID == nil {
+		t.Fatalf("Task Detail Artifacts = %#v", taskDetail.Artifacts)
+	}
 	workItemContext := requestData[application.WorkItemExecutionContext](t, client, http.MethodGet,
 		server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", nil, "", http.StatusOK)
 	if workItemContext.WorkItem.Status != domain.WorkItemStatusOpen || workItemContext.WorkItem.Result != "" {
@@ -247,7 +301,7 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		t.Fatalf("new Workflow candidates = %+v, want its instantiated start task", candidates)
 	}
 	detail := requestDataAs[application.TaskDetail](t, client, http.MethodGet, server.URL+"/api/v1/tasks/"+string(candidates[0].Task.ID), nil, "", http.StatusOK, trustedTestIdentity{ID: "operator", Kind: domain.ActorHuman})
-	if detail.Task.ID != candidates[0].Task.ID || detail.Task.AllowedRoles == nil || detail.Task.Tags == nil || detail.Task.Reviews == nil || detail.Task.Submissions == nil || detail.Task.Failures == nil || detail.Task.TransitionDecisions == nil || detail.History.Claims == nil || detail.History.Submissions == nil || detail.History.Reviews == nil || detail.History.Failures == nil || detail.History.TransitionDecisions == nil {
+	if detail.Task.ID != candidates[0].Task.ID || detail.Task.AllowedRoles == nil || detail.Task.Tags == nil || detail.Task.Reviews == nil || detail.Task.Submissions == nil || detail.Task.Failures == nil || detail.Task.TransitionDecisions == nil || detail.History.Claims == nil || detail.History.Submissions == nil || detail.History.Reviews == nil || detail.History.Failures == nil || detail.History.TransitionDecisions == nil || detail.Artifacts == nil {
 		t.Fatalf("human task detail or empty collection contract: %#v", detail)
 	}
 

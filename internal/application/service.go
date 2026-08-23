@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
@@ -33,13 +33,13 @@ type Identity = identity.Identity
 
 // Service coordinates application operations over one Repository.
 type Service struct {
-	repository              Repository
-	clock                   Clock
-	ids                     IDGenerator
-	claimLease              time.Duration
-	artifactStores          map[string]ArtifactContentStore
-	defaultArtifactStore    ArtifactContentStore
-	defaultArtifactStoreURI string
+	repository          Repository
+	clock               Clock
+	ids                 IDGenerator
+	claimLease          time.Duration
+	artifactStore       ArtifactContentStore
+	artifactStoreScheme string
+	artifactStoreMu     sync.RWMutex
 }
 
 // StartLeaseReaper periodically returns abandoned tasks to the pending queue.
@@ -124,34 +124,18 @@ func NewService(repository Repository, clock Clock, ids IDGenerator) (*Service, 
 	if ids == nil {
 		return nil, fmt.Errorf("%w: id generator is required", ErrInvalidCommand)
 	}
-	return &Service{repository: repository, clock: clock, ids: ids, claimLease: DefaultClaimLease, artifactStores: map[string]ArtifactContentStore{}}, nil
+	return &Service{repository: repository, clock: clock, ids: ids, claimLease: DefaultClaimLease}, nil
 }
 
-// ConfigureArtifactStores selects the only upload target and registers every
-// URI scheme that remains readable during storage migrations.
-func (s *Service) ConfigureArtifactStores(defaultStoreURI string, stores ...ArtifactContentStore) error {
-	configured, err := url.Parse(strings.TrimSpace(defaultStoreURI))
-	if err != nil || configured.Scheme == "" {
-		return invalidCommand("default artifact store must be an absolute URI")
+// ConfigureArtifactStore selects the managed content store for this service.
+func (s *Service) ConfigureArtifactStore(store ArtifactContentStore) error {
+	if store == nil || strings.TrimSpace(store.Scheme()) == "" {
+		return invalidCommand("artifact store scheme is required")
 	}
-	registered := make(map[string]ArtifactContentStore, len(stores))
-	for _, store := range stores {
-		if store == nil || strings.TrimSpace(store.Scheme()) == "" {
-			return invalidCommand("artifact store scheme is required")
-		}
-		scheme := strings.ToLower(strings.TrimSpace(store.Scheme()))
-		if _, exists := registered[scheme]; exists {
-			return invalidCommand("artifact store scheme %q is registered more than once", scheme)
-		}
-		registered[scheme] = store
-	}
-	selected, exists := registered[strings.ToLower(configured.Scheme)]
-	if !exists {
-		return invalidCommand("default artifact store scheme %q is not registered", configured.Scheme)
-	}
-	s.artifactStores = registered
-	s.defaultArtifactStore = selected
-	s.defaultArtifactStoreURI = strings.TrimSpace(defaultStoreURI)
+	s.artifactStoreMu.Lock()
+	defer s.artifactStoreMu.Unlock()
+	s.artifactStore = store
+	s.artifactStoreScheme = strings.ToLower(strings.TrimSpace(store.Scheme()))
 	return nil
 }
 

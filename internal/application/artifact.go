@@ -2,12 +2,21 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"strings"
 
 	"github.com/ScienJus/kairos/internal/domain"
+)
+
+const (
+	createArtifactOperation = "create_artifact"
+	artifactUploadOperation = "upload_artifact"
 )
 
 // CreateArtifactCommand registers one external deliverable under an active Claim.
@@ -20,7 +29,7 @@ type CreateArtifactCommand struct {
 	URI         string
 }
 
-// UploadArtifactCommand uploads one deliverable to the server-configured default Store.
+// UploadArtifactCommand uploads one deliverable to the server's managed Store.
 type UploadArtifactCommand struct {
 	TaskID      domain.TaskID
 	ClaimID     domain.ClaimID
@@ -35,17 +44,23 @@ func (s *Service) CreateArtifact(ctx context.Context, command CreateArtifactComm
 	if err != nil || parsed.Scheme == "" {
 		return domain.Artifact{}, invalidCommand("artifact uri must be absolute")
 	}
-	if _, managed := s.artifactStores[strings.ToLower(parsed.Scheme)]; managed {
+	s.artifactStoreMu.RLock()
+	managed := strings.ToLower(parsed.Scheme) == s.artifactStoreScheme
+	s.artifactStoreMu.RUnlock()
+	if managed {
 		return domain.Artifact{}, invalidCommand("managed artifact scheme %q must be created by upload", parsed.Scheme)
 	}
-	return s.createArtifact(ctx, command, nil)
+	return s.createArtifact(ctx, command)
 }
 
-// UploadArtifact writes content to the configured default Store before creating
-// its staged Artifact record. Content addressing makes retries inexpensive.
+// UploadArtifact reserves durable upload state, writes content to the managed
+// Store, then atomically creates its Blob and staged Artifact records.
 func (s *Service) UploadArtifact(ctx context.Context, command UploadArtifactCommand, source io.Reader) (domain.Artifact, error) {
-	if s.defaultArtifactStore == nil {
-		return domain.Artifact{}, invalidCommand("default artifact store is not configured")
+	s.artifactStoreMu.Lock()
+	defer s.artifactStoreMu.Unlock()
+
+	if s.artifactStore == nil {
+		return domain.Artifact{}, invalidCommand("artifact store is not configured")
 	}
 	if source == nil {
 		return domain.Artifact{}, invalidCommand("artifact content is required")
@@ -53,27 +68,82 @@ func (s *Service) UploadArtifact(ctx context.Context, command UploadArtifactComm
 	if err := command.Identity.Validate(); err != nil {
 		return domain.Artifact{}, err
 	}
-	if strings.TrimSpace(command.Name) == "" {
+	command.Name = strings.TrimSpace(command.Name)
+	if command.Name == "" {
 		return domain.Artifact{}, invalidCommand("artifact name is required")
 	}
-	if err := s.repository.View(ctx, func(store ReadStore) error {
-		_, _, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
-		return err
-	}); err != nil {
+	if command.OperationID == "" {
+		return domain.Artifact{}, invalidCommand("operation id is required for managed artifact upload")
+	}
+	if command.OperationID != strings.TrimSpace(command.OperationID) {
+		return domain.Artifact{}, invalidCommand("operation id must not have surrounding whitespace")
+	}
+	uploadKey, err := artifactUploadStorageKey(command.Identity.Actor, command.OperationID)
+	if err != nil {
 		return domain.Artifact{}, err
 	}
-	blob, err := s.defaultArtifactStore.Put(ctx, s.defaultArtifactStoreURI, source)
+	uploadURI, err := s.artifactStore.UploadURI(uploadKey)
+	if err != nil {
+		return domain.Artifact{}, fmt.Errorf("prepare artifact upload URI: %w", err)
+	}
+	completed, state, err := s.reserveArtifactUpload(ctx, command, uploadURI)
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	if completed != nil {
+		var persistedBlob domain.ArtifactBlob
+		if err := s.repository.View(ctx, func(store ReadStore) error {
+			var err error
+			persistedBlob, err = store.GetArtifactBlob(completed.URI)
+			return err
+		}); err != nil {
+			return domain.Artifact{}, fmt.Errorf("get completed Artifact Blob: %w", err)
+		}
+		if err := verifyUploadDigest(source, persistedBlob.Digest); err != nil {
+			return domain.Artifact{}, err
+		}
+		return *completed, nil
+	}
+	blob, err := s.artifactStore.Put(ctx, state.BlobURI, source)
 	if err != nil {
 		return domain.Artifact{}, fmt.Errorf("store artifact content: %w", err)
 	}
+	if blob.URI != state.BlobURI {
+		return domain.Artifact{}, fmt.Errorf("artifact Store returned a different URI than the registered upload")
+	}
+	if state.Digest != "" && (blob.Digest != state.Digest || blob.Size != state.Size) {
+		return domain.Artifact{}, conflict("operation id was reused with different artifact content")
+	}
+	if state.Digest == "" {
+		state.Digest, state.Size = blob.Digest, blob.Size
+		if err := s.saveArtifactUploadState(ctx, command, state); err != nil {
+			return domain.Artifact{}, fmt.Errorf("record artifact content metadata: %w", err)
+		}
+	}
 	blob.CreatedAt = s.clock.Now()
-	return s.createArtifact(ctx, CreateArtifactCommand{
-		TaskID: command.TaskID, ClaimID: command.ClaimID, Identity: command.Identity,
-		OperationID: command.OperationID, Name: command.Name, URI: blob.URI,
-	}, &blob)
+	return s.finalizeArtifactUpload(ctx, command, blob)
 }
 
-func (s *Service) createArtifact(ctx context.Context, command CreateArtifactCommand, blob *domain.ArtifactBlob) (domain.Artifact, error) {
+func artifactUploadStorageKey(actor domain.ActorRef, operationID string) (string, error) {
+	return idempotencyRequestHash(struct {
+		Actor       domain.ActorRef `json:"actor"`
+		OperationID string          `json:"operation_id"`
+	}{Actor: actor, OperationID: operationID})
+}
+
+func verifyUploadDigest(source io.Reader, expected string) error {
+	hash := sha256.New()
+	if _, err := io.Copy(hash, source); err != nil {
+		return fmt.Errorf("read artifact content for idempotency check: %w", err)
+	}
+	actual := "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	if actual != expected {
+		return conflict("operation id was reused with different artifact content")
+	}
+	return nil
+}
+
+func (s *Service) createArtifact(ctx context.Context, command CreateArtifactCommand) (domain.Artifact, error) {
 	if strings.TrimSpace(string(command.TaskID)) == "" || strings.TrimSpace(string(command.ClaimID)) == "" {
 		return domain.Artifact{}, invalidCommand("task id and claim id are required")
 	}
@@ -87,15 +157,10 @@ func (s *Service) createArtifact(ctx context.Context, command CreateArtifactComm
 	}
 
 	var created domain.Artifact
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_artifact", command, &created, func(store WriteStore) error {
+	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, createArtifactOperation, command, &created, func(store WriteStore) error {
 		task, claim, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
 		if err != nil {
 			return err
-		}
-		if blob != nil {
-			if err := store.CreateArtifactBlob(*blob); err != nil {
-				return fmt.Errorf("create artifact blob: %w", err)
-			}
 		}
 		id, err := s.newID("artifact id")
 		if err != nil {
@@ -114,6 +179,174 @@ func (s *Service) createArtifact(ctx context.Context, command CreateArtifactComm
 		return domain.Artifact{}, err
 	}
 	return created, nil
+}
+
+type artifactUploadReservation struct {
+	TaskID  domain.TaskID
+	ClaimID domain.ClaimID
+	Name    string
+}
+
+type artifactUploadState struct {
+	BlobURI string `json:"blob_uri"`
+	Digest  string `json:"digest,omitempty"`
+	Size    int64  `json:"size,omitempty"`
+}
+
+func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtifactCommand, uploadURI string) (*domain.Artifact, artifactUploadState, error) {
+	reservation := artifactUploadReservation{TaskID: command.TaskID, ClaimID: command.ClaimID, Name: command.Name}
+	requestHash, err := idempotencyRequestHash(reservation)
+	if err != nil {
+		return nil, artifactUploadState{}, err
+	}
+	state := artifactUploadState{BlobURI: uploadURI}
+	var completed *domain.Artifact
+	err = s.repository.Update(ctx, func(store WriteStore) error {
+		if err := store.LockIdempotencyKey(command.Identity.Actor, command.OperationID); err != nil {
+			return fmt.Errorf("lock operation %q: %w", command.OperationID, err)
+		}
+		record, err := store.GetIdempotencyRecord(command.Identity.Actor, command.OperationID)
+		switch {
+		case errors.Is(err, ErrNotFound):
+			if _, _, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity); err != nil {
+				return err
+			}
+			return store.CreateIdempotencyRecord(IdempotencyRecord{
+				Actor: command.Identity.Actor, OperationID: command.OperationID,
+				Operation: artifactUploadOperation, Status: IdempotencyPending,
+				RequestHash: requestHash, Response: mustArtifactUploadState(state), CreatedAt: s.clock.Now(),
+			})
+		case err != nil:
+			return fmt.Errorf("get operation %q: %w", command.OperationID, err)
+		case record.Operation == artifactUploadOperation && record.Status == IdempotencyPending:
+			if record.RequestHash != requestHash {
+				return conflict("operation id %q was already used for another request", command.OperationID)
+			}
+			if err := json.Unmarshal([]byte(record.Response), &state); err != nil || state.BlobURI == "" {
+				return fmt.Errorf("decode pending Artifact upload %q: %w", command.OperationID, err)
+			}
+			_, _, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
+			return err
+		case record.Status == IdempotencyCompleted && record.Operation == artifactUploadOperation:
+			if record.RequestHash != requestHash {
+				return conflict("operation id %q was already used for another request", command.OperationID)
+			}
+			artifact, err := retainedIdempotentArtifact(store, record)
+			if err != nil {
+				return err
+			}
+			if artifact.TaskID != command.TaskID || artifact.ClaimID != command.ClaimID || artifact.Name != command.Name {
+				return conflict("operation id %q was already used for another request", command.OperationID)
+			}
+			completed = &artifact
+			return nil
+		default:
+			return conflict("operation id %q was already used for another request", command.OperationID)
+		}
+	})
+	if err != nil {
+		return nil, artifactUploadState{}, err
+	}
+	return completed, state, nil
+}
+
+func mustArtifactUploadState(state artifactUploadState) string {
+	encoded, _ := json.Marshal(state)
+	return string(encoded)
+}
+
+func (s *Service) saveArtifactUploadState(ctx context.Context, command UploadArtifactCommand, state artifactUploadState) error {
+	return s.repository.Update(ctx, func(store WriteStore) error {
+		if err := store.LockIdempotencyKey(command.Identity.Actor, command.OperationID); err != nil {
+			return err
+		}
+		record, err := store.GetIdempotencyRecord(command.Identity.Actor, command.OperationID)
+		if err != nil {
+			return err
+		}
+		if record.Operation != artifactUploadOperation || record.Status != IdempotencyPending {
+			return conflict("operation id %q was already completed", command.OperationID)
+		}
+		record.Response = mustArtifactUploadState(state)
+		return store.SaveIdempotencyRecord(record)
+	})
+}
+
+func (s *Service) finalizeArtifactUpload(ctx context.Context, command UploadArtifactCommand, blob domain.ArtifactBlob) (domain.Artifact, error) {
+	reservation := artifactUploadReservation{TaskID: command.TaskID, ClaimID: command.ClaimID, Name: command.Name}
+	reservationHash, err := idempotencyRequestHash(reservation)
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+
+	var result domain.Artifact
+	err = s.repository.Update(ctx, func(store WriteStore) error {
+		if err := store.LockIdempotencyKey(command.Identity.Actor, command.OperationID); err != nil {
+			return fmt.Errorf("lock operation %q: %w", command.OperationID, err)
+		}
+		record, err := store.GetIdempotencyRecord(command.Identity.Actor, command.OperationID)
+		if err != nil {
+			return fmt.Errorf("get operation %q: %w", command.OperationID, err)
+		}
+		if record.Status == IdempotencyCompleted && record.Operation == artifactUploadOperation {
+			if record.RequestHash != reservationHash {
+				return conflict("operation id %q was already used for another request", command.OperationID)
+			}
+			artifact, err := retainedIdempotentArtifact(store, record)
+			if err != nil {
+				return err
+			}
+			result = artifact
+			return nil
+		}
+		if record.Operation != artifactUploadOperation || record.Status != IdempotencyPending || record.RequestHash != reservationHash {
+			return conflict("operation id %q was already used for another request", command.OperationID)
+		}
+		task, claim, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
+		if err != nil {
+			return err
+		}
+		if err := store.CreateArtifactBlob(blob); err != nil {
+			return fmt.Errorf("create artifact blob: %w", err)
+		}
+		id, err := s.newID("artifact id")
+		if err != nil {
+			return err
+		}
+		result = domain.Artifact{
+			ID: domain.ArtifactID(id), WorkItemID: task.WorkItemID, TaskID: task.ID,
+			ClaimID: claim.ID, Name: command.Name, URI: blob.URI, CreatedAt: s.clock.Now(),
+		}
+		if err := store.CreateArtifact(result); err != nil {
+			return fmt.Errorf("create artifact: %w", err)
+		}
+		response, err := idempotencyResponse(result)
+		if err != nil {
+			return err
+		}
+		record.Status = IdempotencyCompleted
+		record.Response = response
+		if err := store.SaveIdempotencyRecord(record); err != nil {
+			return fmt.Errorf("complete Artifact upload operation %q: %w", command.OperationID, err)
+		}
+		return nil
+	})
+	return result, err
+}
+
+func retainedIdempotentArtifact(store ReadStore, record IdempotencyRecord) (domain.Artifact, error) {
+	var artifact domain.Artifact
+	if err := json.Unmarshal([]byte(record.Response), &artifact); err != nil {
+		return domain.Artifact{}, fmt.Errorf("decode idempotent Artifact response: %w", err)
+	}
+	persisted, err := store.GetArtifact(artifact.ID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return domain.Artifact{}, conflict("idempotent Artifact %q is no longer retained", artifact.ID)
+		}
+		return domain.Artifact{}, fmt.Errorf("get idempotent Artifact %q: %w", artifact.ID, err)
+	}
+	return persisted, nil
 }
 
 func activeOwnedClaim(store ReadStore, taskID domain.TaskID, claimID domain.ClaimID, identity Identity) (domain.Task, domain.Claim, error) {
@@ -194,12 +427,15 @@ func (s *Service) OpenArtifact(ctx context.Context, artifactID domain.ArtifactID
 	if err != nil {
 		return domain.Artifact{}, nil, err
 	}
+	s.artifactStoreMu.RLock()
+	artifactStore := s.artifactStore
+	artifactStoreScheme := s.artifactStoreScheme
+	s.artifactStoreMu.RUnlock()
 	parsed, _ := url.Parse(artifact.URI)
-	store, exists := s.artifactStores[strings.ToLower(parsed.Scheme)]
-	if !exists {
+	if strings.ToLower(parsed.Scheme) != artifactStoreScheme || artifactStore == nil {
 		return artifact, nil, fmt.Errorf("%w: artifact URI scheme %q is not managed", ErrNotFound, parsed.Scheme)
 	}
-	content, err := store.Open(ctx, artifact.URI)
+	content, err := artifactStore.Open(ctx, artifact.URI)
 	if err != nil {
 		return artifact, nil, err
 	}

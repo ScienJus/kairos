@@ -99,13 +99,17 @@ CREATE INDEX work_item_events_order_idx
 CREATE TABLE idempotency_records (
     actor_kind TEXT NOT NULL,
     actor_id TEXT NOT NULL,
-    operation_id TEXT NOT NULL,
-    operation TEXT NOT NULL,
-    request_hash TEXT NOT NULL,
+	operation_id TEXT NOT NULL,
+	operation TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed')),
+	request_hash TEXT NOT NULL,
     response TEXT NOT NULL CHECK (json_valid(response)),
     created_at_ns INTEGER NOT NULL,
     PRIMARY KEY (actor_kind, actor_id, operation_id)
 );
+-- +kairos StatementBreak
+CREATE INDEX idempotency_records_pending_gc_idx
+    ON idempotency_records (status, created_at_ns, actor_kind, actor_id, operation_id);
 -- +kairos StatementBreak
 CREATE TABLE identities (
     actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human', 'agent')),

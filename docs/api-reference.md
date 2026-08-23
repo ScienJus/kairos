@@ -12,8 +12,10 @@ The default server uses SQLite and Trusted Mode:
 KAIROS_SQLITE_PATH=kairos.db \
 KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
 KAIROS_AGENT_CLAIM_LEASE=5m \
-KAIROS_ARTIFACT_STORE=kairos:// \
 KAIROS_ARTIFACT_DIR=artifacts \
+KAIROS_ARTIFACT_MAX_UPLOAD_BYTES=16777216 \
+KAIROS_ARTIFACT_GC_RETENTION=24h \
+KAIROS_ARTIFACT_GC_INTERVAL=15m \
 go run ./cmd/kairos-server
 ```
 
@@ -65,11 +67,13 @@ While acceptance is pending, `WorkItem.Result` contains the submitted completion
 
 Workflow Task Definitions may declare required `artifacts[]` entries with only `name` and `description`. The description is an execution instruction, not a file-type schema. An executor creates external Artifacts with an absolute URI or uploads managed content while holding a Claim, then passes their IDs in `artifact_ids` to `submit_task`. Submission atomically binds the staged Artifacts and rejects a Workflow result missing a declared name. Blackboard Tasks have no structured Artifact contract. Submitted Artifacts are visible throughout the WorkItem; staged Artifacts remain with their creating Claim.
 
-Managed upload always targets the server-configured `KAIROS_ARTIFACT_STORE`; callers cannot select a Store. The built-in implementation writes content-addressed blobs below `KAIROS_ARTIFACT_DIR` and returns `kairos://blobs/sha256/...` URIs. Store readers are selected by URI scheme so deployments can retain old readers during a future migration. Only `kairos` is bundled today.
+Managed upload always targets the server's single managed Store; callers cannot select a Store. The bundled implementation registers a stable `kairos://` upload URI in the pending database record before writing bytes below `KAIROS_ARTIFACT_DIR`, then flushes the file and directory chain before completing the database operation; the resulting Blob metadata stores a SHA-256 integrity digest separately.
 
-`POST /tasks/{id}/artifacts` accepts JSON fields `claim_id`, `name`, and `uri`. `POST /tasks/{id}/artifact-uploads` accepts multipart fields `claim_id`, `name`, and `file`; it has no Store field. Both mutations use the normal `Idempotency-Key` header.
+`POST /tasks/{id}/artifacts` accepts JSON fields `claim_id`, `name`, and `uri`. `POST /tasks/{id}/artifact-uploads` accepts multipart fields `claim_id`, `name`, and `file`; it has no Store field. `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` sets the uploaded file content limit and defaults to 16 MiB; an oversized upload returns `413 artifact_too_large`. The bundled managed upload is a small-file convenience path. Large deliverables should be published to durable external storage such as S3 and registered through the URI endpoint. External-URI creation uses the normal optional `Idempotency-Key`; managed upload requires it so the server can persist the upload URI and pending state before writing content to the Store. The Store computes and returns the digest and size, which are persisted in the pending record before the final transaction creates Blob metadata, the staged Artifact, and the completed operation. A pending retry rewrites the registered URI and verifies the previously recorded digest and size, so it can recover even when cleanup removed the file but failed to delete the pending record. An identical completed retry can recover its retained staged Artifact after the Claim ends; once GC removes that Artifact, it cannot be recovered through the old key.
 
-`GET /api/v1/tasks/{id}` is a viewer-facing Task Detail endpoint and does not require the current identity to be able to execute the Task. It returns backend-projected `Responsibility`, `Outcome`, `CurrentReview`, normalized `History`, and identity-specific `Capabilities`. `GET /api/v1/tasks/{id}/context` remains an executor context protected by execution authorization; clients must not use it to load ordinary detail or human Review operations.
+Artifact GC runs every `KAIROS_ARTIFACT_GC_INTERVAL` (15 minutes by default). An unsubmitted Artifact becomes eligible when its Claim is no longer active and the Artifact is older than `KAIROS_ARTIFACT_GC_RETENTION` (24 hours by default). Pending managed-upload records older than the same retention are deleted together with the file at their registered upload URI; completed idempotency records are retained. Submitted Artifacts are retained. Managed Blob content and metadata are deleted only after no Artifact URI references that Blob. All three Artifact numeric or duration settings must be positive.
+
+`GET /api/v1/tasks/{id}` is a viewer-facing Task Detail endpoint and does not require the current identity to be able to execute the Task. It returns backend-projected `Responsibility`, `Outcome`, `CurrentReview`, normalized `History`, submitted `Artifacts` belonging to that Task, and identity-specific `Capabilities`. The `Artifacts` collection is `[]` when the Task has no submitted deliverables. `GET /api/v1/tasks/{id}/context` remains an executor context protected by execution authorization; clients must not use it to load ordinary detail or human Review operations.
 
 ## Claim Leases
 
@@ -79,12 +83,14 @@ Agent Claims use leases; human Claims do not. Agent claim and heartbeat requests
 
 MCP shares the HTTP identity resolver. Trusted Mode supplies actor headers at transport level; Authenticated Mode supplies `Authorization: Bearer <identity-token>`. Identity never appears in tool arguments.
 
-The execution surface contains sixteen tools:
+The execution surface contains seventeen tools:
 
 - discovery and context: `find_work`, `get_task_context`, `get_work_item_context`;
-- Claim lifecycle and delivery: `claim_task`, `heartbeat_claim`, `create_artifact`, `release_claim`, `submit_task`, `fail_task`;
+- Claim lifecycle and delivery: `claim_task`, `heartbeat_claim`, `create_artifact`, `upload_artifact`, `release_claim`, `submit_task`, `fail_task`;
 - Blackboard planning and closure: `create_blackboard_task`, `add_blackboard_relation`, `decompose_blackboard_task`, `add_blackboard_child_task`, `skip_blackboard_task`, `submit_blackboard_completion`, `accept_blackboard_completion`.
 
 Every MCP mutation requires an `operation_id`. Reuse it only for an identical retry. Workflow discovery is determined by role and graph state and ignores tag filters; Blackboard discovery may use tags. Workflow Task context exposes controlled upstream summaries, durable results, and optional Relation guidance without granting arbitrary access to other Tasks or creating branches absent from the Definition.
+
+`upload_artifact` accepts standard Base64 bytes in `content_base64` without a data URI prefix, decodes them into the server-configured Artifact Store, and returns the staged Artifact ID used by `submit_task.artifact_ids`. Its decoded size limit is the same `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` used by HTTP multipart uploads; the MCP request-body limit includes the corresponding Base64 expansion. This tool is intended for small files only because Base64 adds roughly one third to the transfer size and the MCP request is buffered in memory. Use `create_artifact` with an S3 or other durable external URI for large files.
 
 Project Codex configuration is in `.codex/config.toml`; execution guidance is in `.agents/skills/kairos-agent/SKILL.md`.

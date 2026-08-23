@@ -99,7 +99,7 @@ Available in this repository:
 - domain model and Application Services;
 - Workflow and Blackboard runtime semantics;
 - PostgreSQL and SQLite persistence;
-- Workflow Artifact delivery contracts and a content-addressed built-in `kairos://` Artifact Store;
+- Workflow Artifact delivery contracts and a built-in `kairos://` Artifact Store with database-first uploads, integrity digests, configurable limits, and garbage collection;
 - concurrency and idempotency protection;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;

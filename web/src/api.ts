@@ -27,7 +27,7 @@ async function request<T>(path: string, identity: Identity, init?: RequestInit):
   headers.set('X-Kairos-Actor-Id', identity.id)
   headers.set('X-Kairos-Actor-Kind', identity.kind)
   if (init?.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
-  if (init?.method && init.method !== 'GET') headers.set('Idempotency-Key', crypto.randomUUID())
+  if (init?.method && init.method !== 'GET' && !headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID())
   const response = await fetch(path, { ...init, headers })
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { error?: { message?: string } } | null
@@ -76,10 +76,12 @@ export const api = {
   claimTask: (identity: Identity, taskID: string) => request<Claim>(`/api/v1/tasks/${taskID}/claims`, identity, { method: 'POST' }),
   releaseClaim: (identity: Identity, taskID: string, claimID: string) => request<void>(`/api/v1/tasks/${taskID}/claims/${claimID}`, identity, { method: 'DELETE' }),
   createArtifact: (identity: Identity, taskID: string, input: { claim_id: string; name: string; uri: string }) => request<Artifact>(`/api/v1/tasks/${taskID}/artifacts`, identity, { method: 'POST', body: JSON.stringify(input) }),
-  uploadArtifact: (identity: Identity, taskID: string, claimID: string, name: string, file: File) => {
+  uploadArtifact: (identity: Identity, taskID: string, claimID: string, name: string, file: File, operationID: string) => {
     const form = new FormData()
     form.set('claim_id', claimID); form.set('name', name); form.set('file', file)
-    return request<Artifact>(`/api/v1/tasks/${taskID}/artifact-uploads`, identity, { method: 'POST', body: form })
+    return request<Artifact>(`/api/v1/tasks/${taskID}/artifact-uploads`, identity, {
+      method: 'POST', body: form, headers: { 'Idempotency-Key': operationID },
+    })
   },
   downloadArtifact: async (identity: Identity, artifactID: string) => {
     const response = await fetch(`/api/v1/artifacts/${artifactID}/content`, { headers: { 'X-Kairos-Actor-Id': identity.id, 'X-Kairos-Actor-Kind': identity.kind } })

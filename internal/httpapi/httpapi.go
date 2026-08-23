@@ -18,27 +18,39 @@ import (
 )
 
 const maxRequestBodyBytes = 1 << 20
-const maxArtifactUploadBytes = 128 << 20
+const DefaultMaxArtifactUploadBytes int64 = 16 << 20
+const artifactMultipartOverheadBytes int64 = 1 << 20
+const maxConfiguredArtifactUploadBytes int64 = (1<<63 - 1) - artifactMultipartOverheadBytes
+
+// Options configures HTTP transport limits.
+type Options struct {
+	MaxArtifactUploadBytes int64
+}
 
 // Handler serves the versioned Kairos HTTP API.
 type Handler struct {
-	service            *application.Service
-	identity           identity.Resolver
-	identityManagement *identity.Service
-	adminTokenHash     [32]byte
-	hasAdminToken      bool
-	mux                *http.ServeMux
+	service                *application.Service
+	identity               identity.Resolver
+	identityManagement     *identity.Service
+	adminTokenHash         [32]byte
+	hasAdminToken          bool
+	maxArtifactUploadBytes int64
+	mux                    *http.ServeMux
 }
 
 // New creates an HTTP handler backed by the application service.
-func New(service *application.Service, resolver identity.Resolver) (*Handler, error) {
+func New(service *application.Service, resolver identity.Resolver, options ...Options) (*Handler, error) {
 	if service == nil {
 		return nil, errors.New("application service is required")
 	}
 	if resolver == nil {
 		return nil, errors.New("identity resolver is required")
 	}
-	handler := &Handler{service: service, identity: resolver, mux: http.NewServeMux()}
+	configured, err := httpOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	handler := &Handler{service: service, identity: resolver, maxArtifactUploadBytes: configured.MaxArtifactUploadBytes, mux: http.NewServeMux()}
 	handler.routes()
 	return handler, nil
 }
@@ -50,6 +62,7 @@ func NewWithIdentityManagement(
 	resolver identity.Resolver,
 	identityService *identity.Service,
 	adminToken string,
+	options ...Options,
 ) (*Handler, error) {
 	if service == nil || resolver == nil || identityService == nil {
 		return nil, errors.New("application service, identity resolver and identity service are required")
@@ -57,12 +70,30 @@ func NewWithIdentityManagement(
 	if len(adminToken) < 32 || adminToken != strings.TrimSpace(adminToken) {
 		return nil, errors.New("admin token must be trimmed and at least 32 characters")
 	}
+	configured, err := httpOptions(options)
+	if err != nil {
+		return nil, err
+	}
 	handler := &Handler{
 		service: service, identity: resolver, identityManagement: identityService,
-		adminTokenHash: sha256.Sum256([]byte(adminToken)), hasAdminToken: true, mux: http.NewServeMux(),
+		adminTokenHash: sha256.Sum256([]byte(adminToken)), hasAdminToken: true,
+		maxArtifactUploadBytes: configured.MaxArtifactUploadBytes, mux: http.NewServeMux(),
 	}
 	handler.routes()
 	return handler, nil
+}
+
+func httpOptions(values []Options) (Options, error) {
+	if len(values) > 1 {
+		return Options{}, errors.New("HTTP options must be provided at most once")
+	}
+	if len(values) == 0 {
+		return Options{MaxArtifactUploadBytes: DefaultMaxArtifactUploadBytes}, nil
+	}
+	if values[0].MaxArtifactUploadBytes <= 0 || values[0].MaxArtifactUploadBytes > maxConfiguredArtifactUploadBytes {
+		return Options{}, errors.New("max Artifact upload bytes must be positive and leave room for multipart overhead")
+	}
+	return values[0], nil
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -696,18 +727,31 @@ func (h *Handler) uploadArtifact(writer http.ResponseWriter, request *http.Reque
 	if !ok {
 		return
 	}
-	request.Body = http.MaxBytesReader(writer, request.Body, maxArtifactUploadBytes)
+	request.Body = http.MaxBytesReader(writer, request.Body, h.maxArtifactUploadBytes+artifactMultipartOverheadBytes)
 	if err := request.ParseMultipartForm(1 << 20); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeJSON(writer, http.StatusRequestEntityTooLarge, errorResponse{Error: apiError{
+				Code: "artifact_too_large", Message: fmt.Sprintf("artifact upload exceeds %d bytes", h.maxArtifactUploadBytes),
+			}})
+			return
+		}
 		writeError(writer, application.ErrInvalidCommand)
 		return
 	}
 	defer request.MultipartForm.RemoveAll()
-	file, _, err := request.FormFile("file")
+	file, header, err := request.FormFile("file")
 	if err != nil {
 		writeError(writer, application.ErrInvalidCommand)
 		return
 	}
 	defer file.Close()
+	if header.Size > h.maxArtifactUploadBytes {
+		writeJSON(writer, http.StatusRequestEntityTooLarge, errorResponse{Error: apiError{
+			Code: "artifact_too_large", Message: fmt.Sprintf("artifact file exceeds %d bytes", h.maxArtifactUploadBytes),
+		}})
+		return
+	}
 	artifact, err := h.service.UploadArtifact(request.Context(), application.UploadArtifactCommand{
 		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: domain.ClaimID(request.FormValue("claim_id")),
 		Identity: actor, OperationID: operationID(request), Name: request.FormValue("name"),
