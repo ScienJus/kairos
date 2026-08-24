@@ -11,7 +11,7 @@ const rowGap = 110
 const stagingRows = 4
 
 function workflowColumnGap(relations: WorkflowDraft['relations']) {
-  return relations.some(relation => relation.Label?.trim()) ? 330 : 250
+  return relations.some(relation => relation.label?.trim()) ? 330 : 250
 }
 
 export function workflowEditorLayout(tasks: WorkflowDraft['tasks'], relations: WorkflowDraft['relations'], starts: string[]) {
@@ -22,22 +22,22 @@ export function workflowEditorLayout(tasks: WorkflowDraft['tasks'], relations: W
     const current = queue.shift()!
     if (depth.has(current.id)) continue
     depth.set(current.id, current.depth)
-    relations.filter(relation => relation.FromTaskID === current.id).forEach(relation => queue.push({ id: relation.ToTaskID, depth: current.depth + 1 }))
+    relations.filter(relation => relation.from_task_id === current.id).forEach(relation => queue.push({ id: relation.to_task_id, depth: current.depth + 1 }))
   }
   const stagingColumn = depth.size > 0 ? Math.max(...depth.values()) + 1 : 0
   let stagingIndex = 0
   const rows = new Map<number, number>()
   return new Map(tasks.map(task => {
-    const graphDepth = depth.get(task.ID)
+    const graphDepth = depth.get(task.id)
     if (graphDepth === undefined) {
       const column = stagingColumn + Math.floor(stagingIndex / stagingRows)
       const row = stagingIndex % stagingRows
       stagingIndex++
-      return [task.ID, { x: column * columnGap, y: row * rowGap }]
+      return [task.id, { x: column * columnGap, y: row * rowGap }]
     }
     const row = rows.get(graphDepth) ?? 0
     rows.set(graphDepth, row + 1)
-    return [task.ID, { x: graphDepth * columnGap, y: row * rowGap }]
+    return [task.id, { x: graphDepth * columnGap, y: row * rowGap }]
   }))
 }
 
@@ -62,9 +62,9 @@ export function WorkflowEditorMap({ draft, selectedTaskID, selectedRelationID, n
   const [flow, setFlow] = useState<ReactFlowInstance<Node, Edge> | null>(null)
   const manuallyPositioned = useRef(new Set<string>())
   const topologyKey = useMemo(() => JSON.stringify({
-    tasks: draft.tasks.map(task => task.ID),
+    tasks: draft.tasks.map(task => task.id),
     starts: draft.startTaskIDs,
-    relations: draft.relations.map(relation => [relation.ID, relation.FromTaskID, relation.ToTaskID, Boolean(relation.Label?.trim())]),
+    relations: draft.relations.map(relation => [relation.id, relation.from_task_id, relation.to_task_id, Boolean(relation.label?.trim())]),
   }), [draft.tasks, draft.startTaskIDs, draft.relations])
   const previousTopologyKey = useRef(topologyKey)
   useEffect(() => {
@@ -74,19 +74,19 @@ export function WorkflowEditorMap({ draft, selectedTaskID, selectedRelationID, n
       const topologyChanged = previousTopologyKey.current !== topologyKey
       const occupied = [...existing.values()]
       return draft.tasks.map(task => ({
-        id: task.ID,
-        position: newTaskPlacement?.taskID === task.ID && !existing.has(task.ID) && newTaskPlacement.anchorTaskID && existing.has(newTaskPlacement.anchorTaskID)
+        id: task.id,
+        position: newTaskPlacement?.taskID === task.id && !existing.has(task.id) && newTaskPlacement.anchorTaskID && existing.has(newTaskPlacement.anchorTaskID)
           ? workflowTaskPositionNearAnchor(existing.get(newTaskPlacement.anchorTaskID)!, occupied, workflowColumnGap(draft.relations))
-          : existing.has(task.ID) && (!topologyChanged || manuallyPositioned.current.has(task.ID))
-          ? existing.get(task.ID)!
-          : automatic.get(task.ID) ?? { x: 0, y: 0 },
-        data: { label: <div className="definition-node-content"><span>{draft.startTaskIDs.includes(task.ID) ? t('startNode') : t(task.Executor)}</span><strong>{task.Title}</strong><small>{t(task.Execution === 'optional' ? 'optionalTask' : 'requiredTask')}</small></div> },
-        type: 'workflowTask', className: `definition-flow-node editable ${selectedTaskID === task.ID ? 'selected' : ''}`,
+          : existing.has(task.id) && (!topologyChanged || manuallyPositioned.current.has(task.id))
+          ? existing.get(task.id)!
+          : automatic.get(task.id) ?? { x: 0, y: 0 },
+        data: { label: <div className="definition-node-content"><span>{draft.startTaskIDs.includes(task.id) ? t('startNode') : t(task.executor)}</span><strong>{task.title}</strong><small>{t(task.execution === 'optional' ? 'optionalTask' : 'requiredTask')}</small></div> },
+        type: 'workflowTask', className: `definition-flow-node editable ${selectedTaskID === task.id ? 'selected' : ''}`,
         sourcePosition: Position.Right, targetPosition: Position.Left,
       }))
     })
     previousTopologyKey.current = topologyKey
-    manuallyPositioned.current = new Set([...manuallyPositioned.current].filter(taskID => draft.tasks.some(task => task.ID === taskID)))
+    manuallyPositioned.current = new Set([...manuallyPositioned.current].filter(taskID => draft.tasks.some(task => task.id === taskID)))
   }, [draft.tasks, draft.startTaskIDs, draft.relations, newTaskPlacement, selectedTaskID, t, topologyKey])
   useEffect(() => {
     if (!flow || !newTaskPlacement) return
@@ -101,9 +101,9 @@ export function WorkflowEditorMap({ draft, selectedTaskID, selectedRelationID, n
     return () => window.cancelAnimationFrame(frame)
   }, [flow, newTaskPlacement, nodes, onTaskPlaced])
   const edges: Edge[] = draft.relations.map(relation => ({
-    id: relation.ID, source: relation.FromTaskID, target: relation.ToTaskID, ...workflowEdgePresentation(relation.FromTaskID, relation.ToTaskID, (nodes.find(node => node.id === relation.FromTaskID)?.position.x ?? 0) > (nodes.find(node => node.id === relation.ToTaskID)?.position.x ?? 0)),
-    markerEnd: { type: MarkerType.ArrowClosed }, className: selectedRelationID === relation.ID ? 'selected-relation' : '',
-    label: relation.Label || undefined,
+    id: relation.id, source: relation.from_task_id, target: relation.to_task_id, ...workflowEdgePresentation(relation.from_task_id, relation.to_task_id, (nodes.find(node => node.id === relation.from_task_id)?.position.x ?? 0) > (nodes.find(node => node.id === relation.to_task_id)?.position.x ?? 0)),
+    markerEnd: { type: MarkerType.ArrowClosed }, className: selectedRelationID === relation.id ? 'selected-relation' : '',
+    label: relation.label || undefined,
     labelClassName: 'workflow-edge-label', labelBgPadding: [7, 4], labelBgBorderRadius: 5,
   }))
   const handleNodesChange = (changes: NodeChange[]) => setNodes(current => applyNodeChanges(changes, current))

@@ -1,0 +1,1560 @@
+openapi: 3.1.0
+info:
+  title: Kairos HTTP API
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  description: |
+    Exact contract for the current `/api/v1` HTTP surface. JSON names use
+    snake_case. Collection fields are always arrays, including when empty;
+    optional single values are encoded as null.
+servers:
+  - url: http://127.0.0.1:8080
+security:
+  - bearerAuth: []
+  - trustedActorId: []
+paths:
+  /healthz:
+    get:
+      operationId: health
+      summary: Health
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { const: ok }
+  /api/v1/auth/config:
+    get:
+      operationId: getAuthenticationConfig
+      summary: Get Authentication Config
+      security: []
+      responses:
+        '200':
+          description: Authentication mode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationConfigResponse'
+  /api/v1/session:
+    parameters:
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getSession
+      summary: Get Session
+      responses:
+        '200': { $ref: '#/components/responses/Session' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/identities:
+    get:
+      operationId: listIdentities
+      summary: List Identities
+      description: Requires the administrator bearer token. Available only when identity management is configured.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Identities
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentityListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: createIdentity
+      summary: Create Identity
+      description: Requires the administrator bearer token. The returned token is shown only once.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateIdentityRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/IssuedToken' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/identities/{kind}/{actor_id}:
+    parameters:
+      - $ref: '#/components/parameters/ActorKindPath'
+      - $ref: '#/components/parameters/ActorIdPath'
+    get:
+      operationId: getIdentity
+      summary: Get Identity
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Identity' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/identities/{kind}/{actor_id}/token:
+    parameters:
+      - $ref: '#/components/parameters/ActorKindPath'
+      - $ref: '#/components/parameters/ActorIdPath'
+    post:
+      operationId: rotateIdentityToken
+      summary: Rotate Identity Token
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/IssuedToken' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      operationId: revokeIdentityToken
+      summary: Revoke Identity Token
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Token revoked }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/definitions/workflows:
+    parameters:
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: listWorkflowDefinitions
+      summary: List Workflow Definitions
+      responses:
+        '200':
+          description: Workflow Definition versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkflowDefinitionListResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: createWorkflowDefinition
+      summary: Create Workflow Definition
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWorkflowDefinitionRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/WorkflowDefinition' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/definitions/workflows/{definition_id}/versions/{version}:
+    parameters:
+      - $ref: '#/components/parameters/DefinitionIdPath'
+      - $ref: '#/components/parameters/VersionPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getWorkflowDefinition
+      summary: Get Workflow Definition
+      responses:
+        '200': { $ref: '#/components/responses/WorkflowDefinition' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/definitions/blackboards:
+    parameters:
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: listBlackboardDefinitions
+      summary: List Blackboard Definitions
+      responses:
+        '200':
+          description: Blackboard Definition versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlackboardDefinitionListResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: createBlackboardDefinition
+      summary: Create Blackboard Definition
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDefinitionRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/BlackboardDefinition' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/definitions/blackboards/{definition_id}/versions/{version}:
+    parameters:
+      - $ref: '#/components/parameters/DefinitionIdPath'
+      - $ref: '#/components/parameters/VersionPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getBlackboardDefinition
+      summary: Get Blackboard Definition
+      responses:
+        '200': { $ref: '#/components/responses/BlackboardDefinition' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work:
+    parameters:
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: findWork
+      summary: Find Work
+      parameters:
+        - $ref: '#/components/parameters/TagQuery'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+          description: Zero means no limit.
+      responses:
+        '200':
+          description: Work candidates
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkCandidateListResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/human-attention:
+    parameters:
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: listHumanAttention
+      summary: List Human Attention
+      responses:
+        '200':
+          description: Items requiring human attention
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HumanAttentionListResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items:
+    parameters:
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: listWorkItems
+      summary: List Work Items
+      parameters:
+        - name: status
+          in: query
+          description: Repeat to match any listed status.
+          schema: { type: array, items: { $ref: '#/components/schemas/WorkItemStatus' } }
+          style: form
+          explode: true
+        - name: mode
+          in: query
+          description: Repeat to match any listed mode.
+          schema: { type: array, items: { $ref: '#/components/schemas/CoordinationMode' } }
+          style: form
+          explode: true
+        - $ref: '#/components/parameters/TagQuery'
+      responses:
+        '200':
+          description: WorkItems, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkItemListResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: createWorkItem
+      summary: Create Work Item
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateWorkItemRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/WorkItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/context:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getWorkItemContext
+      summary: Get Work Item Context
+      responses:
+        '200':
+          description: Durable WorkItem execution context
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkItemContextResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: listArtifacts
+      summary: List Artifacts
+      responses:
+        '200':
+          description: Submitted Artifacts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArtifactListResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/tasks:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: createBlackboardTask
+      summary: Create Blackboard Task
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskDraftRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/relations:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: addBlackboardRelation
+      summary: Add Blackboard Relation
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddRelationRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/TaskRelation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/completion:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: submitBlackboardCompletion
+      summary: Submit Blackboard Completion
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [result]
+              properties: { result: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/WorkItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/acceptance:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: acceptBlackboardCompletion
+      summary: Accept Blackboard Completion
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses:
+        '200': { $ref: '#/components/responses/WorkItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getTaskDetail
+      summary: Get Task Detail
+      responses:
+        '200':
+          description: Viewer-facing Task detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskDetailResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/context:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getTaskContext
+      summary: Get Task Context
+      responses:
+        '200':
+          description: Executor-authorized Task context
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskContextResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/claims:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: claimTask
+      summary: Claim Task
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Claim' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/claims/{claim_id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/ClaimIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    delete:
+      operationId: releaseClaim
+      summary: Release Claim
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: { reason: { type: string } }
+      responses:
+        '204': { description: Claim released }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/claims/{claim_id}/heartbeat:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/ClaimIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: heartbeatClaim
+      summary: Heartbeat Claim
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Claim' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/submissions:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: submitTask
+      summary: Submit Task
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitTaskRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Submission' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: createArtifact
+      summary: Create Artifact
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateArtifactRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Artifact' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/artifact-uploads:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: uploadArtifact
+      summary: Upload Artifact
+      parameters:
+        - $ref: '#/components/parameters/RequiredIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [claim_id, name, file]
+              properties:
+                claim_id: { type: string }
+                name: { type: string }
+                file: { type: string, format: binary }
+      responses:
+        '201': { $ref: '#/components/responses/Artifact' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/artifacts/{artifact_id}/content:
+    parameters:
+      - $ref: '#/components/parameters/ArtifactIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getArtifactContent
+      summary: Get Artifact Content
+      responses:
+        '200':
+          description: Managed Artifact bytes
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/failures:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: failTask
+      summary: Fail Task
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FailTaskRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Failure' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/skip:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: skipBlackboardTask
+      summary: Skip Blackboard Task
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties: { reason: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/decomposition:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: decomposeBlackboardTask
+      summary: Decompose Blackboard Task
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [claim_id, children]
+              properties:
+                claim_id: { type: string }
+                children:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/TaskDraftRequest' }
+      responses:
+        '201':
+          description: Decomposed Task and initial children
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DecompositionResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/children:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: addBlackboardChildTask
+      summary: Add Blackboard Child Task
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskDraftRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/tasks/{task_id}/reviews/{review_id}/decision:
+    parameters:
+      - $ref: '#/components/parameters/TaskIdPath'
+      - $ref: '#/components/parameters/ReviewIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: decideReview
+      summary: Decide Review
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approved, rejected] }
+                feedback: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Review' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Identity token for business routes; administrator token for identity routes.
+    trustedActorId:
+      type: apiKey
+      in: header
+      name: X-Kairos-Actor-Id
+      description: Required Trusted Mode actor ID. The optional Kind and conditionally required Role are operation header parameters.
+  parameters:
+    TrustedActorKindHeader:
+      name: X-Kairos-Actor-Kind
+      in: header
+      required: false
+      description: Trusted Mode actor kind. Defaults to `agent` when omitted.
+      schema:
+        type: string
+        enum: [human, agent]
+        default: agent
+    TrustedActorRoleHeader:
+      name: X-Kairos-Actor-Role
+      in: header
+      required: false
+      description: Trusted Mode role. Required for Agent identities and omitted for Human identities.
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string }
+      description: Reuse only for a byte-equivalent logical retry.
+    RequiredIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1 }
+    ActorKindPath:
+      name: kind
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ActorKind' }
+    ActorIdPath:
+      name: actor_id
+      in: path
+      required: true
+      schema: { type: string }
+    DefinitionIdPath:
+      name: definition_id
+      in: path
+      required: true
+      schema: { type: string }
+    VersionPath:
+      name: version
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    WorkItemIdPath:
+      name: work_item_id
+      in: path
+      required: true
+      schema: { type: string }
+    TaskIdPath:
+      name: task_id
+      in: path
+      required: true
+      schema: { type: string }
+    ClaimIdPath:
+      name: claim_id
+      in: path
+      required: true
+      schema: { type: string }
+    ArtifactIdPath:
+      name: artifact_id
+      in: path
+      required: true
+      schema: { type: string }
+    ReviewIdPath:
+      name: review_id
+      in: path
+      required: true
+      schema: { type: string }
+    TagQuery:
+      name: tag
+      in: query
+      description: Repeat to require all listed tags where tag filtering applies.
+      schema: { type: array, items: { type: string } }
+      style: form
+      explode: true
+  responses:
+    BadRequest:
+      description: Invalid request (`invalid_request`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Missing or invalid credentials (`unauthenticated`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: The resolved actor may not perform this operation (`forbidden`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: The requested resource does not exist (`not_found`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: The operation conflicts with current state or a prior idempotent request (`conflict`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    PayloadTooLarge:
+      description: The managed Artifact upload exceeds the configured limit (`artifact_too_large`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    InternalServerError:
+      description: An unexpected server or persistence error occurred (`internal_error`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Session:
+      description: Resolved caller identity
+      content: { application/json: { schema: { $ref: '#/components/schemas/SessionResponse' } } }
+    Identity:
+      description: Identity record
+      content: { application/json: { schema: { $ref: '#/components/schemas/IdentityResponse' } } }
+    IssuedToken:
+      description: Newly issued token, returned only in this response
+      content: { application/json: { schema: { $ref: '#/components/schemas/IssuedTokenResponse' } } }
+    WorkflowDefinition:
+      description: Workflow Definition
+      content: { application/json: { schema: { $ref: '#/components/schemas/WorkflowDefinitionResponse' } } }
+    BlackboardDefinition:
+      description: Blackboard Definition
+      content: { application/json: { schema: { $ref: '#/components/schemas/BlackboardDefinitionResponse' } } }
+    WorkItem:
+      description: WorkItem
+      content: { application/json: { schema: { $ref: '#/components/schemas/WorkItemResponse' } } }
+    Task:
+      description: Task
+      content: { application/json: { schema: { $ref: '#/components/schemas/TaskResponse' } } }
+    TaskRelation:
+      description: Task Relation
+      content: { application/json: { schema: { $ref: '#/components/schemas/TaskRelationResponse' } } }
+    Claim:
+      description: Claim
+      content: { application/json: { schema: { $ref: '#/components/schemas/ClaimResponse' } } }
+    Submission:
+      description: Submission
+      content: { application/json: { schema: { $ref: '#/components/schemas/SubmissionResponse' } } }
+    Artifact:
+      description: Artifact
+      content: { application/json: { schema: { $ref: '#/components/schemas/ArtifactResponse' } } }
+    Failure:
+      description: Failure
+      content: { application/json: { schema: { $ref: '#/components/schemas/FailureResponse' } } }
+    Review:
+      description: Review
+      content: { application/json: { schema: { $ref: '#/components/schemas/ReviewResponse' } } }
+  schemas:
+    ActorKind: { type: string, enum: [human, agent] }
+    CoordinationMode: { type: string, enum: [workflow, blackboard] }
+    WorkItemStatus: { type: string, enum: [open, completed, cancelled, failed, awaiting_agent_acceptance, awaiting_human_acceptance] }
+    TaskStatus: { type: string, enum: [pending, working, waiting_children, in_review, completed, skipped, failed] }
+    ExecutorRequirement: { type: string, enum: [agent, human, either] }
+    DateTime: { type: string, format: date-time }
+    NullableDateTime: { type: [string, 'null'], format: date-time }
+    NullableString: { type: [string, 'null'] }
+    StringArray: { type: array, items: { type: string } }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+    AuthenticationConfigResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [mode]
+          properties: { mode: { type: string, enum: [trusted, authenticated] } }
+    ActorRef:
+      type: object
+      required: [kind, id]
+      properties:
+        kind: { $ref: '#/components/schemas/ActorKind' }
+        id: { type: string }
+    Session:
+      type: object
+      required: [id, kind, role]
+      properties:
+        id: { type: string }
+        kind: { $ref: '#/components/schemas/ActorKind' }
+        role: { type: string }
+    Identity:
+      allOf:
+        - $ref: '#/components/schemas/Session'
+        - type: object
+          required: [token_active, version, created_at, updated_at]
+          properties:
+            token_active: { type: boolean }
+            version: { type: integer, format: int64 }
+            created_at: { $ref: '#/components/schemas/DateTime' }
+            updated_at: { $ref: '#/components/schemas/DateTime' }
+    IssuedToken:
+      allOf:
+        - $ref: '#/components/schemas/Session'
+        - type: object
+          required: [token]
+          properties: { token: { type: string } }
+    SessionResponse: { $ref: '#/components/schemas/SessionEnvelope' }
+    SessionEnvelope:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/Session' } }
+    IdentityResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/Identity' } }
+    IdentityListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/Identity' } } }
+    IssuedTokenResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/IssuedToken' } }
+    CreateIdentityRequest:
+      type: object
+      additionalProperties: false
+      required: [id, kind]
+      properties:
+        id: { type: string }
+        kind: { $ref: '#/components/schemas/ActorKind' }
+        role: { type: string }
+    DefinitionMetadata:
+      type: object
+      required: [id, version, name, description, agent_instructions, suggested_tags, status, created_at, updated_at]
+      properties:
+        id: { type: string }
+        version: { type: integer, format: int64, minimum: 1 }
+        name: { type: string }
+        description: { type: string }
+        agent_instructions: { type: string }
+        suggested_tags: { $ref: '#/components/schemas/StringArray' }
+        status: { type: string, enum: [draft, published, archived] }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+        updated_at: { $ref: '#/components/schemas/DateTime' }
+    CreateDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required: [id, version, name, status]
+      properties:
+        id: { type: string }
+        version: { type: integer, format: int64, minimum: 1 }
+        name: { type: string }
+        description: { type: string }
+        agent_instructions: { type: string }
+        suggested_tags: { $ref: '#/components/schemas/StringArray' }
+        status: { type: string, enum: [draft, published, archived] }
+    ArtifactDefinition:
+      type: object
+      additionalProperties: false
+      required: [name, description]
+      properties:
+        name: { type: string }
+        description: { type: string }
+    WorkflowTaskDefinition:
+      type: object
+      required: [id, title, description, acceptance_criteria, executor, allowed_roles, execution, review_policy, default_tags, artifacts]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        acceptance_criteria: { type: string }
+        executor: { $ref: '#/components/schemas/ExecutorRequirement' }
+        allowed_roles: { $ref: '#/components/schemas/StringArray' }
+        execution: { type: string, enum: [required, optional] }
+        review_policy: { type: string, enum: [none, executor_decides, required] }
+        default_tags: { $ref: '#/components/schemas/StringArray' }
+        artifacts: { type: array, items: { $ref: '#/components/schemas/ArtifactDefinition' } }
+    WorkflowRelationDefinition:
+      type: object
+      required: [id, from_task_id, to_task_id, label, agent_guidance]
+      properties:
+        id: { type: string }
+        from_task_id: { type: string }
+        to_task_id: { type: string }
+        label: { type: string }
+        agent_guidance: { type: string }
+    WorkflowGraph:
+      type: object
+      required: [start_task_ids, tasks, relations, max_task_executions]
+      properties:
+        start_task_ids: { $ref: '#/components/schemas/StringArray' }
+        tasks: { type: array, items: { $ref: '#/components/schemas/WorkflowTaskDefinition' } }
+        relations: { type: array, items: { $ref: '#/components/schemas/WorkflowRelationDefinition' } }
+        max_task_executions: { type: integer, minimum: 0 }
+    WorkflowDefinition:
+      allOf:
+        - $ref: '#/components/schemas/DefinitionMetadata'
+        - type: object
+          required: [graph]
+          properties: { graph: { $ref: '#/components/schemas/WorkflowGraph' } }
+    BlackboardDefinition: { $ref: '#/components/schemas/DefinitionMetadata' }
+    CreateWorkflowDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required: [id, version, name, status]
+      properties:
+        id: { type: string }
+        version: { type: integer, format: int64, minimum: 1 }
+        name: { type: string }
+        description: { type: string }
+        agent_instructions: { type: string }
+        suggested_tags: { $ref: '#/components/schemas/StringArray' }
+        status: { type: string, enum: [draft, published, archived] }
+        graph: { $ref: '#/components/schemas/WorkflowGraphRequest' }
+    WorkflowGraphRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        start_task_ids: { $ref: '#/components/schemas/StringArray' }
+        tasks: { type: array, items: { $ref: '#/components/schemas/WorkflowTaskDefinitionRequest' } }
+        relations: { type: array, items: { $ref: '#/components/schemas/WorkflowRelationDefinitionRequest' } }
+        max_task_executions: { type: integer, minimum: 0, default: 0 }
+      description: A published Definition requires a valid graph; a draft may omit it.
+    WorkflowTaskDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required: [id, title, executor, execution, review_policy]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        acceptance_criteria: { type: string }
+        executor: { $ref: '#/components/schemas/ExecutorRequirement' }
+        allowed_roles: { $ref: '#/components/schemas/StringArray' }
+        execution: { type: string, enum: [required, optional] }
+        review_policy: { type: string, enum: [none, executor_decides, required] }
+        default_tags: { $ref: '#/components/schemas/StringArray' }
+        artifacts: { type: array, items: { $ref: '#/components/schemas/ArtifactDefinition' } }
+    WorkflowRelationDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required: [id, from_task_id, to_task_id]
+      properties:
+        id: { type: string }
+        from_task_id: { type: string }
+        to_task_id: { type: string }
+        label: { type: string }
+        agent_guidance: { type: string }
+    WorkflowDefinitionResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/WorkflowDefinition' } }
+    WorkflowDefinitionListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/WorkflowDefinition' } } }
+    BlackboardDefinitionResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/BlackboardDefinition' } }
+    BlackboardDefinitionListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/BlackboardDefinition' } } }
+    DefinitionBinding:
+      type: object
+      required: [id, version, mode]
+      properties:
+        id: { type: string }
+        version: { type: integer, format: int64 }
+        mode: { $ref: '#/components/schemas/CoordinationMode' }
+    WorkItem:
+      type: object
+      required: [id, definition, status, acceptance_mode, title, goal, context, constraints, acceptance_criteria, tags, result, version, created_at, updated_at, completed_at]
+      properties:
+        id: { type: string }
+        definition: { $ref: '#/components/schemas/DefinitionBinding' }
+        status: { $ref: '#/components/schemas/WorkItemStatus' }
+        acceptance_mode: { type: string, enum: [none, agent, human] }
+        title: { type: string }
+        goal: { type: string }
+        context: { type: string }
+        constraints: { type: string }
+        acceptance_criteria: { type: string }
+        tags: { $ref: '#/components/schemas/StringArray' }
+        result: { type: string }
+        version: { type: integer, format: int64 }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+        updated_at: { $ref: '#/components/schemas/DateTime' }
+        completed_at: { $ref: '#/components/schemas/NullableDateTime' }
+    CreateWorkItemRequest:
+      type: object
+      additionalProperties: false
+      required: [definition_id, mode, title, goal]
+      properties:
+        definition_id: { type: string }
+        mode: { $ref: '#/components/schemas/CoordinationMode' }
+        title: { type: string }
+        goal: { type: string }
+        context: { type: string }
+        constraints: { type: string }
+        acceptance_criteria: { type: string }
+        acceptance_mode: { type: string, enum: [none, agent, human], default: none }
+        tags: { $ref: '#/components/schemas/StringArray' }
+    Review:
+      type: object
+      required: [id, task_id, submission_id, status, requested_by, requested_at, decided_by, decided_at, feedback]
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        submission_id: { $ref: '#/components/schemas/NullableString' }
+        status: { type: string, enum: [pending, approved, rejected] }
+        requested_by: { type: string }
+        requested_at: { $ref: '#/components/schemas/DateTime' }
+        decided_by: { $ref: '#/components/schemas/NullableString' }
+        decided_at: { $ref: '#/components/schemas/NullableDateTime' }
+        feedback: { type: string }
+    Submission:
+      type: object
+      required: [id, task_id, claim_id, result, submitted_at]
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        claim_id: { type: string }
+        result: { type: string }
+        submitted_at: { $ref: '#/components/schemas/DateTime' }
+    Failure:
+      type: object
+      required: [id, task_id, claim_id, action, reason, retry_prompt, failed_at]
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        claim_id: { type: string }
+        action: { type: string, enum: [reopen, fail_work_item] }
+        reason: { type: string }
+        retry_prompt: { type: string }
+        failed_at: { $ref: '#/components/schemas/DateTime' }
+    TransitionDecision:
+      type: object
+      required: [id, work_item_id, source_task_id, source_submission_id, choice_group_id, triggered_relation_ids, skipped_relation_ids, review_requested_relation_ids, reason, skip_task_ids, review_requested_task_ids, decided_by, decided_at, applied_at]
+      properties:
+        id: { type: string }
+        work_item_id: { type: string }
+        source_task_id: { type: string }
+        source_submission_id: { $ref: '#/components/schemas/NullableString' }
+        choice_group_id: { type: string }
+        triggered_relation_ids: { $ref: '#/components/schemas/StringArray' }
+        skipped_relation_ids: { $ref: '#/components/schemas/StringArray' }
+        review_requested_relation_ids: { $ref: '#/components/schemas/StringArray' }
+        reason: { type: string }
+        skip_task_ids: { $ref: '#/components/schemas/StringArray' }
+        review_requested_task_ids: { $ref: '#/components/schemas/StringArray' }
+        decided_by: { $ref: '#/components/schemas/ActorRef' }
+        decided_at: { $ref: '#/components/schemas/DateTime' }
+        applied_at: { $ref: '#/components/schemas/NullableDateTime' }
+    Task:
+      type: object
+      required: [id, work_item_id, workflow_task_id, workflow_activation_id, status, active_claim_id, parent_task_id, decomposed_at, title, description, acceptance_criteria, executor, skipped_by, skip_reason, allowed_roles, tags, execution, review_policy, reviews, submissions, failures, transition_decisions, position, version, created_at, updated_at, completed_at]
+      properties:
+        id: { type: string }
+        work_item_id: { type: string }
+        workflow_task_id: { $ref: '#/components/schemas/NullableString' }
+        workflow_activation_id: { $ref: '#/components/schemas/NullableString' }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        active_claim_id: { $ref: '#/components/schemas/NullableString' }
+        parent_task_id: { $ref: '#/components/schemas/NullableString' }
+        decomposed_at: { $ref: '#/components/schemas/NullableDateTime' }
+        title: { type: string }
+        description: { type: string }
+        acceptance_criteria: { type: string }
+        executor: { $ref: '#/components/schemas/ExecutorRequirement' }
+        skipped_by:
+          oneOf: [{ $ref: '#/components/schemas/ActorRef' }, { type: 'null' }]
+        skip_reason: { type: string }
+        allowed_roles: { $ref: '#/components/schemas/StringArray' }
+        tags: { $ref: '#/components/schemas/StringArray' }
+        execution: { type: [string, 'null'], enum: [required, optional, null] }
+        review_policy: { type: [string, 'null'], enum: [none, executor_decides, required, null] }
+        reviews: { type: array, items: { $ref: '#/components/schemas/Review' } }
+        submissions: { type: array, items: { $ref: '#/components/schemas/Submission' } }
+        failures: { type: array, items: { $ref: '#/components/schemas/Failure' } }
+        transition_decisions: { type: array, items: { $ref: '#/components/schemas/TransitionDecision' } }
+        position: { type: integer, format: int64 }
+        version: { type: integer, format: int64 }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+        updated_at: { $ref: '#/components/schemas/DateTime' }
+        completed_at: { $ref: '#/components/schemas/NullableDateTime' }
+    TaskDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [title, executor]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        acceptance_criteria: { type: string }
+        executor: { $ref: '#/components/schemas/ExecutorRequirement' }
+        allowed_roles: { $ref: '#/components/schemas/StringArray' }
+        tags: { $ref: '#/components/schemas/StringArray' }
+    AddRelationRequest:
+      type: object
+      additionalProperties: false
+      required: [from_task_id, to_task_id]
+      properties:
+        from_task_id: { type: string }
+        to_task_id: { type: string }
+    Claim:
+      type: object
+      required: [id, task_id, executor, claimed_at, last_heartbeat_at, lease_until, lease_seconds, ended_at, end_reason]
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        executor: { $ref: '#/components/schemas/ActorRef' }
+        claimed_at: { $ref: '#/components/schemas/DateTime' }
+        last_heartbeat_at: { $ref: '#/components/schemas/DateTime' }
+        lease_until: { $ref: '#/components/schemas/DateTime' }
+        lease_seconds: { type: integer, format: int64 }
+        ended_at: { $ref: '#/components/schemas/NullableDateTime' }
+        end_reason: { type: string, enum: ['', task_completed, submitted_for_review, released, revoked, task_failed, task_decomposed, expired] }
+    Artifact:
+      type: object
+      required: [id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at]
+      properties:
+        id: { type: string }
+        work_item_id: { type: string }
+        task_id: { type: string }
+        claim_id: { type: string }
+        submission_id: { $ref: '#/components/schemas/NullableString' }
+        name: { type: string }
+        uri: { type: string, format: uri }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+    TaskRelation:
+      type: object
+      required: [work_item_id, from_task_id, to_task_id, created_at]
+      properties:
+        work_item_id: { type: string }
+        from_task_id: { type: string }
+        to_task_id: { type: string }
+        created_at: { $ref: '#/components/schemas/DateTime' }
+    DefinitionContext:
+      type: object
+      required: [name, description, agent_instructions, suggested_tags]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        agent_instructions: { type: string }
+        suggested_tags: { $ref: '#/components/schemas/StringArray' }
+    Responsibility:
+      type: object
+      required: [kind, actor]
+      properties:
+        kind: { type: string }
+        actor:
+          oneOf: [{ $ref: '#/components/schemas/ActorRef' }, { type: 'null' }]
+    Outcome:
+      type: object
+      required: [kind, actor, reason, occurred_at]
+      properties:
+        kind: { type: string }
+        actor:
+          oneOf: [{ $ref: '#/components/schemas/ActorRef' }, { type: 'null' }]
+        reason: { type: string }
+        occurred_at: { $ref: '#/components/schemas/NullableDateTime' }
+    TaskHistory:
+      type: object
+      required: [claims, submissions, reviews, failures, transition_decisions]
+      properties:
+        claims: { type: array, items: { $ref: '#/components/schemas/Claim' } }
+        submissions: { type: array, items: { $ref: '#/components/schemas/Submission' } }
+        reviews: { type: array, items: { $ref: '#/components/schemas/Review' } }
+        failures: { type: array, items: { $ref: '#/components/schemas/Failure' } }
+        transition_decisions: { type: array, items: { $ref: '#/components/schemas/TransitionDecision' } }
+    TaskCapabilities:
+      type: object
+      required: [can_claim, can_submit, can_release, can_fail, can_review, can_skip, can_decompose, can_add_child]
+      properties:
+        can_claim: { type: boolean }
+        can_submit: { type: boolean }
+        can_release: { type: boolean }
+        can_fail: { type: boolean }
+        can_review: { type: boolean }
+        can_skip: { type: boolean }
+        can_decompose: { type: boolean }
+        can_add_child: { type: boolean }
+    TaskDetail:
+      type: object
+      required: [task, responsibility, outcome, current_review, history, artifacts, capabilities]
+      properties:
+        task: { $ref: '#/components/schemas/Task' }
+        responsibility: { $ref: '#/components/schemas/Responsibility' }
+        outcome: { $ref: '#/components/schemas/Outcome' }
+        current_review:
+          oneOf: [{ $ref: '#/components/schemas/Review' }, { type: 'null' }]
+        history: { $ref: '#/components/schemas/TaskHistory' }
+        artifacts: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
+        capabilities: { $ref: '#/components/schemas/TaskCapabilities' }
+    WorkflowChoiceRelation:
+      type: object
+      required: [relation_id, target, label, agent_guidance]
+      properties:
+        relation_id: { type: string }
+        target: { $ref: '#/components/schemas/WorkflowTaskDefinition' }
+        label: { type: string }
+        agent_guidance: { type: string }
+    WorkflowChoiceOption:
+      type: object
+      required: [id, kind, targets, relations, skippable_optional_tasks]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [continue, exit] }
+        targets: { type: array, items: { $ref: '#/components/schemas/WorkflowTaskDefinition' } }
+        relations: { type: array, items: { $ref: '#/components/schemas/WorkflowChoiceRelation' } }
+        skippable_optional_tasks: { type: array, items: { $ref: '#/components/schemas/WorkflowTaskDefinition' } }
+    WorkflowContext:
+      type: object
+      required: [upstream_tasks, choice_groups]
+      properties:
+        upstream_tasks: { type: array, items: { $ref: '#/components/schemas/Task' } }
+        choice_groups: { type: array, items: { $ref: '#/components/schemas/WorkflowChoiceOption' } }
+    BlackboardContext:
+      type: object
+      required: [current_task_id, tasks, relations, can_decompose]
+      properties:
+        current_task_id: { type: string }
+        tasks: { type: array, items: { $ref: '#/components/schemas/Task' } }
+        relations: { type: array, items: { $ref: '#/components/schemas/TaskRelation' } }
+        can_decompose: { type: boolean }
+    TaskContext:
+      type: object
+      required: [work_item, task, claims, artifacts, expected_artifacts, definition, responsibility, outcome, workflow, blackboard]
+      properties:
+        work_item: { $ref: '#/components/schemas/WorkItem' }
+        task: { $ref: '#/components/schemas/Task' }
+        claims: { type: array, items: { $ref: '#/components/schemas/Claim' } }
+        artifacts: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
+        expected_artifacts: { type: array, items: { $ref: '#/components/schemas/ArtifactDefinition' } }
+        definition: { $ref: '#/components/schemas/DefinitionContext' }
+        responsibility: { $ref: '#/components/schemas/Responsibility' }
+        outcome: { $ref: '#/components/schemas/Outcome' }
+        workflow:
+          oneOf: [{ $ref: '#/components/schemas/WorkflowContext' }, { type: 'null' }]
+        blackboard:
+          oneOf: [{ $ref: '#/components/schemas/BlackboardContext' }, { type: 'null' }]
+    WorkItemContext:
+      type: object
+      required: [work_item, definition, tasks, relations, claims, active_claims, artifacts]
+      properties:
+        work_item: { $ref: '#/components/schemas/WorkItem' }
+        definition: { $ref: '#/components/schemas/DefinitionContext' }
+        tasks: { type: array, items: { $ref: '#/components/schemas/Task' } }
+        relations: { type: array, items: { $ref: '#/components/schemas/TaskRelation' } }
+        claims: { type: array, items: { $ref: '#/components/schemas/Claim' } }
+        active_claims: { type: array, items: { $ref: '#/components/schemas/Claim' } }
+        artifacts: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
+    WorkCandidate:
+      type: object
+      required: [kind, work_item, task, definition]
+      properties:
+        kind: { type: string, enum: [task, empty_blackboard, blackboard_completion, work_item_acceptance] }
+        work_item: { $ref: '#/components/schemas/WorkItem' }
+        task:
+          oneOf: [{ $ref: '#/components/schemas/Task' }, { type: 'null' }]
+        definition: { $ref: '#/components/schemas/DefinitionContext' }
+    HumanAttentionItem:
+      type: object
+      required: [kind, work_item, task]
+      properties:
+        kind: { type: string, enum: [review, human_task, work_item_acceptance] }
+        work_item: { $ref: '#/components/schemas/WorkItem' }
+        task:
+          oneOf: [{ $ref: '#/components/schemas/Task' }, { type: 'null' }]
+    LeaseRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        lease_seconds:
+          type: integer
+          format: int64
+          default: 0
+          description: Positive values are clamped to the supported 15-1800 second range; zero or a negative value uses the server default.
+    WorkflowTransitionRequest:
+      type: object
+      additionalProperties: false
+      required: [choice_group_id]
+      properties:
+        choice_group_id: { type: string }
+        skip_optional_task_ids: { $ref: '#/components/schemas/StringArray' }
+        review_skipped_task_ids: { $ref: '#/components/schemas/StringArray' }
+        reason: { type: string }
+    SubmitTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [claim_id, result]
+      properties:
+        claim_id: { type: string }
+        result: { type: string }
+        artifact_ids: { $ref: '#/components/schemas/StringArray' }
+        request_review: { type: boolean, default: false }
+        transition:
+          oneOf: [{ $ref: '#/components/schemas/WorkflowTransitionRequest' }, { type: 'null' }]
+    CreateArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [claim_id, name, uri]
+      properties:
+        claim_id: { type: string }
+        name: { type: string }
+        uri: { type: string, format: uri }
+    FailTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [claim_id, action, reason]
+      properties:
+        claim_id: { type: string }
+        action: { type: string, enum: [reopen, fail_work_item] }
+        reason: { type: string }
+        retry_prompt: { type: string }
+    WorkItemResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/WorkItem' } }
+    WorkItemListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/WorkItem' } } }
+    TaskResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/Task' } }
+    TaskRelationResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/TaskRelation' } }
+    ClaimResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/Claim' } }
+    SubmissionResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/Submission' } }
+    ArtifactResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/Artifact' } }
+    ArtifactListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/Artifact' } } }
+    FailureResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/Failure' } }
+    ReviewResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/Review' } }
+    TaskDetailResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/TaskDetail' } }
+    TaskContextResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/TaskContext' } }
+    WorkItemContextResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/WorkItemContext' } }
+    WorkCandidateListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/WorkCandidate' } } }
+    HumanAttentionListResponse:
+      type: object
+      required: [data]
+      properties: { data: { type: array, items: { $ref: '#/components/schemas/HumanAttentionItem' } } }
+    DecompositionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [parent, children]
+          properties:
+            parent: { $ref: '#/components/schemas/Task' }
+            children: { type: array, items: { $ref: '#/components/schemas/Task' } }

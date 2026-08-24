@@ -9,8 +9,8 @@ import (
 // ArtifactDefinition tells an executor which durable deliverable a Workflow Task expects.
 // The description guides the work; it does not constrain the deliverable's content type.
 type ArtifactDefinition struct {
-	Name        string
-	Description string
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // Validate checks an Artifact Definition.
@@ -27,15 +27,15 @@ func (d ArtifactDefinition) Validate() error {
 // Artifact is one immutable deliverable created by a Claim. An Artifact remains
 // staged until it is attached to a Submission.
 type Artifact struct {
-	ID         ArtifactID
-	WorkItemID WorkItemID
-	TaskID     TaskID
-	ClaimID    ClaimID
+	ID         ArtifactID `json:"id"`
+	WorkItemID WorkItemID `json:"work_item_id"`
+	TaskID     TaskID     `json:"task_id"`
+	ClaimID    ClaimID    `json:"claim_id"`
 
-	SubmissionID *SubmissionID
-	Name         string
-	URI          string
-	CreatedAt    time.Time
+	SubmissionID *SubmissionID `json:"submission_id"`
+	Name         string        `json:"name"`
+	URI          string        `json:"uri"`
+	CreatedAt    time.Time     `json:"created_at"`
 }
 
 // Validate checks Artifact identity, provenance, and location.

@@ -3,8 +3,8 @@ import { latestPublishedDefinitions } from './AppModals'
 
 type Definition = Parameters<typeof latestPublishedDefinitions>[0][number]
 
-function definition(ID: string, Version: number, mode: Definition['mode'], Status: Definition['Status'] = 'published'): Definition {
-  return { ID, Version, mode, Status, Name: ID, Description: '', AgentInstructions: '', SuggestedTags: [] }
+function definition(id: string, version: number, mode: Definition['mode'], status: Definition['status'] = 'published'): Definition {
+  return { id, version, mode, status, name: id, description: '', agent_instructions: '', suggested_tags: [] }
 }
 
 describe('Definition selection', () => {
@@ -16,7 +16,7 @@ describe('Definition selection', () => {
       definition('delivery', 1, 'workflow'),
     ])
 
-    expect(result.map(item => `${item.mode}:${item.ID}:v${item.Version}`)).toEqual([
+    expect(result.map(item => `${item.mode}:${item.id}:v${item.version}`)).toEqual([
       'blackboard:delivery:v3',
       'workflow:delivery:v1',
     ])

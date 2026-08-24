@@ -53,7 +53,7 @@ type TaskDraft = {
   title: string;
   description: string;
   acceptance: string;
-  executor: Task["Executor"];
+  executor: Task["executor"];
   tags: string;
 };
 type TaskOperation =
@@ -67,12 +67,12 @@ type TaskOperation =
   | "skip";
 type ArtifactDeliveryMode = "upload" | "uri";
 
-function uniqueArtifactIDsByName(artifacts: TaskExecutionContext["Artifacts"]) {
+function uniqueArtifactIDsByName(artifacts: TaskExecutionContext["artifacts"]) {
   const names = new Set<string>();
   return artifacts.flatMap((artifact) => {
-    if (names.has(artifact.Name)) return [];
-    names.add(artifact.Name);
-    return [artifact.ID];
+    if (names.has(artifact.name)) return [];
+    names.add(artifact.name);
+    return [artifact.id];
   });
 }
 
@@ -125,50 +125,50 @@ export function TaskDetail({
 }) {
   const { t, formatTime } = useI18n();
   const detail = useQuery({
-    queryKey: ["task-detail", identity, task.ID],
-    queryFn: () => api.getTaskDetail(identity, task.ID),
+    queryKey: ["task-detail", identity, task.id],
+    queryFn: () => api.getTaskDetail(identity, task.id),
     retry: false,
   });
-  const capabilities = detail.data?.Capabilities;
+  const capabilities = detail.data?.capabilities;
   const needsExecutionContext =
-    capabilities?.CanClaim ||
-    capabilities?.CanSubmit ||
-    capabilities?.CanRelease ||
-    capabilities?.CanFail ||
-    capabilities?.CanDecompose;
+    capabilities?.can_claim ||
+    capabilities?.can_submit ||
+    capabilities?.can_release ||
+    capabilities?.can_fail ||
+    capabilities?.can_decompose;
   const execution = useQuery({
-    queryKey: ["task-context", identity, task.ID],
-    queryFn: () => api.getTaskContext(identity, task.ID),
+    queryKey: ["task-context", identity, task.id],
+    queryFn: () => api.getTaskContext(identity, task.id),
     enabled: needsExecutionContext === true,
     retry: false,
   });
-  const detailTask = detail.data?.Task ?? task;
+  const detailTask = detail.data?.task ?? task;
   const hasPendingReview =
-    capabilities?.CanReview === true &&
-    detail.data?.CurrentReview?.Status === "pending";
-  const canDecompose = execution.data?.Blackboard?.CanDecompose === true;
-  const operationTask = execution.data?.Task ?? detailTask;
+    capabilities?.can_review === true &&
+    detail.data?.current_review?.status === "pending";
+  const canDecompose = execution.data?.blackboard?.can_decompose === true;
+  const operationTask = execution.data?.task ?? detailTask;
   const operationClaim =
-    execution.data?.Claims.find(
+    execution.data?.claims.find(
       (item) =>
-        !item.EndedAt &&
-        item.Executor.Kind === identity.kind &&
-        item.Executor.ID === identity.id,
+        !item.ended_at &&
+        item.executor.kind === identity.kind &&
+        item.executor.id === identity.id,
     ) ?? activeClaim;
   const operationOwnsClaim =
-    operationClaim?.Executor.Kind === identity.kind &&
-    operationClaim.Executor.ID === identity.id;
+    operationClaim?.executor.kind === identity.kind &&
+    operationClaim.executor.id === identity.id;
   const defaultOperation: TaskOperation | null = hasPendingReview
     ? "review"
-    : capabilities?.CanClaim
+    : capabilities?.can_claim
       ? "start"
-      : operationTask.Status === "working" && operationOwnsClaim
+      : operationTask.status === "working" && operationOwnsClaim
         ? canDecompose
           ? "decompose"
           : "complete"
-        : capabilities?.CanAddChild
+        : capabilities?.can_add_child
           ? "add-child"
-          : capabilities?.CanSkip
+          : capabilities?.can_skip
             ? "skip"
             : null;
   const [activeOperation, setActiveOperation] = useState<TaskOperation | null>(
@@ -177,8 +177,8 @@ export function TaskDetail({
   useEffect(() => {
     setActiveOperation(defaultOperation);
   }, [defaultOperation]);
-  const latestResult = detail.data?.History.Submissions.at(-1)?.Result;
-  const reviewStatus = (status: Review["Status"]) =>
+  const latestResult = detail.data?.history.submissions.at(-1)?.result;
+  const reviewStatus = (status: Review["status"]) =>
     t(
       status === "approved"
         ? "statusApproved"
@@ -201,13 +201,13 @@ export function TaskDetail({
   return (
     <div className="task-detail">
       <div className="task-identity">
-        <span>TASK / {shortID(detailTask.ID)}</span>
-        <Status value={detailTask.Status} />
-        <h3>{detailTask.Title}</h3>
-        <p>{detailTask.Description || t("noDescription")}</p>
-        {(detailTask.Tags?.length ?? 0) > 0 && (
+        <span>TASK / {shortID(detailTask.id)}</span>
+        <Status value={detailTask.status} />
+        <h3>{detailTask.title}</h3>
+        <p>{detailTask.description || t("noDescription")}</p>
+        {(detailTask.tags?.length ?? 0) > 0 && (
           <div className="task-tags detail" aria-label={t("tags")}>
-            {detailTask.Tags?.map((tag) => (
+            {detailTask.tags?.map((tag) => (
               <span key={tag}>{tag}</span>
             ))}
           </div>
@@ -216,42 +216,42 @@ export function TaskDetail({
       <dl className="spec-list">
         <div>
           <dt>{t("executor")}</dt>
-          <dd>{t(detailTask.Executor)}</dd>
+          <dd>{t(detailTask.executor)}</dd>
         </div>
         {mode !== "blackboard" && (
           <div>
             <dt>{t("role")}</dt>
-            <dd>{detailTask.AllowedRoles?.join(", ") || t("unrestricted")}</dd>
+            <dd>{detailTask.allowed_roles?.join(", ") || t("unrestricted")}</dd>
           </div>
         )}
         <div>
           <dt>
             {t(
               responsibilityLabels[
-                detail.data.Responsibility
-                  .Kind as keyof typeof responsibilityLabels
+                detail.data.responsibility
+                  .kind as keyof typeof responsibilityLabels
               ] ?? "responsibility",
             )}
           </dt>
           <dd>
-            {detail.data.Responsibility.Actor?.ID ||
+            {detail.data.responsibility.actor?.id ||
               t(
-                detail.data.Responsibility.Kind === "unclaimed"
+                detail.data.responsibility.kind === "unclaimed"
                   ? "unclaimed"
                   : "notRecorded",
               )}
           </dd>
         </div>
       </dl>
-      {detail.data.Outcome.Reason && (
+      {detail.data.outcome.reason && (
         <div className="detail-block">
           <span>{t("outcomeReason")}</span>
-          <p>{detail.data.Outcome.Reason}</p>
+          <p>{detail.data.outcome.reason}</p>
         </div>
       )}
       <div className="detail-block">
         <span>{t("acceptance")}</span>
-        <p>{detailTask.AcceptanceCriteria || "—"}</p>
+        <p>{detailTask.acceptance_criteria || "—"}</p>
       </div>
       {latestResult && (
         <div className="result-block">
@@ -262,44 +262,44 @@ export function TaskDetail({
           <pre>{latestResult}</pre>
         </div>
       )}
-      {detail.data.Artifacts.length > 0 && (
-        <TaskArtifacts artifacts={detail.data.Artifacts} identity={identity} />
+      {detail.data.artifacts.length > 0 && (
+        <TaskArtifacts artifacts={detail.data.artifacts} identity={identity} />
       )}
-      {detail.data.History.Reviews.length > 0 && (
+      {detail.data.history.reviews.length > 0 && (
         <div className="timeline">
           <span>{t("reviewChannel")}</span>
-          {detail.data.History.Reviews.map((item) => (
-            <div className="timeline-item" key={item.ID}>
+          {detail.data.history.reviews.map((item) => (
+            <div className="timeline-item" key={item.id}>
               <i />
               <div>
                 <div>
-                  <strong>{reviewStatus(item.Status)}</strong>
-                  <time>{formatTime(item.RequestedAt)}</time>
+                  <strong>{reviewStatus(item.status)}</strong>
+                  <time>{formatTime(item.requested_at)}</time>
                 </div>
                 <p>
-                  {item.Feedback ||
-                    t("requestedBy", { actor: item.RequestedBy })}
+                  {item.feedback ||
+                    t("requestedBy", { actor: item.requested_by })}
                 </p>
               </div>
             </div>
           ))}
         </div>
       )}
-      {detail.data.History.Failures.length > 0 && (
+      {detail.data.history.failures.length > 0 && (
         <div className="timeline danger">
           <span>{t("failureHistory")}</span>
-          {detail.data.History.Failures.map((item) => (
-            <div className="timeline-item" key={item.ID}>
+          {detail.data.history.failures.map((item) => (
+            <div className="timeline-item" key={item.id}>
               <i />
               <div>
                 <strong>
                   {t(
-                    item.Action === "reopen"
+                    item.action === "reopen"
                       ? "actionReopen"
                       : "actionFailWorkItem",
                   )}
                 </strong>
-                <p>{item.Reason}</p>
+                <p>{item.reason}</p>
               </div>
             </div>
           ))}
@@ -315,7 +315,7 @@ export function TaskDetail({
         />
         {needsExecutionContext && execution.isLoading && (
           <OperationPanel
-            operation={task.Status === "pending" ? "start" : "complete"}
+            operation={task.status === "pending" ? "start" : "complete"}
             activeOperation={activeOperation}
             onSelect={setActiveOperation}
             title={t("preparingTask")}
@@ -327,7 +327,7 @@ export function TaskDetail({
         )}
         {needsExecutionContext && execution.error && (
           <OperationPanel
-            operation={task.Status === "pending" ? "start" : "complete"}
+            operation={task.status === "pending" ? "start" : "complete"}
             activeOperation={activeOperation}
             onSelect={setActiveOperation}
             title={t("taskActionsUnavailable")}
@@ -360,9 +360,9 @@ export function TaskDetail({
             task={operationTask}
             activeClaim={operationClaim}
             identity={identity}
-            canDecompose={detail.data.Capabilities.CanDecompose && canDecompose}
-            canSkip={detail.data.Capabilities.CanSkip}
-            canAddChild={detail.data.Capabilities.CanAddChild}
+            canDecompose={detail.data.capabilities.can_decompose && canDecompose}
+            canSkip={detail.data.capabilities.can_skip}
+            canAddChild={detail.data.capabilities.can_add_child}
             activeOperation={activeOperation}
             onSelectOperation={setActiveOperation}
           />
@@ -376,20 +376,20 @@ function TaskArtifacts({
   artifacts,
   identity,
 }: {
-  artifacts: TaskDetailView["Artifacts"];
+  artifacts: TaskDetailView["artifacts"];
   identity: Identity;
 }) {
   const { t } = useI18n();
   const [error, setError] = useState<Error | null>(null);
 
-  async function download(artifact: TaskDetailView["Artifacts"][number]) {
+  async function download(artifact: TaskDetailView["artifacts"][number]) {
     try {
       setError(null);
-      const blob = await api.downloadArtifact(identity, artifact.ID);
+      const blob = await api.downloadArtifact(identity, artifact.id);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = artifact.Name;
+      link.download = artifact.name;
       link.click();
       URL.revokeObjectURL(url);
     } catch (cause) {
@@ -405,9 +405,9 @@ function TaskArtifacts({
       </div>
       <div className="task-artifact-list">
         {artifacts.map((artifact) => (
-          <div key={artifact.ID}>
-            <strong>{artifact.Name}</strong>
-            {artifact.URI.startsWith("kairos://") ? (
+          <div key={artifact.id}>
+            <strong>{artifact.name}</strong>
+            {artifact.uri.startsWith("kairos://") ? (
               <button
                 type="button"
                 className="quiet-button"
@@ -416,13 +416,13 @@ function TaskArtifacts({
                 <Download size={14} />
                 {t("downloadArtifact")}
               </button>
-            ) : /^https?:\/\//.test(artifact.URI) ? (
-              <a href={artifact.URI} target="_blank" rel="noreferrer">
-                <span>{artifact.URI}</span>
+            ) : /^https?:\/\//.test(artifact.uri) ? (
+              <a href={artifact.uri} target="_blank" rel="noreferrer">
+                <span>{artifact.uri}</span>
                 <ExternalLink size={13} />
               </a>
             ) : (
-              <span>{artifact.URI}</span>
+              <span>{artifact.uri}</span>
             )}
           </div>
         ))}
@@ -481,7 +481,7 @@ function HumanTaskActions({
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const canHumanExecute =
-    task.Executor === "human" || task.Executor === "either";
+    task.executor === "human" || task.executor === "either";
   const [result, setResult] = useState("");
   const [artifactModes, setArtifactModes] = useState<Record<string, ArtifactDeliveryMode>>({});
   const [artifactFiles, setArtifactFiles] = useState<Record<string, File>>({});
@@ -497,16 +497,16 @@ function HumanTaskActions({
   >("reopen");
 
   const refresh = () =>
-    refreshTaskState(queryClient, identity, task.ID, task.WorkItemID);
+    refreshTaskState(queryClient, identity, task.id, task.work_item_id);
   const claim = useMutation({
-    mutationFn: () => api.claimTask(identity, task.ID),
+    mutationFn: () => api.claimTask(identity, task.id),
     onSuccess: refresh,
   });
-  const activeClaim = execution.data?.Claims.find(
+  const activeClaim = execution.data?.claims.find(
     (item) =>
-      !item.EndedAt &&
-      item.Executor.Kind === identity.kind &&
-      item.Executor.ID === identity.id,
+      !item.ended_at &&
+      item.executor.kind === identity.kind &&
+      item.executor.id === identity.id,
   );
   const resetClaimState = () => {
     setResult("");
@@ -523,44 +523,44 @@ function HumanTaskActions({
   };
   useEffect(() => {
     resetClaimState();
-  }, [activeClaim?.ID]);
-  const choices = execution.data?.Workflow?.ChoiceGroups ?? [];
-  const expectedArtifacts = execution.data?.ExpectedArtifacts ?? [];
-  const stagedArtifacts = (execution.data?.Artifacts ?? []).filter(
+  }, [activeClaim?.id]);
+  const choices = execution.data?.workflow?.choice_groups ?? [];
+  const expectedArtifacts = execution.data?.expected_artifacts ?? [];
+  const stagedArtifacts = (execution.data?.artifacts ?? []).filter(
     (artifact) =>
-      artifact.ClaimID === activeClaim?.ID && !artifact.SubmissionID,
+      artifact.claim_id === activeClaim?.id && !artifact.submission_id,
   );
-  const selectedTransition = transitionID || choices[0]?.ID || "";
+  const selectedTransition = transitionID || choices[0]?.id || "";
   const submit = useMutation({
     mutationFn: async () => {
       const created = { ...createdArtifactIDs };
       for (const expected of expectedArtifacts) {
         if (
           stagedArtifacts.some(
-            (artifact) => artifact.Name === expected.Name,
-          ) || created[expected.Name]
+            (artifact) => artifact.name === expected.name,
+          ) || created[expected.name]
         )
           continue;
-        const artifact = (artifactModes[expected.Name] ?? "upload") === "upload"
+        const artifact = (artifactModes[expected.name] ?? "upload") === "upload"
           ? await api.uploadArtifact(
               identity,
-              task.ID,
-              activeClaim!.ID,
-              expected.Name,
-              artifactFiles[expected.Name],
-              artifactOperationIDs.current[expected.Name] ??=
+              task.id,
+              activeClaim!.id,
+              expected.name,
+              artifactFiles[expected.name],
+              artifactOperationIDs.current[expected.name] ??=
                 crypto.randomUUID(),
             )
-          : await api.createArtifact(identity, task.ID, {
-              claim_id: activeClaim!.ID,
-              name: expected.Name,
-              uri: artifactURIs[expected.Name],
+          : await api.createArtifact(identity, task.id, {
+              claim_id: activeClaim!.id,
+              name: expected.name,
+              uri: artifactURIs[expected.name],
             });
-        created[expected.Name] = artifact.ID;
+        created[expected.name] = artifact.id;
         setCreatedArtifactIDs({ ...created });
       }
-      return api.submitTask(identity, task.ID, {
-        claim_id: activeClaim!.ID,
+      return api.submitTask(identity, task.id, {
+        claim_id: activeClaim!.id,
         result,
         artifact_ids: [
           ...new Set([
@@ -585,7 +585,7 @@ function HumanTaskActions({
     },
   });
   const release = useMutation({
-    mutationFn: () => api.releaseClaim(identity, task.ID, activeClaim!.ID),
+    mutationFn: () => api.releaseClaim(identity, task.id, activeClaim!.id),
     onSuccess: () => {
       resetClaimState();
       return refresh();
@@ -593,8 +593,8 @@ function HumanTaskActions({
   });
   const fail = useMutation({
     mutationFn: () =>
-      api.failTask(identity, task.ID, {
-        claim_id: activeClaim!.ID,
+      api.failTask(identity, task.id, {
+        claim_id: activeClaim!.id,
         action: failureAction,
         reason: failureReason,
         retry_prompt: failureAction === "reopen" ? retryPrompt : "",
@@ -607,11 +607,11 @@ function HumanTaskActions({
 
   if (
     !canHumanExecute ||
-    (task.Status !== "pending" && task.Status !== "working")
+    (task.status !== "pending" && task.status !== "working")
   )
     return null;
   if (!execution.data) return null;
-  if (task.Status === "pending")
+  if (task.status === "pending")
     return (
       <OperationPanel
         operation="start"
@@ -635,15 +635,15 @@ function HumanTaskActions({
   if (!activeClaim) return null;
 
   const canChooseReview =
-    execution.data.WorkItem.Definition.Mode === "blackboard" ||
-    task.ReviewPolicy === "executor_decides";
+    execution.data.work_item.definition.mode === "blackboard" ||
+    task.review_policy === "executor_decides";
   const artifactsReady = expectedArtifacts.every(
     (expected) =>
-      stagedArtifacts.some((artifact) => artifact.Name === expected.Name) ||
-      createdArtifactIDs[expected.Name] ||
-      ((artifactModes[expected.Name] ?? "upload") === "upload"
-        ? artifactFiles[expected.Name]
-        : artifactURIs[expected.Name]?.trim()),
+      stagedArtifacts.some((artifact) => artifact.name === expected.name) ||
+      createdArtifactIDs[expected.name] ||
+      ((artifactModes[expected.name] ?? "upload") === "upload"
+        ? artifactFiles[expected.name]
+        : artifactURIs[expected.name]?.trim()),
   );
   return (
     <>
@@ -669,24 +669,24 @@ function HumanTaskActions({
               <strong>{t("expectedArtifacts")}</strong>
               {expectedArtifacts.map((expected) => {
                 const existing = stagedArtifacts.find(
-                  (artifact) => artifact.Name === expected.Name,
+                  (artifact) => artifact.name === expected.name,
                 );
-                const mode = artifactModes[expected.Name] ?? "upload";
+                const mode = artifactModes[expected.name] ?? "upload";
                 return (
-                  <div className="expected-artifact" key={expected.Name}>
-                    <strong>{expected.Name}</strong>
-                    <small>{expected.Description}</small>
-                    {existing || createdArtifactIDs[expected.Name] ? (
+                  <div className="expected-artifact" key={expected.name}>
+                    <strong>{expected.name}</strong>
+                    <small>{expected.description}</small>
+                    {existing || createdArtifactIDs[expected.name] ? (
                       <span className="artifact-ready">
                         {t("artifactReady")}
                       </span>
                     ) : (
                       <>
-                        <div className="artifact-delivery-modes" aria-label={`${expected.Name}: ${t("artifactDeliveryMode")}`} role="group">
+                        <div className="artifact-delivery-modes" aria-label={`${expected.name}: ${t("artifactDeliveryMode")}`} role="group">
                           <button
                             type="button"
                             aria-pressed={mode === "upload"}
-                            onClick={() => setArtifactModes((current) => ({ ...current, [expected.Name]: "upload" }))}
+                            onClick={() => setArtifactModes((current) => ({ ...current, [expected.name]: "upload" }))}
                           >
                             <Upload size={14} />
                             {t("uploadFile")}
@@ -694,7 +694,7 @@ function HumanTaskActions({
                           <button
                             type="button"
                             aria-pressed={mode === "uri"}
-                            onClick={() => setArtifactModes((current) => ({ ...current, [expected.Name]: "uri" }))}
+                            onClick={() => setArtifactModes((current) => ({ ...current, [expected.name]: "uri" }))}
                           >
                             <Link size={14} />
                             {t("externalURI")}
@@ -705,14 +705,14 @@ function HumanTaskActions({
                             <span>{t("uploadFile")}</span>
                             <input
                               type="file"
-                              aria-label={`${expected.Name}: ${t("uploadFile")}`}
+                              aria-label={`${expected.name}: ${t("uploadFile")}`}
                               onChange={(event) => {
                                 const file = event.target.files?.[0];
-                                delete artifactOperationIDs.current[expected.Name];
+                                delete artifactOperationIDs.current[expected.name];
                                 setArtifactFiles((current) => {
                                   const next = { ...current };
-                                  if (file) next[expected.Name] = file;
-                                  else delete next[expected.Name];
+                                  if (file) next[expected.name] = file;
+                                  else delete next[expected.name];
                                   return next;
                                 });
                               }}
@@ -722,11 +722,11 @@ function HumanTaskActions({
                           <label className="artifact-uri-input">
                             <span>{t("externalURI")}</span>
                             <input
-                              value={artifactURIs[expected.Name] ?? ""}
+                              value={artifactURIs[expected.name] ?? ""}
                               onChange={(event) =>
                                 setArtifactURIs((current) => ({
                                   ...current,
-                                  [expected.Name]: event.target.value,
+                                  [expected.name]: event.target.value,
                                 }))
                               }
                               placeholder={t("artifactURIPlaceholder")}
@@ -748,8 +748,8 @@ function HumanTaskActions({
                 onChange={(event) => setTransitionID(event.target.value)}
               >
                 {choices.map((choice) => (
-                  <option key={choice.ID} value={choice.ID}>
-                    {choice.Targets.map((target) => target.Title).join(" + ")}
+                  <option key={choice.id} value={choice.id}>
+                    {choice.targets.map((target) => target.title).join(" + ")}
                   </option>
                 ))}
               </select>
@@ -765,7 +765,7 @@ function HumanTaskActions({
               <span>{t("requestReview")}</span>
             </label>
           )}
-          {task.ReviewPolicy === "required" && (
+          {task.review_policy === "required" && (
             <p className="required-review">{t("reviewRequired")}</p>
           )}
           {submit.error && <FormError error={submit.error} />}
@@ -895,7 +895,7 @@ export function CreateTask({
       title: formValue(data, "title"),
       description: formValue(data, "description"),
       acceptance_criteria: formValue(data, "acceptance"),
-      executor: formValue(data, "executor") as Task["Executor"],
+      executor: formValue(data, "executor") as Task["executor"],
       allowed_roles: [],
       tags: splitValues(data.get("tags")),
     });
@@ -1094,7 +1094,7 @@ function TaskDraftFields({
           <select
             value={value.executor}
             onChange={(event) =>
-              set("executor", event.target.value as Task["Executor"])
+              set("executor", event.target.value as Task["executor"])
             }
           >
             <option value="either">{t("either")}</option>
@@ -1140,11 +1140,11 @@ function BlackboardPlanningActions({
   const [child, setChild] = useState<TaskDraft>(emptyTaskDraft);
   const [skipReason, setSkipReason] = useState("");
   const refresh = () =>
-    refreshTaskState(queryClient, identity, task.ID, task.WorkItemID);
+    refreshTaskState(queryClient, identity, task.id, task.work_item_id);
   const decompose = useMutation({
     mutationFn: () =>
-      api.decomposeBlackboardTask(identity, task.ID, {
-        claim_id: activeClaim!.ID,
+      api.decomposeBlackboardTask(identity, task.id, {
+        claim_id: activeClaim!.id,
         children: children.map(taskDraftInput),
       }),
     onSuccess: () => {
@@ -1154,24 +1154,24 @@ function BlackboardPlanningActions({
   });
   const addChild = useMutation({
     mutationFn: () =>
-      api.addBlackboardChildTask(identity, task.ID, taskDraftInput(child)),
+      api.addBlackboardChildTask(identity, task.id, taskDraftInput(child)),
     onSuccess: () => {
       setChild(emptyTaskDraft());
       return refresh();
     },
   });
   const skip = useMutation({
-    mutationFn: () => api.skipBlackboardTask(identity, task.ID, skipReason),
+    mutationFn: () => api.skipBlackboardTask(identity, task.id, skipReason),
     onSuccess: () => {
       setSkipReason("");
       return refresh();
     },
   });
   const ownsClaim =
-    activeClaim?.Executor.Kind === identity.kind &&
-    activeClaim.Executor.ID === identity.id;
+    activeClaim?.executor.kind === identity.kind &&
+    activeClaim.executor.id === identity.id;
   const error = decompose.error ?? addChild.error ?? skip.error;
-  if (task.Status === "working" && ownsClaim && canDecompose)
+  if (task.status === "working" && ownsClaim && canDecompose)
     return (
       <OperationPanel
         operation="decompose"
@@ -1295,19 +1295,19 @@ function ReviewActions({
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const pendingReview =
-    detail.Capabilities.CanReview && detail.CurrentReview?.Status === "pending"
-      ? detail.CurrentReview
+    detail.capabilities.can_review && detail.current_review?.status === "pending"
+      ? detail.current_review
       : undefined;
   const [feedback, setFeedback] = useState("");
   const mutation = useMutation({
     mutationFn: (input: ReviewDecisionInput) =>
-      api.decideReview(identity, task.ID, pendingReview!.ID, input),
+      api.decideReview(identity, task.id, pendingReview!.id, input),
     onSuccess: () => {
       setFeedback("");
-      return refreshTaskState(queryClient, identity, task.ID, task.WorkItemID);
+      return refreshTaskState(queryClient, identity, task.id, task.work_item_id);
     },
   });
-  if (task.Status !== "in_review" || !pendingReview) return null;
+  if (task.status !== "in_review" || !pendingReview) return null;
   return (
     <OperationPanel
       operation="review"

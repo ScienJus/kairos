@@ -69,13 +69,13 @@ func containsAllStrings(values, required []string) bool {
 // WorkItemExecutionContext contains a durable WorkItem view that remains
 // addressable after it leaves the open candidate set.
 type WorkItemExecutionContext struct {
-	WorkItem     domain.WorkItem
-	Definition   DefinitionExecutionContext
-	Tasks        []domain.Task
-	Relations    []domain.TaskRelation
-	Claims       []domain.Claim
-	ActiveClaims []domain.Claim
-	Artifacts    []domain.Artifact
+	WorkItem     domain.WorkItem            `json:"work_item"`
+	Definition   DefinitionExecutionContext `json:"definition"`
+	Tasks        []domain.Task              `json:"tasks"`
+	Relations    []domain.TaskRelation      `json:"relations"`
+	Claims       []domain.Claim             `json:"claims"`
+	ActiveClaims []domain.Claim             `json:"active_claims"`
+	Artifacts    []domain.Artifact          `json:"artifacts"`
 }
 
 // GetWorkItemExecutionContextQuery identifies one WorkItem and requesting actor.

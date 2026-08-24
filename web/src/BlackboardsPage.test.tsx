@@ -14,8 +14,8 @@ const identity: Identity = { id: 'human-1', kind: 'human', role: '' }
 
 function definition(version: number, name = 'Product work'): Definition {
   return {
-    ID: 'product-work', Version: version, Name: name, Description: `Description v${version}`,
-    AgentInstructions: `Plan version ${version}`, SuggestedTags: ['product'], Status: 'published',
+    id: 'product-work', version: version, name: name, description: `Description v${version}`,
+    agent_instructions: `Plan version ${version}`, suggested_tags: ['product'], status: 'published',
   }
 }
 

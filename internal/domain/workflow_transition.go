@@ -6,11 +6,11 @@ import "strings"
 // runtime to skip during the current graph expansion.
 type WorkflowSkipIntent struct {
 	// SkipTaskIDs apply only while the current expansion remains on skipped paths.
-	SkipTaskIDs []WorkflowTaskID
+	SkipTaskIDs []WorkflowTaskID `json:"skip_task_ids"`
 
 	// ReviewRequestedTaskIDs is a subset of SkipTaskIDs whose executor_decides
 	// policy should request human Review.
-	ReviewRequestedTaskIDs []WorkflowTaskID
+	ReviewRequestedTaskIDs []WorkflowTaskID `json:"review_requested_task_ids"`
 }
 
 // Validate checks local Skip Intent invariants.
@@ -43,13 +43,13 @@ func (i WorkflowSkipIntent) Validate() error {
 
 // WorkflowTransition contains one selected choice group's relation outcomes.
 type WorkflowTransition struct {
-	ChoiceGroupID WorkflowChoiceGroupID
+	ChoiceGroupID WorkflowChoiceGroupID `json:"choice_group_id"`
 
-	TriggeredRelationIDs       []WorkflowRelationID
-	SkippedRelationIDs         []WorkflowRelationID
-	ReviewRequestedRelationIDs []WorkflowRelationID
+	TriggeredRelationIDs       []WorkflowRelationID `json:"triggered_relation_ids"`
+	SkippedRelationIDs         []WorkflowRelationID `json:"skipped_relation_ids"`
+	ReviewRequestedRelationIDs []WorkflowRelationID `json:"review_requested_relation_ids"`
 
-	Reason string
+	Reason string `json:"reason"`
 }
 
 // Validate checks transition fields that do not require the Workflow Definition.

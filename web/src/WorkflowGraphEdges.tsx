@@ -40,13 +40,13 @@ export function workflowNodeIsSelected(runtimeTaskIDs: string[], selectedTaskID:
 
 export function workflowGraphLayout(
   taskIDs: string[],
-  relations: Array<{ FromTaskID: string; ToTaskID: string }>,
+  relations: Array<{ from_task_id: string; to_task_id: string }>,
   startTaskIDs: string[],
 ) {
   const knownTaskIDs = new Set(taskIDs)
-  const validRelations = relations.filter(relation => knownTaskIDs.has(relation.FromTaskID) && knownTaskIDs.has(relation.ToTaskID))
+  const validRelations = relations.filter(relation => knownTaskIDs.has(relation.from_task_id) && knownTaskIDs.has(relation.to_task_id))
   const outgoing = new Map(taskIDs.map(taskID => [taskID, [] as typeof validRelations]))
-  validRelations.forEach(relation => outgoing.get(relation.FromTaskID)!.push(relation))
+  validRelations.forEach(relation => outgoing.get(relation.from_task_id)!.push(relation))
 
   const edgeKey = (fromTaskID: string, toTaskID: string) => JSON.stringify([fromTaskID, toTaskID])
   const backEdges = new Set<string>()
@@ -55,30 +55,30 @@ export function workflowGraphLayout(
   const visit = (taskID: string) => {
     state.set(taskID, 'visiting')
     outgoing.get(taskID)!.forEach(relation => {
-      const targetState = state.get(relation.ToTaskID)
-      if (targetState === 'visiting') backEdges.add(edgeKey(relation.FromTaskID, relation.ToTaskID))
-      else if (!targetState) visit(relation.ToTaskID)
+      const targetState = state.get(relation.to_task_id)
+      if (targetState === 'visiting') backEdges.add(edgeKey(relation.from_task_id, relation.to_task_id))
+      else if (!targetState) visit(relation.to_task_id)
     })
     state.set(taskID, 'visited')
   }
   startTaskIDs.filter(taskID => knownTaskIDs.has(taskID)).forEach(taskID => { if (!state.has(taskID)) visit(taskID) })
   taskIDs.forEach(taskID => { if (!state.has(taskID)) visit(taskID) })
 
-  const forwardRelations = validRelations.filter(relation => !backEdges.has(edgeKey(relation.FromTaskID, relation.ToTaskID)))
+  const forwardRelations = validRelations.filter(relation => !backEdges.has(edgeKey(relation.from_task_id, relation.to_task_id)))
   const forwardOutgoing = new Map(taskIDs.map(taskID => [taskID, [] as typeof forwardRelations]))
   const incoming = new Map(taskIDs.map(taskID => [taskID, 0]))
   forwardRelations.forEach(relation => {
-    forwardOutgoing.get(relation.FromTaskID)!.push(relation)
-    incoming.set(relation.ToTaskID, incoming.get(relation.ToTaskID)! + 1)
+    forwardOutgoing.get(relation.from_task_id)!.push(relation)
+    incoming.set(relation.to_task_id, incoming.get(relation.to_task_id)! + 1)
   })
   const depths = new Map(taskIDs.map(taskID => [taskID, 0]))
   const queue = taskIDs.filter(taskID => incoming.get(taskID) === 0)
   while (queue.length > 0) {
     const current = queue.shift()!
     forwardOutgoing.get(current)!.forEach(relation => {
-      depths.set(relation.ToTaskID, Math.max(depths.get(relation.ToTaskID)!, depths.get(current)! + 1))
-      incoming.set(relation.ToTaskID, incoming.get(relation.ToTaskID)! - 1)
-      if (incoming.get(relation.ToTaskID) === 0) queue.push(relation.ToTaskID)
+      depths.set(relation.to_task_id, Math.max(depths.get(relation.to_task_id)!, depths.get(current)! + 1))
+      incoming.set(relation.to_task_id, incoming.get(relation.to_task_id)! - 1)
+      if (incoming.get(relation.to_task_id) === 0) queue.push(relation.to_task_id)
     })
   }
   return {

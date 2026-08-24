@@ -2,11 +2,11 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { Claim, Identity, Task } from './types'
 
 export function canAddBlackboardChild(task: Task) {
-  return task.Status === 'waiting_children'
+  return task.status === 'waiting_children'
 }
 
 export function canSkipBlackboardTask(task: Task, activeClaim: Claim | null) {
-  return task.Status === 'pending' && activeClaim === null
+  return task.status === 'pending' && activeClaim === null
 }
 
 export async function refreshHomeState(queryClient: QueryClient, identity: Identity) {

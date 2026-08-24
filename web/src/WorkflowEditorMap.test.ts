@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { WorkflowRelationDefinition, WorkflowTaskDefinition } from './types'
 import { workflowEditorLayout, workflowTaskPositionNearAnchor } from './WorkflowEditorMap'
 
-const task = (ID: string): WorkflowTaskDefinition => ({
-  ID, Title: ID, Description: '', AcceptanceCriteria: '', Executor: 'agent',
-  AllowedRoles: [], Execution: 'required', ReviewPolicy: 'none', DefaultTags: [], Artifacts: [],
+const task = (id: string): WorkflowTaskDefinition => ({
+  id, title: id, description: '', acceptance_criteria: '', executor: 'agent',
+  allowed_roles: [], execution: 'required', review_policy: 'none', default_tags: [], artifacts: [],
 })
 
 describe('Workflow editor layout', () => {
@@ -23,8 +23,8 @@ describe('Workflow editor layout', () => {
 
   it('reserves wider graph columns only when a relation has a visible label', () => {
     const tasks = [task('start'), task('verify')]
-    const plain: WorkflowRelationDefinition[] = [{ ID: 'plain', FromTaskID: 'start', ToTaskID: 'verify' }]
-    const labeled: WorkflowRelationDefinition[] = [{ ...plain[0], Label: 'Needs verification' }]
+    const plain: WorkflowRelationDefinition[] = [{ id: 'plain', from_task_id: 'start', to_task_id: 'verify' }]
+    const labeled: WorkflowRelationDefinition[] = [{ ...plain[0], label: 'Needs verification' }]
 
     expect(workflowEditorLayout(tasks, plain, ['start']).get('verify')?.x).toBe(250)
     expect(workflowEditorLayout(tasks, labeled, ['start']).get('verify')?.x).toBe(330)

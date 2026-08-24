@@ -34,6 +34,24 @@ go run ./cmd/kairos-server
 
 `GET /healthz` 无需认证。HTTP 管理与执行路由位于 `/api/v1`，Streamable HTTP MCP 位于 `/mcp`。
 
+## HTTP 契约
+
+机器可读的 [OpenAPI 3.1 文档](openapi.yaml)是当前全部 38 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
+
+所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim 和撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
+
+集合字段和列表响应即使为空也始终编码为数组。`active_claim_id`、`parent_task_id`、`current_review`、`workflow`、`blackboard` 和完成时间等可选单值在不存在时使用 `null`。重复的 `status`、`mode` 与 `tag` 查询参数通过重复 query key 传递。通用错误码如下：
+
+| 状态码 | Code |
+| --- | --- |
+| `400` | `invalid_request` |
+| `401` | `unauthenticated` |
+| `403` | `forbidden` |
+| `404` | `not_found` |
+| `409` | `conflict` |
+| `413` | `artifact_too_large` |
+| `500` | `internal_error` |
+
 ## 身份模式
 
 Trusted Mode 在可信边界内接受传输头：
@@ -44,7 +62,7 @@ X-Kairos-Actor-Kind: agent
 X-Kairos-Actor-Role: backend
 ```
 
-`X-Kairos-Actor-Kind` 默认为 `agent`，Human 没有 role。变更请求应提供 `Idempotency-Key`；相同重试复用原 key，参数变化后使用新 key。
+`X-Kairos-Actor-Kind` 默认为 `agent`。Agent 身份必须提供 `X-Kairos-Actor-Role`，Human 身份必须省略它。变更请求应提供 `Idempotency-Key`；相同重试复用原 key，参数变化后使用新 key。
 
 同一可信协作群体内的共享环境应使用 Authenticated Mode：
 
@@ -79,11 +97,11 @@ Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式�
 
 Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。Blackboard Task 收敛后，`find_work` 返回 `blackboard_completion`；协作者可以继续创建 Task，也可以提交持久完成结果。提交后才应用 `acceptance_mode`：`none`（默认）立即完成，`agent` 返回 `work_item_acceptance`，`human` 进入人工验收；验收通过独立的 `POST /acceptance` 动作完成。Agent 验收候选仅对 Agent identity 可见。生命周期决策候选优先于可执行或待规划候选返回，`limit` 对所有候选类型全局生效。
 
-Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `agent_guidance` 字符串。空字符串表示没有额外 Guidance。两者不改变图编译或推进语义。HTTP Workflow Task context 的每个 Choice Group 在 `Relations` 中返回完整 Guidance；MCP `get_task_context` 则在对应的 `targets[]` 项上提供合并后的 `relation_guidance`（优先使用 `agent_guidance`，否则使用 `label`），避免重复目标结构。
+Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `agent_guidance` 字符串。空字符串表示没有额外 Guidance。两者不改变图编译或推进语义。HTTP Workflow Task context 的每个 Choice Group 在 `relations` 中返回完整 Guidance；MCP `get_task_context` 则在对应的 `targets[]` 项上提供合并后的 `relation_guidance`（优先使用 `agent_guidance`，否则使用 `label`），避免重复目标结构。
 
-等待验收期间，`WorkItem.Result` 保存已提交的 completion proposal；验收通过后，同一字段表示已接受的最终结果。Agent 验收阶段若通过创建新 Task 重新打开 WorkItem，会清除已经失效的 proposal。
+等待验收期间，`work_item.result` 保存已提交的 completion proposal；验收通过后，同一字段表示已接受的最终结果。Agent 验收阶段若通过创建新 Task 重新打开 WorkItem，会清除已经失效的 proposal。
 
-`GET /api/v1/work-items/{id}/context` 在 WorkItem 终态后仍可读取，返回聚合结果、规范化的 Task 与 relation 集合、`Claims` 中的完整 Claim 历史，以及 `ActiveClaims` 中当前仍存活的子集。完成态 Task 的执行人可通过 `Submission.ClaimID -> Claims[].ID -> Executor` 关联。
+`GET /api/v1/work-items/{id}/context` 在 WorkItem 终态后仍可读取，返回聚合结果、规范化的 Task 与 relation 集合、`claims` 中的完整 Claim 历史，以及 `active_claims` 中当前仍存活的子集。完成态 Task 的执行人可通过 `submission.claim_id -> claims[].id -> executor` 关联。
 
 Workflow Task Definition 可以声明必交的 `artifacts[]`，每项只有 `name` 和 `description`。Description 是执行指引，不是文件类型 Schema。执行者持有 Claim 时可以用绝对 URI 创建外部 Artifact，或上传托管内容，再通过 `submit_task.artifact_ids` 提交。Submission 在同一事务中绑定暂存 Artifact；缺少 Definition 声明名称的 Workflow 提交会被拒绝。Blackboard Task 没有结构化 Artifact 契约。已提交 Artifact 对整个 WorkItem 可见，暂存 Artifact 只属于创建它的 Claim。
 
@@ -93,7 +111,7 @@ Workflow Task Definition 可以声明必交的 `artifacts[]`，每项只有 `nam
 
 Artifact GC 默认每隔 `KAIROS_ARTIFACT_GC_INTERVAL`（15 分钟）执行一次。Claim 已不再 Active 且 Artifact 创建时间超过 `KAIROS_ARTIFACT_GC_RETENTION`（默认 24 小时）的未提交 Artifact 会进入回收；超过相同保留时间的 pending 托管上传记录及其已登记文件也会删除，completed 幂等记录会保留；已提交 Artifact 始终保留。只有 Blob URI 已不再被任何 Artifact 引用时，托管内容和元数据才会删除。三个 Artifact 数值或时长配置都必须为正数。
 
-`GET /api/v1/tasks/{id}` 是面向查看者的 Task Detail，不要求当前身份能够执行该 Task。它返回后端计算的 `Responsibility`、`Outcome`、`CurrentReview`、规范化 `History`、属于该 Task 的已提交 `Artifacts` 和当前身份的 `Capabilities`。Task 没有已提交交付物时，`Artifacts` 编码为 `[]`。`GET /api/v1/tasks/{id}/context` 仍是受执行权限保护的执行者上下文；客户端不得使用它加载普通详情或人工 Review。
+`GET /api/v1/tasks/{id}` 是面向查看者的 Task Detail，不要求当前身份能够执行该 Task。它返回后端计算的 `responsibility`、`outcome`、`current_review`、规范化 `history`、属于该 Task 的已提交 `artifacts` 和当前身份的 `capabilities`。Task 没有已提交交付物时，`artifacts` 编码为 `[]`。`GET /api/v1/tasks/{id}/context` 仍是受执行权限保护的执行者上下文；客户端不得使用它加载普通详情或人工 Review。
 
 ## Claim Lease
 

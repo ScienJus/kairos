@@ -7,26 +7,26 @@ import (
 
 // WorkflowTaskDefinition describes one repeatable Task in a Workflow Definition.
 type WorkflowTaskDefinition struct {
-	ID WorkflowTaskID
+	ID WorkflowTaskID `json:"id"`
 
-	Title              string
-	Description        string
-	AcceptanceCriteria string
+	Title              string `json:"title"`
+	Description        string `json:"description"`
+	AcceptanceCriteria string `json:"acceptance_criteria"`
 
-	Executor     ExecutorRequirement
-	AllowedRoles []string
+	Executor     ExecutorRequirement `json:"executor"`
+	AllowedRoles []string            `json:"allowed_roles"`
 
 	// Execution applies when this Task is reached through an Exit Group. A
 	// selected Continue Group always keeps its target Task.
-	Execution    ExecutionPolicy
-	ReviewPolicy ReviewPolicy
+	Execution    ExecutionPolicy `json:"execution"`
+	ReviewPolicy ReviewPolicy    `json:"review_policy"`
 
 	// DefaultTags are copied to each runtime Task instance. Executors may add or
 	// adjust tags during execution.
-	DefaultTags []string
+	DefaultTags []string `json:"default_tags"`
 
 	// Artifacts are the named deliverables that every successful Submission must include.
-	Artifacts []ArtifactDefinition
+	Artifacts []ArtifactDefinition `json:"artifacts"`
 }
 
 // Validate checks the WorkflowTaskDefinition invariants.
@@ -71,18 +71,18 @@ func (t WorkflowTaskDefinition) Validate() error {
 
 // WorkflowRelationDefinition is a directed edge between two Task Definitions.
 type WorkflowRelationDefinition struct {
-	ID WorkflowRelationID
+	ID WorkflowRelationID `json:"id"`
 
-	FromTaskID WorkflowTaskID
-	ToTaskID   WorkflowTaskID
+	FromTaskID WorkflowTaskID `json:"from_task_id"`
+	ToTaskID   WorkflowTaskID `json:"to_task_id"`
 
 	// Label is optional concise text shown on the Workflow graph.
-	Label string
+	Label string `json:"label"`
 
 	// AgentGuidance optionally explains how an executor should interpret this
 	// transition. It guides decisions already allowed by the compiled graph and
 	// does not introduce a new branching condition.
-	AgentGuidance string
+	AgentGuidance string `json:"agent_guidance"`
 }
 
 // Validate checks the WorkflowRelationDefinition's local invariants.
@@ -102,13 +102,13 @@ func (r WorkflowRelationDefinition) Validate() error {
 // WorkflowGraph contains the author-provided Workflow structure.
 type WorkflowGraph struct {
 	// StartTaskIDs are instantiated when a WorkItem is created.
-	StartTaskIDs []WorkflowTaskID
+	StartTaskIDs []WorkflowTaskID `json:"start_task_ids"`
 
-	Tasks     []WorkflowTaskDefinition
-	Relations []WorkflowRelationDefinition
+	Tasks     []WorkflowTaskDefinition     `json:"tasks"`
+	Relations []WorkflowRelationDefinition `json:"relations"`
 
 	// MaxTaskExecutions is a safety limit for one WorkItem. Zero uses the system default.
-	MaxTaskExecutions int
+	MaxTaskExecutions int `json:"max_task_executions"`
 }
 
 // WorkflowChoiceGroupKind describes a derived continuation or exit choice.

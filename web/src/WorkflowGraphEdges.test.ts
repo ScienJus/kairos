@@ -10,9 +10,9 @@ describe('Workflow graph edge rendering', () => {
 
   it('keeps cyclic workflow nodes in forward execution order so the back edge remains visible', () => {
     const layout = workflowGraphLayout(['write', 'check', 'delivery'], [
-      { FromTaskID: 'write', ToTaskID: 'check' },
-      { FromTaskID: 'check', ToTaskID: 'write' },
-      { FromTaskID: 'check', ToTaskID: 'delivery' },
+      { from_task_id: 'write', to_task_id: 'check' },
+      { from_task_id: 'check', to_task_id: 'write' },
+      { from_task_id: 'check', to_task_id: 'delivery' },
     ], ['write'])
 
     expect([...layout.depths]).toEqual([['write', 0], ['check', 1], ['delivery', 2]])
@@ -22,9 +22,9 @@ describe('Workflow graph edge rendering', () => {
 
   it('places a join after its longest forward path without treating a transitive edge as a cycle', () => {
     const layout = workflowGraphLayout(['analysis', 'development', 'release'], [
-      { FromTaskID: 'analysis', ToTaskID: 'development' },
-      { FromTaskID: 'analysis', ToTaskID: 'release' },
-      { FromTaskID: 'development', ToTaskID: 'release' },
+      { from_task_id: 'analysis', to_task_id: 'development' },
+      { from_task_id: 'analysis', to_task_id: 'release' },
+      { from_task_id: 'development', to_task_id: 'release' },
     ], ['analysis'])
 
     expect([...layout.depths]).toEqual([['analysis', 0], ['development', 1], ['release', 2]])

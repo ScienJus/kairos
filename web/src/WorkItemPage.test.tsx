@@ -14,27 +14,29 @@ const identity: Identity = { id: 'human-1', kind: 'human', role: '' }
 
 function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
-    ID: 'work-1', Definition: { ID: 'blackboard-1', Version: 1, Mode: 'blackboard' }, Status: 'open',
-    Title: 'Article', Goal: 'Publish a reviewed article', Context: '', Constraints: '', AcceptanceCriteria: '', Tags: [], Result: '',
-    Version: 1, CreatedAt: '2026-08-19T08:00:00Z', UpdatedAt: '2026-08-19T08:00:00Z', CompletedAt: null,
+    id: 'work-1', definition: { id: 'blackboard-1', version: 1, mode: 'blackboard' }, status: 'open', acceptance_mode: 'none',
+    title: 'Article', goal: 'Publish a reviewed article', context: '', constraints: '', acceptance_criteria: '', tags: [], result: '',
+    version: 1, created_at: '2026-08-19T08:00:00Z', updated_at: '2026-08-19T08:00:00Z', completed_at: null,
     ...overrides,
   }
 }
 
 function completedTask(): Task {
   return {
-    ID: 'task-1', WorkItemID: 'work-1', Status: 'completed', ActiveClaimID: null, ParentTaskID: null,
-    Title: 'Draft article', Description: '', AcceptanceCriteria: '', Executor: 'agent', AllowedRoles: [], Tags: [],
-    Reviews: [], Submissions: [], Failures: [], TransitionDecisions: [], Position: 0,
-    CreatedAt: '2026-08-19T08:00:00Z', UpdatedAt: '2026-08-19T09:00:00Z', CompletedAt: '2026-08-19T09:00:00Z',
+    id: 'task-1', work_item_id: 'work-1', status: 'completed', active_claim_id: null, parent_task_id: null,
+    workflow_task_id: null, workflow_activation_id: null, decomposed_at: null,
+    title: 'Draft article', description: '', acceptance_criteria: '', executor: 'agent', allowed_roles: [], tags: [],
+    reviews: [], submissions: [], failures: [], transition_decisions: [], position: 0,
+    created_at: '2026-08-19T08:00:00Z', updated_at: '2026-08-19T09:00:00Z', completed_at: '2026-08-19T09:00:00Z',
+    skipped_by: null, skip_reason: '', execution: null, review_policy: null, version: 1,
   }
 }
 
 function context(item: WorkItem, tasks: Task[] = []): WorkItemContext {
   return {
-    WorkItem: item,
-    Definition: { Name: 'Article collaboration', Description: '', AgentInstructions: '', SuggestedTags: [] },
-    Tasks: tasks, Relations: [], Claims: [], ActiveClaims: [], Artifacts: [],
+    work_item: item,
+    definition: { name: 'Article collaboration', description: '', agent_instructions: '', suggested_tags: [] },
+    tasks: tasks, relations: [], claims: [], active_claims: [], artifacts: [],
   }
 }
 
@@ -64,7 +66,7 @@ describe('WorkItem lifecycle actions', () => {
 
   it('shows the proposed result and reports a human acceptance failure', async () => {
     vi.spyOn(api, 'getWorkItem').mockResolvedValue(context(workItem({
-      Status: 'awaiting_human_acceptance', Result: 'Reviewed article ready for publication.', AcceptanceMode: 'human',
+      status: 'awaiting_human_acceptance', result: 'Reviewed article ready for publication.', acceptance_mode: 'human',
     })))
     const accept = vi.spyOn(api, 'acceptBlackboardCompletion').mockRejectedValue(new Error('Acceptance could not be recorded'))
     const user = userEvent.setup()

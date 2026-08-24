@@ -72,90 +72,90 @@ func (p ReviewPolicy) Valid() bool {
 // Task represents one executable unit or decomposed aggregation boundary.
 type Task struct {
 	// ID uniquely identifies this concrete task execution. [Both]
-	ID TaskID
+	ID TaskID `json:"id"`
 
 	// WorkItemID identifies the parent work item. [Both]
-	WorkItemID WorkItemID
+	WorkItemID WorkItemID `json:"work_item_id"`
 
 	// WorkflowTaskID identifies the source node in the bound workflow version.
 	// It must be nil in Blackboard mode. [Workflow]
-	WorkflowTaskID *WorkflowTaskID
+	WorkflowTaskID *WorkflowTaskID `json:"workflow_task_id"`
 
 	// WorkflowActivationID identifies the internal activation that produced this
 	// concrete Task. It must be nil in Blackboard mode. [Workflow]
-	WorkflowActivationID *WorkflowTaskActivationID
+	WorkflowActivationID *WorkflowTaskActivationID `json:"workflow_activation_id"`
 
 	// Status is the current execution state. [Both]
-	Status TaskStatus
+	Status TaskStatus `json:"status"`
 
 	// ActiveClaimID identifies the current execution responsibility.
 	// It is non-nil exactly while Status is Working. [Both]
-	ActiveClaimID *ClaimID
+	ActiveClaimID *ClaimID `json:"active_claim_id"`
 
 	// ParentTaskID identifies the aggregate Task that contains this Task.
 	// It must be nil in Workflow mode and cannot change after creation. [Blackboard]
-	ParentTaskID *TaskID
+	ParentTaskID *TaskID `json:"parent_task_id"`
 
 	// DecomposedAt records when execution responsibility moved to child Tasks.
 	// A decomposed Task never produces its own execution result. [Blackboard]
-	DecomposedAt *time.Time
+	DecomposedAt *time.Time `json:"decomposed_at"`
 
 	// Title is the short human-readable label. [Both]
-	Title string
+	Title string `json:"title"`
 
 	// Description explains what the executor should do. [Both]
-	Description string
+	Description string `json:"description"`
 
 	// AcceptanceCriteria define the expected result of this Task. [Both]
-	AcceptanceCriteria string
+	AcceptanceCriteria string `json:"acceptance_criteria"`
 
 	// Executor restricts whether a human, an agent, or either may execute the Task. [Both]
-	Executor   ExecutorRequirement
-	SkippedBy  *ActorRef
-	SkipReason string
+	Executor   ExecutorRequirement `json:"executor"`
+	SkippedBy  *ActorRef           `json:"skipped_by"`
+	SkipReason string              `json:"skip_reason"`
 
 	// AllowedRoles formally restrict which Agent roles may execute the Task.
 	// Workflow uses this as part of candidate eligibility. Blackboard usually
 	// leaves it empty and relies on Tags, but a non-empty value remains a hard
 	// execution constraint. Human executors are never filtered by roles. [Both]
-	AllowedRoles []string
+	AllowedRoles []string `json:"allowed_roles"`
 
 	// Tags provide searchable discovery metadata. Workflow treats them as
 	// descriptive filters that do not affect graph eligibility. Blackboard uses
 	// them as the primary discovery mechanism. Tags never grant permission. [Both]
-	Tags []string
+	Tags []string `json:"tags"`
 
 	// Execution determines whether this Task is required or optional.
 	// It must be nil in Blackboard mode. [Workflow]
-	Execution *ExecutionPolicy
+	Execution *ExecutionPolicy `json:"execution"`
 
 	// ReviewPolicy defines the preconfigured human-review requirement.
 	// It must be nil in Blackboard mode, where Review is requested dynamically. [Workflow]
-	ReviewPolicy *ReviewPolicy
+	ReviewPolicy *ReviewPolicy `json:"review_policy"`
 
 	// Reviews contains the complete Review history ordered by RequestedAt. [Both]
-	Reviews []Review
+	Reviews []Review `json:"reviews"`
 
 	// Submissions contains every immutable result ordered by SubmittedAt. [Both]
-	Submissions []TaskSubmission
+	Submissions []TaskSubmission `json:"submissions"`
 
 	// Failures contains every immutable failure report ordered by FailedAt. [Both]
 	// RetryPrompt values are included in later execution context.
-	Failures []TaskFailure
+	Failures []TaskFailure `json:"failures"`
 
 	// TransitionDecisions contains every progression decision in decision order.
 	// Rejected Review rounds retain their unapplied decisions. [Workflow]
-	TransitionDecisions []TransitionDecision
+	TransitionDecisions []TransitionDecision `json:"transition_decisions"`
 
 	// Position controls display order and does not express dependencies. [Both]
-	Position int64
+	Position int64 `json:"position"`
 
 	// Version is used for optimistic concurrency control. [Both]
-	Version int64
+	Version int64 `json:"version"`
 
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	CompletedAt *time.Time
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	CompletedAt *time.Time `json:"completed_at"`
 }
 
 // Validate checks the Task invariants for the given coordination mode.

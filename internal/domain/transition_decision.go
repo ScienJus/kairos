@@ -8,20 +8,20 @@ import (
 // TransitionDecision records one Workflow progression decision. A decision may
 // wait for Review before AppliedAt is set and downstream state is changed.
 type TransitionDecision struct {
-	ID TransitionDecisionID
+	ID TransitionDecisionID `json:"id"`
 
-	WorkItemID   WorkItemID
-	SourceTaskID TaskID
+	WorkItemID   WorkItemID `json:"work_item_id"`
+	SourceTaskID TaskID     `json:"source_task_id"`
 
 	// SourceSubmissionID is nil when the source Task ended by being skipped.
-	SourceSubmissionID *SubmissionID
+	SourceSubmissionID *SubmissionID `json:"source_submission_id"`
 
 	WorkflowTransition
 	WorkflowSkipIntent
 
-	DecidedBy ActorRef
-	DecidedAt time.Time
-	AppliedAt *time.Time
+	DecidedBy ActorRef   `json:"decided_by"`
+	DecidedAt time.Time  `json:"decided_at"`
+	AppliedAt *time.Time `json:"applied_at"`
 }
 
 // Validate checks the TransitionDecision invariants that do not require its Definition.

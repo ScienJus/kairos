@@ -66,10 +66,10 @@ const (
 
 // WorkCandidate combines a discoverable opportunity with its WorkItem.
 type WorkCandidate struct {
-	Kind       WorkCandidateKind
-	WorkItem   domain.WorkItem
-	Task       *domain.Task
-	Definition DefinitionExecutionContext
+	Kind       WorkCandidateKind          `json:"kind"`
+	WorkItem   domain.WorkItem            `json:"work_item"`
+	Task       *domain.Task               `json:"task"`
+	Definition DefinitionExecutionContext `json:"definition"`
 }
 
 // IdempotencyRecord stores the durable progress or result of one actor mutation.

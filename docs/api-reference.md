@@ -34,6 +34,24 @@ Database timestamps are normalized at the application boundary to UTC with micro
 
 `GET /healthz` is unauthenticated. HTTP management and execution routes use `/api/v1`; Streamable HTTP MCP uses `/mcp`.
 
+## HTTP Contract
+
+The machine-readable [OpenAPI 3.1 document](openapi.yaml) is the exact contract for all 38 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
+
+All API JSON field names use `snake_case`. JSON request objects are closed contracts; an unknown field is rejected with `400 invalid_request`, including unknown fields inside nested objects. JSON success responses use `{ "data": ... }`; JSON errors use `{ "error": { "code": string, "message": string } }`. Release and token-revocation operations return `204` without a body, `/healthz` returns `{ "status": "ok" }`, and Artifact content is returned as `application/octet-stream`.
+
+Collection fields and list responses are always arrays, including when empty. Optional single values such as `active_claim_id`, `parent_task_id`, `current_review`, `workflow`, `blackboard`, and completion timestamps are `null` when absent. Repeated `status`, `mode`, and `tag` query parameters are represented as repeated query keys. Common error codes are:
+
+| Status | Code |
+| --- | --- |
+| `400` | `invalid_request` |
+| `401` | `unauthenticated` |
+| `403` | `forbidden` |
+| `404` | `not_found` |
+| `409` | `conflict` |
+| `413` | `artifact_too_large` |
+| `500` | `internal_error` |
+
 ## Identity Modes
 
 Trusted Mode accepts transport headers inside a trusted boundary:
@@ -44,7 +62,7 @@ X-Kairos-Actor-Kind: agent
 X-Kairos-Actor-Role: backend
 ```
 
-`X-Kairos-Actor-Kind` defaults to `agent`. Human identities have no role. Mutation requests should provide `Idempotency-Key`; an identical retry reuses the same key, while changed arguments require a new key.
+`X-Kairos-Actor-Kind` defaults to `agent`. Agent identities must provide `X-Kairos-Actor-Role`; Human identities must omit it. Mutation requests should provide `Idempotency-Key`; an identical retry reuses the same key, while changed arguments require a new key.
 
 Authenticated Mode is intended for shared environments within one trusted collaboration group:
 
@@ -79,11 +97,11 @@ The operations console discovers the configured mode through the public `GET /ap
 
 Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. After Blackboard Tasks converge, `find_work` returns `blackboard_completion`; a collaborator either creates more Tasks or posts a durable completion result. That submission then applies `acceptance_mode`: `none` (default) completes immediately, `agent` returns `work_item_acceptance`, and `human` enters human acceptance. Acceptance is a separate `POST /acceptance` action. Agent acceptance candidates are visible only to Agent identities. Lifecycle decisions are returned before executable or planning candidates, and `limit` applies globally across those candidate kinds.
 
-Each Workflow Definition `graph.relations[]` entry accepts optional `label` and `agent_guidance` strings. Empty strings mean no additional guidance. Neither field changes graph compilation or progression semantics. HTTP Workflow Task context exposes complete guidance in each Choice Group's `Relations`. MCP `get_task_context` annotates the corresponding `targets[]` entry with merged `relation_guidance` (preferring `agent_guidance`, then `label`), avoiding duplicate target structures.
+Each Workflow Definition `graph.relations[]` entry accepts optional `label` and `agent_guidance` strings. Empty strings mean no additional guidance. Neither field changes graph compilation or progression semantics. HTTP Workflow Task context exposes complete guidance in each Choice Group's `relations`. MCP `get_task_context` annotates the corresponding `targets[]` entry with merged `relation_guidance` (preferring `agent_guidance`, then `label`), avoiding duplicate target structures.
 
-While acceptance is pending, `WorkItem.Result` contains the submitted completion proposal. After acceptance, the same field contains the accepted final outcome. Reopening Agent acceptance by creating another Task clears the stale proposal.
+While acceptance is pending, `work_item.result` contains the submitted completion proposal. After acceptance, the same field contains the accepted final outcome. Reopening Agent acceptance by creating another Task clears the stale proposal.
 
-`GET /api/v1/work-items/{id}/context` remains available after terminal completion and returns the aggregate result, normalized Task and relation collections, complete Claim history in `Claims`, and the currently live subset in `ActiveClaims`. A completed Task's executor can be resolved through `Submission.ClaimID -> Claims[].ID -> Executor`.
+`GET /api/v1/work-items/{id}/context` remains available after terminal completion and returns the aggregate result, normalized Task and relation collections, complete Claim history in `claims`, and the currently live subset in `active_claims`. A completed Task's executor can be resolved through `submission.claim_id -> claims[].id -> executor`.
 
 Workflow Task Definitions may declare required `artifacts[]` entries with only `name` and `description`. The description is an execution instruction, not a file-type schema. An executor creates external Artifacts with an absolute URI or uploads managed content while holding a Claim, then passes their IDs in `artifact_ids` to `submit_task`. Submission atomically binds the staged Artifacts and rejects a Workflow result missing a declared name. Blackboard Tasks have no structured Artifact contract. Submitted Artifacts are visible throughout the WorkItem; staged Artifacts remain with their creating Claim.
 
@@ -93,7 +111,7 @@ Managed upload always targets the server's single managed Store; callers cannot 
 
 Artifact GC runs every `KAIROS_ARTIFACT_GC_INTERVAL` (15 minutes by default). An unsubmitted Artifact becomes eligible when its Claim is no longer active and the Artifact is older than `KAIROS_ARTIFACT_GC_RETENTION` (24 hours by default). Pending managed-upload records older than the same retention are deleted together with the file at their registered upload URI; completed idempotency records are retained. Submitted Artifacts are retained. Managed Blob content and metadata are deleted only after no Artifact URI references that Blob. All three Artifact numeric or duration settings must be positive.
 
-`GET /api/v1/tasks/{id}` is a viewer-facing Task Detail endpoint and does not require the current identity to be able to execute the Task. It returns backend-projected `Responsibility`, `Outcome`, `CurrentReview`, normalized `History`, submitted `Artifacts` belonging to that Task, and identity-specific `Capabilities`. The `Artifacts` collection is `[]` when the Task has no submitted deliverables. `GET /api/v1/tasks/{id}/context` remains an executor context protected by execution authorization; clients must not use it to load ordinary detail or human Review operations.
+`GET /api/v1/tasks/{id}` is a viewer-facing Task Detail endpoint and does not require the current identity to be able to execute the Task. It returns backend-projected `responsibility`, `outcome`, `current_review`, normalized `history`, submitted `artifacts` belonging to that Task, and identity-specific `capabilities`. The `artifacts` collection is `[]` when the Task has no submitted deliverables. `GET /api/v1/tasks/{id}/context` remains an executor context protected by execution authorization; clients must not use it to load ordinary detail or human Review operations.
 
 ## Claim Leases
 

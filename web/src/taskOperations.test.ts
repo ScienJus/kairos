@@ -5,18 +5,20 @@ import { canAddBlackboardChild, canSkipBlackboardTask, refreshHomeState, refresh
 
 const identity: Identity = { id: 'human-1', kind: 'human', role: '' }
 
-function task(status: Task['Status']): Task {
+function task(status: Task['status']): Task {
   return {
-    ID: 'task-1', WorkItemID: 'work-1', Status: status, ActiveClaimID: null, ParentTaskID: null,
-    Title: 'Task', Description: '', AcceptanceCriteria: '', Executor: 'human', AllowedRoles: [], Tags: [],
-    Reviews: [], Submissions: [], Failures: [], TransitionDecisions: [], Position: 0,
-    CreatedAt: '', UpdatedAt: '', CompletedAt: null,
+    id: 'task-1', work_item_id: 'work-1', status: status, active_claim_id: null, parent_task_id: null,
+    workflow_task_id: null, workflow_activation_id: null, decomposed_at: null,
+    title: 'Task', description: '', acceptance_criteria: '', executor: 'human', allowed_roles: [], tags: [],
+    reviews: [], submissions: [], failures: [], transition_decisions: [], position: 0,
+    created_at: '', updated_at: '', completed_at: null, skipped_by: null, skip_reason: '',
+    execution: null, review_policy: null, version: 0,
   }
 }
 
 const claim: Claim = {
-  ID: 'claim-1', TaskID: 'task-1', Executor: { Kind: 'human', ID: 'human-1' },
-  ClaimedAt: '', EndedAt: null, EndReason: '',
+  id: 'claim-1', task_id: 'task-1', executor: { kind: 'human', id: 'human-1' },
+  claimed_at: '', last_heartbeat_at: '', lease_until: '', lease_seconds: 0, ended_at: null, end_reason: '',
 }
 
 describe('Blackboard operation visibility', () => {

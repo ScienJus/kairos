@@ -3,75 +3,78 @@ export type TaskStatus = 'pending' | 'working' | 'waiting_children' | 'in_review
 export type Mode = 'blackboard' | 'workflow'
 export type AuthenticationMode = 'trusted' | 'authenticated'
 
-export interface DefinitionBinding { ID: string; Version: number; Mode: Mode }
+export interface DefinitionBinding { id: string; version: number; mode: Mode }
 export interface WorkItem {
-  ID: string; Definition: DefinitionBinding; Status: WorkItemStatus; AcceptanceMode?: 'none' | 'agent' | 'human'; Title: string; Goal: string
-  Context: string; Constraints: string; AcceptanceCriteria: string; Tags: string[]; Result: string
-  Version: number; CreatedAt: string; UpdatedAt: string; CompletedAt: string | null
+  id: string; definition: DefinitionBinding; status: WorkItemStatus; acceptance_mode: 'none' | 'agent' | 'human'; title: string; goal: string
+  context: string; constraints: string; acceptance_criteria: string; tags: string[]; result: string
+  version: number; created_at: string; updated_at: string; completed_at: string | null
 }
 export interface Review {
-  ID: string; TaskID: string; SubmissionID: string | null; Status: 'pending' | 'approved' | 'rejected'
-  RequestedBy: string; RequestedAt: string; DecidedBy: string | null; DecidedAt: string | null; Feedback: string
+  id: string; task_id: string; submission_id: string | null; status: 'pending' | 'approved' | 'rejected'
+  requested_by: string; requested_at: string; decided_by: string | null; decided_at: string | null; feedback: string
 }
-export interface Submission { ID: string; TaskID: string; ClaimID: string; Result: string; SubmittedAt: string }
-export interface ArtifactDefinition { Name: string; Description: string }
+export interface Submission { id: string; task_id: string; claim_id: string; result: string; submitted_at: string }
+export interface ArtifactDefinition { name: string; description: string }
 export interface Artifact {
-  ID: string; WorkItemID: string; TaskID: string; ClaimID: string; SubmissionID: string | null
-  Name: string; URI: string; CreatedAt: string
+  id: string; work_item_id: string; task_id: string; claim_id: string; submission_id: string | null
+  name: string; uri: string; created_at: string
 }
-export interface Failure { ID: string; TaskID: string; ClaimID: string; Action: string; Reason: string; RetryPrompt: string; FailedAt: string }
+export interface Failure { id: string; task_id: string; claim_id: string; action: string; reason: string; retry_prompt: string; failed_at: string }
 export interface Task {
-  ID: string; WorkItemID: string; Status: TaskStatus; ActiveClaimID: string | null; ParentTaskID: string | null
-  WorkflowTaskID?: string | null
-  Title: string; Description: string; AcceptanceCriteria: string; Executor: 'agent' | 'human' | 'either'
-  SkippedBy?: ActorRef | null; SkipReason?: string
-  AllowedRoles: string[]; Tags: string[]; Reviews: Review[]; Submissions: Submission[]; Failures: Failure[]; TransitionDecisions: unknown[]
-  Position: number; CreatedAt: string; UpdatedAt: string; CompletedAt: string | null
-  ReviewPolicy?: 'none' | 'executor_decides' | 'required' | null
+  id: string; work_item_id: string; status: TaskStatus; active_claim_id: string | null; parent_task_id: string | null
+  workflow_task_id: string | null; workflow_activation_id: string | null; decomposed_at: string | null
+  title: string; description: string; acceptance_criteria: string; executor: 'agent' | 'human' | 'either'
+  skipped_by: ActorRef | null; skip_reason: string
+  allowed_roles: string[]; tags: string[]; reviews: Review[]; submissions: Submission[]; failures: Failure[]; transition_decisions: unknown[]
+  position: number; created_at: string; updated_at: string; completed_at: string | null
+  execution: 'required' | 'optional' | null; review_policy: 'none' | 'executor_decides' | 'required' | null; version: number
 }
-export interface ActorRef { Kind: 'human' | 'agent'; ID: string }
-export interface Claim { ID: string; TaskID: string; Executor: ActorRef; ClaimedAt: string; EndedAt: string | null; EndReason: string }
+export interface ActorRef { kind: 'human' | 'agent'; id: string }
+export interface Claim {
+  id: string; task_id: string; executor: ActorRef; claimed_at: string; last_heartbeat_at: string
+  lease_until: string; lease_seconds: number; ended_at: string | null; end_reason: string
+}
 export interface WorkflowChoiceOption {
-  ID: string; Kind: 'continue' | 'exit'
-  Targets: Array<{ ID: string; Title: string }>
-  Relations: Array<{ RelationID: string; Target: { ID: string; Title: string }; Label: string; AgentGuidance: string }>
-  SkippableOptionalTasks: Array<{ ID: string; Title: string }>
+  id: string; kind: 'continue' | 'exit'
+  targets: Array<{ id: string; title: string }>
+  relations: Array<{ relation_id: string; target: { id: string; title: string }; label: string; agent_guidance: string }>
+  skippable_optional_tasks: Array<{ id: string; title: string }>
 }
 export interface TaskExecutionContext {
-  WorkItem: WorkItem; Task: Task; Claims: Claim[]; Artifacts: Artifact[]; ExpectedArtifacts: ArtifactDefinition[]
-  Responsibility?: { Kind: string; Actor: ActorRef | null }; Outcome?: { Kind: string; Actor: ActorRef | null; Reason?: string; OccurredAt?: string }
-  Workflow: { UpstreamTasks: Task[]; ChoiceGroups: WorkflowChoiceOption[] } | null
-  Blackboard: { Tasks: Task[]; Relations: TaskRelation[]; CanDecompose: boolean } | null
+  work_item: WorkItem; task: Task; claims: Claim[]; artifacts: Artifact[]; expected_artifacts: ArtifactDefinition[]
+  responsibility: { kind: string; actor: ActorRef | null }; outcome: { kind: string; actor: ActorRef | null; reason: string; occurred_at: string | null }
+  workflow: { upstream_tasks: Task[]; choice_groups: WorkflowChoiceOption[] } | null
+  blackboard: { tasks: Task[]; relations: TaskRelation[]; can_decompose: boolean } | null
 }
-export interface TaskCapabilities { CanClaim: boolean; CanSubmit: boolean; CanRelease: boolean; CanFail: boolean; CanReview: boolean; CanSkip: boolean; CanDecompose: boolean; CanAddChild: boolean }
+export interface TaskCapabilities { can_claim: boolean; can_submit: boolean; can_release: boolean; can_fail: boolean; can_review: boolean; can_skip: boolean; can_decompose: boolean; can_add_child: boolean }
 export interface TaskDetailView {
-  Task: Task; Responsibility: { Kind: string; Actor: ActorRef | null }; Outcome: { Kind: string; Actor: ActorRef | null; Reason?: string; OccurredAt?: string }
-  CurrentReview: Review | null; History: { Claims: Claim[]; Submissions: Submission[]; Reviews: Review[]; Failures: Failure[]; TransitionDecisions: unknown[] }; Artifacts: Artifact[]; Capabilities: TaskCapabilities
+  task: Task; responsibility: { kind: string; actor: ActorRef | null }; outcome: { kind: string; actor: ActorRef | null; reason: string; occurred_at: string | null }
+  current_review: Review | null; history: { claims: Claim[]; submissions: Submission[]; reviews: Review[]; failures: Failure[]; transition_decisions: unknown[] }; artifacts: Artifact[]; capabilities: TaskCapabilities
 }
-export interface TaskRelation { WorkItemID: string; FromTaskID: string; ToTaskID: string }
-export interface BlackboardTaskDecomposition { Parent: Task; Children: Task[] }
-export interface DefinitionContext { Name: string; Description: string; AgentInstructions: string; SuggestedTags: string[] }
-export interface WorkItemContext { WorkItem: WorkItem; Definition: DefinitionContext; Tasks: Task[]; Relations: TaskRelation[]; Claims: Claim[]; ActiveClaims: Claim[]; Artifacts: Artifact[] }
+export interface TaskRelation { work_item_id: string; from_task_id: string; to_task_id: string }
+export interface BlackboardTaskDecomposition { parent: Task; children: Task[] }
+export interface DefinitionContext { name: string; description: string; agent_instructions: string; suggested_tags: string[] }
+export interface WorkItemContext { work_item: WorkItem; definition: DefinitionContext; tasks: Task[]; relations: TaskRelation[]; claims: Claim[]; active_claims: Claim[]; artifacts: Artifact[] }
 export interface Definition {
-  ID: string; Version: number; Name: string; Description: string; AgentInstructions: string
-  SuggestedTags: string[]; Status: 'draft' | 'published' | 'archived'; Graph?: unknown
+  id: string; version: number; name: string; description: string; agent_instructions: string
+  suggested_tags: string[]; status: 'draft' | 'published' | 'archived'; graph?: unknown
 }
 export interface WorkflowTaskDefinition {
-  ID: string; Title: string; Description: string; AcceptanceCriteria: string
-  Executor: Task['Executor']; AllowedRoles: string[]; Execution: 'required' | 'optional'
-  ReviewPolicy: 'none' | 'executor_decides' | 'required'; DefaultTags: string[]; Artifacts: ArtifactDefinition[]
+  id: string; title: string; description: string; acceptance_criteria: string
+  executor: Task['executor']; allowed_roles: string[]; execution: 'required' | 'optional'
+  review_policy: 'none' | 'executor_decides' | 'required'; default_tags: string[]; artifacts: ArtifactDefinition[]
 }
-export interface WorkflowRelationDefinition { ID: string; FromTaskID: string; ToTaskID: string; Label?: string; AgentGuidance?: string }
+export interface WorkflowRelationDefinition { id: string; from_task_id: string; to_task_id: string; label?: string; agent_guidance?: string }
 export interface WorkflowDefinition extends Definition {
-  Graph: { StartTaskIDs: string[]; Tasks: WorkflowTaskDefinition[]; Relations: WorkflowRelationDefinition[]; MaxTaskExecutions: number }
+  graph: { start_task_ids: string[]; tasks: WorkflowTaskDefinition[]; relations: WorkflowRelationDefinition[]; max_task_executions: number }
 }
 export interface AuthenticationConfig { mode: AuthenticationMode }
 export interface Identity { id: string; kind: 'human' | 'agent'; role: string }
-export interface HumanAttentionItem { Kind: 'review' | 'human_task' | 'work_item_acceptance'; WorkItem: WorkItem; Task: Task | null }
+export interface HumanAttentionItem { kind: 'review' | 'human_task' | 'work_item_acceptance'; work_item: WorkItem; task: Task | null }
 
 export interface TaskDraftInput {
   title: string; description: string; acceptance_criteria: string
-  executor: Task['Executor']; allowed_roles: string[]; tags: string[]
+  executor: Task['executor']; allowed_roles: string[]; tags: string[]
 }
 export interface SubmitTaskInput {
   claim_id: string; result: string; artifact_ids: string[]; request_review: boolean
@@ -89,7 +92,7 @@ export interface CreateWorkflowDefinitionInput extends CreateDefinitionInput {
     start_task_ids: string[]
     tasks: Array<{
       id: string; title: string; description: string; acceptance_criteria: string
-      executor: Task['Executor']; allowed_roles: string[]; execution: 'required' | 'optional'
+      executor: Task['executor']; allowed_roles: string[]; execution: 'required' | 'optional'
       review_policy: 'none' | 'executor_decides' | 'required'; default_tags: string[]
       artifacts: Array<{ name: string; description: string }>
     }>

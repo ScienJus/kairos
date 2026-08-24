@@ -11,82 +11,82 @@ import (
 
 // DefinitionExecutionContext contains collaboration guidance shared by both modes.
 type DefinitionExecutionContext struct {
-	Name              string
-	Description       string
-	AgentInstructions string
-	SuggestedTags     []string
+	Name              string   `json:"name"`
+	Description       string   `json:"description"`
+	AgentInstructions string   `json:"agent_instructions"`
+	SuggestedTags     []string `json:"suggested_tags"`
 }
 
 // WorkflowChoiceOption describes one legal progression choice for the current Task.
 type WorkflowChoiceOption struct {
-	ID   domain.WorkflowChoiceGroupID
-	Kind domain.WorkflowChoiceGroupKind
+	ID   domain.WorkflowChoiceGroupID   `json:"id"`
+	Kind domain.WorkflowChoiceGroupKind `json:"kind"`
 
 	// Targets are the selected group's direct Task Definitions.
-	Targets []domain.WorkflowTaskDefinition
+	Targets []domain.WorkflowTaskDefinition `json:"targets"`
 
 	// Relations retain the authored guidance for each direct target. Guidance
 	// describes choices already permitted by the compiled Workflow; it does not
 	// make an otherwise automatic relation conditional.
-	Relations []WorkflowChoiceRelation
+	Relations []WorkflowChoiceRelation `json:"relations"`
 
 	// SkippableOptionalTasks are reachable without crossing a Task that must execute.
 	// Executors submit only the IDs they intend to skip.
-	SkippableOptionalTasks []domain.WorkflowTaskDefinition
+	SkippableOptionalTasks []domain.WorkflowTaskDefinition `json:"skippable_optional_tasks"`
 }
 
 // WorkflowChoiceRelation describes one direct relation in a legal choice group.
 type WorkflowChoiceRelation struct {
-	RelationID    domain.WorkflowRelationID
-	Target        domain.WorkflowTaskDefinition
-	Label         string
-	AgentGuidance string
+	RelationID    domain.WorkflowRelationID     `json:"relation_id"`
+	Target        domain.WorkflowTaskDefinition `json:"target"`
+	Label         string                        `json:"label"`
+	AgentGuidance string                        `json:"agent_guidance"`
 }
 
 // WorkflowExecutionContext contains the choices derived from the bound Definition.
 type WorkflowExecutionContext struct {
 	// UpstreamTasks are ordered nearest-first and include skipped ancestors, so
 	// the executor can reach the durable results that feed this Task.
-	UpstreamTasks []domain.Task
+	UpstreamTasks []domain.Task `json:"upstream_tasks"`
 
-	ChoiceGroups []WorkflowChoiceOption
+	ChoiceGroups []WorkflowChoiceOption `json:"choice_groups"`
 }
 
 // BlackboardExecutionContext contains the other Tasks in the current shared
 // space. The Task being executed is available separately on TaskExecutionContext.
 type BlackboardExecutionContext struct {
-	CurrentTaskID domain.TaskID
-	Tasks         []domain.Task
-	Relations     []domain.TaskRelation
-	CanDecompose  bool
+	CurrentTaskID domain.TaskID         `json:"current_task_id"`
+	Tasks         []domain.Task         `json:"tasks"`
+	Relations     []domain.TaskRelation `json:"relations"`
+	CanDecompose  bool                  `json:"can_decompose"`
 }
 
 // TaskExecutionContext contains the durable context needed to execute one Task.
 // Task owns its complete Submission, Review, Failure, and Transition histories.
 type TaskExecutionContext struct {
-	WorkItem          domain.WorkItem
-	Task              domain.Task
-	Claims            []domain.Claim
-	Artifacts         []domain.Artifact
-	ExpectedArtifacts []domain.ArtifactDefinition
-	Definition        DefinitionExecutionContext
-	Responsibility    TaskResponsibility
-	Outcome           TaskOutcome
+	WorkItem          domain.WorkItem             `json:"work_item"`
+	Task              domain.Task                 `json:"task"`
+	Claims            []domain.Claim              `json:"claims"`
+	Artifacts         []domain.Artifact           `json:"artifacts"`
+	ExpectedArtifacts []domain.ArtifactDefinition `json:"expected_artifacts"`
+	Definition        DefinitionExecutionContext  `json:"definition"`
+	Responsibility    TaskResponsibility          `json:"responsibility"`
+	Outcome           TaskOutcome                 `json:"outcome"`
 
-	Workflow   *WorkflowExecutionContext
-	Blackboard *BlackboardExecutionContext
+	Workflow   *WorkflowExecutionContext   `json:"workflow"`
+	Blackboard *BlackboardExecutionContext `json:"blackboard"`
 }
 
 type TaskResponsibility struct {
-	Kind  string
-	Actor *domain.ActorRef
+	Kind  string           `json:"kind"`
+	Actor *domain.ActorRef `json:"actor"`
 }
 
 type TaskOutcome struct {
-	Kind       string
-	Actor      *domain.ActorRef
-	Reason     string
-	OccurredAt *time.Time
+	Kind       string           `json:"kind"`
+	Actor      *domain.ActorRef `json:"actor"`
+	Reason     string           `json:"reason"`
+	OccurredAt *time.Time       `json:"occurred_at"`
 }
 
 // GetTaskExecutionContextQuery identifies the Task and requesting executor.

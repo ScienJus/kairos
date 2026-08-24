@@ -32,11 +32,11 @@ export function newWorkflowDraft(): WorkflowDraft {
 
 export function draftFromDefinition(definition: WorkflowDefinition): WorkflowDraft {
   return {
-    definitionID: definition.ID, baseVersion: definition.Version, targetVersion: definition.Version + 1,
-    name: definition.Name, description: definition.Description, agentInstructions: definition.AgentInstructions,
-    suggestedTags: [...definition.SuggestedTags], tasks: definition.Graph.Tasks.map(task => ({ ...task, AllowedRoles: [...task.AllowedRoles], DefaultTags: [...task.DefaultTags], Artifacts: (task.Artifacts ?? []).map(artifact => ({ ...artifact })) })),
-    relations: definition.Graph.Relations.map(relation => ({ ...relation })), startTaskIDs: [...definition.Graph.StartTaskIDs],
-    maxTaskExecutions: definition.Graph.MaxTaskExecutions, savedAt: new Date().toISOString(),
+    definitionID: definition.id, baseVersion: definition.version, targetVersion: definition.version + 1,
+    name: definition.name, description: definition.description, agentInstructions: definition.agent_instructions,
+    suggestedTags: [...definition.suggested_tags], tasks: definition.graph.tasks.map(task => ({ ...task, allowed_roles: [...task.allowed_roles], default_tags: [...task.default_tags], artifacts: (task.artifacts ?? []).map(artifact => ({ ...artifact })) })),
+    relations: definition.graph.relations.map(relation => ({ ...relation })), startTaskIDs: [...definition.graph.start_task_ids],
+    maxTaskExecutions: definition.graph.max_task_executions, savedAt: new Date().toISOString(),
   }
 }
 
@@ -45,7 +45,7 @@ export function loadWorkflowDraft(key: string): WorkflowDraft | null {
     const value = localStorage.getItem(key)
     if (!value) return null
     const draft = JSON.parse(value) as WorkflowDraft
-    return { ...draft, tasks: draft.tasks.map(task => ({ ...task, Artifacts: task.Artifacts ?? [] })), relations: draft.relations.map(relation => ({ ...relation, Label: relation.Label ?? '', AgentGuidance: relation.AgentGuidance ?? '' })) }
+    return { ...draft, tasks: draft.tasks.map(task => ({ ...task, artifacts: task.artifacts ?? [] })), relations: draft.relations.map(relation => ({ ...relation, label: relation.label ?? '', agent_guidance: relation.agent_guidance ?? '' })) }
   } catch { return null }
 }
 
@@ -56,16 +56,16 @@ export function saveWorkflowDraft(key: string, draft: WorkflowDraft) {
 export function removeWorkflowDraft(key: string) { localStorage.removeItem(key) }
 
 export function appendWorkflowTask(draft: WorkflowDraft, task: WorkflowTaskDefinition) {
-  return { ...draft, tasks: [...draft.tasks, task], startTaskIDs: draft.tasks.length === 0 ? [task.ID] : draft.startTaskIDs }
+  return { ...draft, tasks: [...draft.tasks, task], startTaskIDs: draft.tasks.length === 0 ? [task.id] : draft.startTaskIDs }
 }
 
 export function connectWorkflowTasks(draft: WorkflowDraft, from: string, to: string, relationID: string) {
-  if (draft.relations.some(relation => relation.FromTaskID === from && relation.ToTaskID === to)) return draft
-  return { ...draft, relations: [...draft.relations, { ID: relationID, FromTaskID: from, ToTaskID: to, Label: '', AgentGuidance: '' }] }
+  if (draft.relations.some(relation => relation.from_task_id === from && relation.to_task_id === to)) return draft
+  return { ...draft, relations: [...draft.relations, { id: relationID, from_task_id: from, to_task_id: to, label: '', agent_guidance: '' }] }
 }
 
 export function deleteWorkflowTask(draft: WorkflowDraft, taskID: string) {
-  return { ...draft, tasks: draft.tasks.filter(task => task.ID !== taskID), relations: draft.relations.filter(relation => relation.FromTaskID !== taskID && relation.ToTaskID !== taskID), startTaskIDs: draft.startTaskIDs.filter(id => id !== taskID) }
+  return { ...draft, tasks: draft.tasks.filter(task => task.id !== taskID), relations: draft.relations.filter(relation => relation.from_task_id !== taskID && relation.to_task_id !== taskID), startTaskIDs: draft.startTaskIDs.filter(id => id !== taskID) }
 }
 
 export function toggleWorkflowStartTask(draft: WorkflowDraft, taskID: string) {
@@ -77,13 +77,13 @@ export function validateWorkflowDraft(draft: WorkflowDraft) {
   if (!draft.name.trim()) errors.push('name')
   if (draft.tasks.length === 0) errors.push('tasks')
   if (draft.startTaskIDs.length === 0) errors.push('start')
-  if (draft.tasks.some(task => !task.Title.trim())) errors.push('titles')
-  if (draft.tasks.some(task => task.Artifacts.some(artifact => !artifact.Name.trim() || !artifact.Description.trim()))) errors.push('artifacts')
-  if (draft.tasks.some(task => new Set(task.Artifacts.map(artifact => artifact.Name.trim())).size !== task.Artifacts.length)) errors.push('duplicate-artifacts')
+  if (draft.tasks.some(task => !task.title.trim())) errors.push('titles')
+  if (draft.tasks.some(task => task.artifacts.some(artifact => !artifact.name.trim() || !artifact.description.trim()))) errors.push('artifacts')
+  if (draft.tasks.some(task => new Set(task.artifacts.map(artifact => artifact.name.trim())).size !== task.artifacts.length)) errors.push('duplicate-artifacts')
   if (draft.maxTaskExecutions <= 0) errors.push('execution-limit')
   const pairs = new Set<string>()
   for (const relation of draft.relations) {
-    const pair = `${relation.FromTaskID}:${relation.ToTaskID}`
+    const pair = `${relation.from_task_id}:${relation.to_task_id}`
     if (pairs.has(pair)) errors.push('duplicate-relation')
     pairs.add(pair)
   }
@@ -96,8 +96,8 @@ export function workflowDraftInput(draft: WorkflowDraft): CreateWorkflowDefiniti
     agent_instructions: draft.agentInstructions.trim(), suggested_tags: draft.suggestedTags, status: 'published',
     graph: {
       start_task_ids: draft.startTaskIDs,
-      tasks: draft.tasks.map(task => ({ id: task.ID, title: task.Title.trim(), description: task.Description.trim(), acceptance_criteria: task.AcceptanceCriteria.trim(), executor: task.Executor, allowed_roles: task.AllowedRoles, execution: task.Execution, review_policy: task.ReviewPolicy, default_tags: task.DefaultTags, artifacts: task.Artifacts.map(artifact => ({ name: artifact.Name.trim(), description: artifact.Description.trim() })) })),
-      relations: draft.relations.map(relation => ({ id: relation.ID, from_task_id: relation.FromTaskID, to_task_id: relation.ToTaskID, label: (relation.Label ?? '').trim(), agent_guidance: (relation.AgentGuidance ?? '').trim() })),
+      tasks: draft.tasks.map(task => ({ id: task.id, title: task.title.trim(), description: task.description.trim(), acceptance_criteria: task.acceptance_criteria.trim(), executor: task.executor, allowed_roles: task.allowed_roles, execution: task.execution, review_policy: task.review_policy, default_tags: task.default_tags, artifacts: task.artifacts.map(artifact => ({ name: artifact.name.trim(), description: artifact.description.trim() })) })),
+      relations: draft.relations.map(relation => ({ id: relation.id, from_task_id: relation.from_task_id, to_task_id: relation.to_task_id, label: (relation.label ?? '').trim(), agent_guidance: (relation.agent_guidance ?? '').trim() })),
       max_task_executions: draft.maxTaskExecutions,
     },
   }

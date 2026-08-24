@@ -13,11 +13,11 @@ export type WorkDefinitionTarget = { id: string; mode: Mode; name: string; versi
 export function latestPublishedDefinitions(definitions: SelectableDefinition[]) {
   const latest = new Map<string, SelectableDefinition>()
   for (const definition of definitions) {
-    const key = `${definition.mode}:${definition.ID}`
+    const key = `${definition.mode}:${definition.id}`
     const current = latest.get(key)
-    if (!current || definition.Version > current.Version) latest.set(key, definition)
+    if (!current || definition.version > current.version) latest.set(key, definition)
   }
-  return [...latest.values()].filter(definition => definition.Status === 'published')
+  return [...latest.values()].filter(definition => definition.status === 'published')
 }
 
 export function CreateWorkModal({ open, onOpenChange, identity, definition, onCreated }: {
@@ -43,7 +43,7 @@ export function CreateWorkModal({ open, onOpenChange, identity, definition, onCr
   const availableDefinitions = latestPublishedDefinitions(definitions.data ?? [])
   return <Modal open={open} onOpenChange={onOpenChange} title={t('openNewWork')} eyebrow={t('newWork')}>
     <form className="form-grid" onSubmit={submit}>
-      {definition ? <div className="selected-definition wide"><span>{t('coordinationDefinition')}</span><strong>{definition.name}</strong><small>v{definition.version} · {t(definition.mode === 'workflow' ? 'workflow' : 'blackboard')}</small></div> : <label className="wide">{t('coordinationDefinition')}<select name="definition" required defaultValue=""><option value="" disabled>{t('selectDefinition')}</option>{availableDefinitions.map(item => <option key={`${item.mode}-${item.ID}-${item.Version}`} value={`${item.ID}|${item.mode}`}>{item.Name} · v{item.Version} · {t(item.mode === 'workflow' ? 'workflow' : 'blackboard')}</option>)}</select></label>}
+      {definition ? <div className="selected-definition wide"><span>{t('coordinationDefinition')}</span><strong>{definition.name}</strong><small>v{definition.version} · {t(definition.mode === 'workflow' ? 'workflow' : 'blackboard')}</small></div> : <label className="wide">{t('coordinationDefinition')}<select name="definition" required defaultValue=""><option value="" disabled>{t('selectDefinition')}</option>{availableDefinitions.map(item => <option key={`${item.mode}-${item.id}-${item.version}`} value={`${item.id}|${item.mode}`}>{item.name} · v{item.version} · {t(item.mode === 'workflow' ? 'workflow' : 'blackboard')}</option>)}</select></label>}
       <label className="wide">{t('title')}<input name="title" required /></label>
       <label className="wide">{t('goal')}<textarea name="goal" required rows={2} /></label>
       <label className="wide">{t('context')}<textarea name="context" rows={2} /></label>

@@ -13,32 +13,32 @@ type GetTaskDetailQuery struct {
 }
 
 type TaskCapabilities struct {
-	CanClaim     bool
-	CanSubmit    bool
-	CanRelease   bool
-	CanFail      bool
-	CanReview    bool
-	CanSkip      bool
-	CanDecompose bool
-	CanAddChild  bool
+	CanClaim     bool `json:"can_claim"`
+	CanSubmit    bool `json:"can_submit"`
+	CanRelease   bool `json:"can_release"`
+	CanFail      bool `json:"can_fail"`
+	CanReview    bool `json:"can_review"`
+	CanSkip      bool `json:"can_skip"`
+	CanDecompose bool `json:"can_decompose"`
+	CanAddChild  bool `json:"can_add_child"`
 }
 
 type TaskHistory struct {
-	Claims              []domain.Claim
-	Submissions         []domain.TaskSubmission
-	Reviews             []domain.Review
-	Failures            []domain.TaskFailure
-	TransitionDecisions []domain.TransitionDecision
+	Claims              []domain.Claim              `json:"claims"`
+	Submissions         []domain.TaskSubmission     `json:"submissions"`
+	Reviews             []domain.Review             `json:"reviews"`
+	Failures            []domain.TaskFailure        `json:"failures"`
+	TransitionDecisions []domain.TransitionDecision `json:"transition_decisions"`
 }
 
 type TaskDetail struct {
-	Task           domain.Task
-	Responsibility TaskResponsibility
-	Outcome        TaskOutcome
-	CurrentReview  *domain.Review
-	History        TaskHistory
-	Artifacts      []domain.Artifact
-	Capabilities   TaskCapabilities
+	Task           domain.Task        `json:"task"`
+	Responsibility TaskResponsibility `json:"responsibility"`
+	Outcome        TaskOutcome        `json:"outcome"`
+	CurrentReview  *domain.Review     `json:"current_review"`
+	History        TaskHistory        `json:"history"`
+	Artifacts      []domain.Artifact  `json:"artifacts"`
+	Capabilities   TaskCapabilities   `json:"capabilities"`
 }
 
 func (s *Service) GetTaskDetail(ctx context.Context, query GetTaskDetailQuery) (TaskDetail, error) {

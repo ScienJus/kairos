@@ -20,17 +20,17 @@ func (a TaskFailureAction) Valid() bool {
 
 // TaskFailure records one immutable failure reported from a Claim.
 type TaskFailure struct {
-	ID      TaskFailureID
-	TaskID  TaskID
-	ClaimID ClaimID
+	ID      TaskFailureID `json:"id"`
+	TaskID  TaskID        `json:"task_id"`
+	ClaimID ClaimID       `json:"claim_id"`
 
-	Action TaskFailureAction
-	Reason string
+	Action TaskFailureAction `json:"action"`
+	Reason string            `json:"reason"`
 
 	// RetryPrompt is appended to the shared execution context after reopening.
-	RetryPrompt string
+	RetryPrompt string `json:"retry_prompt"`
 
-	FailedAt time.Time
+	FailedAt time.Time `json:"failed_at"`
 }
 
 // Validate checks the TaskFailure invariants.

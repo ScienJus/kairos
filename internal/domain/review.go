@@ -21,24 +21,24 @@ func (s ReviewStatus) Valid() bool {
 
 // Review records one human review round for a Task.
 type Review struct {
-	ID     ReviewID
-	TaskID TaskID
+	ID     ReviewID `json:"id"`
+	TaskID TaskID   `json:"task_id"`
 
 	// SubmissionID identifies the immutable result being reviewed.
 	// It is nil when reviewing a skip decision that has no Submission.
-	SubmissionID *SubmissionID
+	SubmissionID *SubmissionID `json:"submission_id"`
 
-	Status ReviewStatus
+	Status ReviewStatus `json:"status"`
 
-	RequestedBy ActorID
-	RequestedAt time.Time
+	RequestedBy ActorID   `json:"requested_by"`
+	RequestedAt time.Time `json:"requested_at"`
 
-	DecidedBy *ActorID
-	DecidedAt *time.Time
+	DecidedBy *ActorID   `json:"decided_by"`
+	DecidedAt *time.Time `json:"decided_at"`
 
 	// Feedback contains the reviewer's decision comment.
 	// It is required when the review is rejected.
-	Feedback string
+	Feedback string `json:"feedback"`
 }
 
 // Validate checks the Review invariants.

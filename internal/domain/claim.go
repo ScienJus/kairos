@@ -20,8 +20,8 @@ func (k ActorKind) Valid() bool {
 
 // ActorRef identifies the human or agent responsible for a Claim.
 type ActorRef struct {
-	Kind ActorKind
-	ID   ActorID
+	Kind ActorKind `json:"kind"`
+	ID   ActorID   `json:"id"`
 }
 
 // Validate checks the ActorRef invariants.
@@ -60,18 +60,18 @@ func (r ClaimEndReason) Valid() bool {
 
 // Claim records one period in which an executor actively works on a Task.
 type Claim struct {
-	ID       ClaimID
-	TaskID   TaskID
-	Executor ActorRef
+	ID       ClaimID  `json:"id"`
+	TaskID   TaskID   `json:"task_id"`
+	Executor ActorRef `json:"executor"`
 
-	ClaimedAt       time.Time
-	LastHeartbeatAt time.Time
+	ClaimedAt       time.Time `json:"claimed_at"`
+	LastHeartbeatAt time.Time `json:"last_heartbeat_at"`
 	// LeaseUntil is the earliest time when the background reaper may end an
 	// active Agent Claim. Reaching it does not itself revoke ownership.
-	LeaseUntil   time.Time
-	LeaseSeconds int64
-	EndedAt      *time.Time
-	EndReason    ClaimEndReason
+	LeaseUntil   time.Time      `json:"lease_until"`
+	LeaseSeconds int64          `json:"lease_seconds"`
+	EndedAt      *time.Time     `json:"ended_at"`
+	EndReason    ClaimEndReason `json:"end_reason"`
 }
 
 // Active reports whether the Claim is still the Task's current execution responsibility.

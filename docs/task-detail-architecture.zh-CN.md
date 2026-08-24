@@ -166,7 +166,7 @@ Outcome 描述 Task 当前生命周期结论，不承载 Review 历史。`kind` 
     "id": "review-id",
     "submission_id": "submission-id",
     "status": "pending",
-    "requested_by": { "kind": "agent", "id": "agent-id" },
+    "requested_by": "agent-id",
     "requested_at": "2026-08-19T02:10:44Z",
     "decided_by": null,
     "decided_at": null,
@@ -184,10 +184,10 @@ Outcome 描述 Task 当前生命周期结论，不承载 Review 历史。`kind` 
 
 - `current_review` 表示与当前状态最相关的一轮 Review；没有时为 `null`。
 - `history.reviews` 是按时间排序的完整历史，空集合返回 `[]`。
-- `requested_by` 和 `decided_by` 统一使用 ActorRef，不能一个是字符串、另一个是对象。
+- `requested_by` 和非空的 `decided_by` 都是 Actor ID 字符串；尚未决定时 `decided_by` 为 `null`。
 - 已完成 Task 可以保留最后一轮 Review 作为 `current_review`，用于展示最终验收结论。
 
-如果现有领域模型只保存 `ActorID`，在实现 ActorRef 投影前必须先确认 actor kind 的可靠来源；不能由前端猜测，也不能伪造默认 kind。
+当前 Review 领域模型不持久化 actor kind，因此 API 和前端都不能从这些 ID 猜测或伪造 ActorRef。
 
 ### 5.4 Capabilities
 
@@ -224,9 +224,9 @@ TaskDetailPage
 ```
 
 - `TaskDetailPage` 只请求并渲染 Task Detail。
-- `TaskActions` 根据 `Capabilities` 选择子组件。
+- `TaskActions` 根据 `capabilities` 选择子组件。
 - 只有某个执行操作实际展开或需要执行数据时，才请求 Execution Context。
-- `ReviewActions` 使用 `CurrentReview.ID`，不扫描 `Task.Reviews`。
+- `ReviewActions` 使用 `current_review.id`，不扫描 `task.reviews`。
 - 历史组件只遍历后端已规范化的数组。
 
 ## 7. 错误与加载状态
@@ -249,7 +249,7 @@ Task Detail 和操作数据必须分别管理加载状态：
 4. 增加 HTTP 合约测试，特别覆盖 Human 查看 Agent Task 和空历史数组。
 5. 前端 Task Detail 切换到新接口，移除对 Execution Context 的展示依赖。
 6. 将执行上下文改为操作级按需请求。
-7. ReviewActions 改用 `CurrentReview` 与 `Capabilities.can_review`。
+7. ReviewActions 改用 `current_review` 与 `capabilities.can_review`。
 8. 增加前端状态矩阵测试和真实服务 dogfood。
 9. 删除 `TaskExecutionContext` 中仅为详情展示而添加的临时投影字段；若 Agent/MCP 执行仍需要其中部分字段，应基于执行语义单独保留并测试。
 10. 更新 API 参考、前端手册和相关白皮书中的已实现行为。
@@ -276,8 +276,8 @@ Task Detail 和操作数据必须分别管理加载状态：
 - 空历史集合规范化为 `[]`；
 - Human 可查看 Agent Task，不经过 Task 执行权限校验；
 - Web Task Detail 使用 Detail 投影展示责任、结果和历史；
-- Review 操作使用 `CurrentReview` 和 `Capabilities.CanReview`；
+- Review 操作使用 `current_review` 和 `capabilities.can_review`；
 - Execution Context 仅在 Claim、Submit、Release、Fail 或 Decompose 操作需要时加载；
 - Detail 与 Execution Context 独立处理加载和错误状态。
 
-仍需后续完善：Review 领域记录目前只持久化 `ActorID`，尚不能在不猜测的情况下把请求人和决定人投影为完整 ActorRef；因此 Detail 暂时沿用现有 Review 结构。Workflow/Blackboard 的关系原因和更丰富的 capability 禁用原因也尚未进入 Detail 投影。
+仍需后续完善：Review 领域记录目前只持久化 `ActorID`，因此 Detail 明确返回请求人和决定人的 ID 字符串，不投影为 ActorRef。Workflow/Blackboard 的关系原因和更丰富的 capability 禁用原因也尚未进入 Detail 投影。

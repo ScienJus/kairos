@@ -20,8 +20,8 @@ type DecomposeBlackboardTaskCommand struct {
 
 // BlackboardTaskDecomposition contains the aggregate Task and its initial children.
 type BlackboardTaskDecomposition struct {
-	Parent   domain.Task
-	Children []domain.Task
+	Parent   domain.Task   `json:"parent"`
+	Children []domain.Task `json:"children"`
 }
 
 // DecomposeBlackboardTask atomically transfers responsibility from a claimed Task to child Tasks.

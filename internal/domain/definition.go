@@ -21,9 +21,9 @@ func (s DefinitionStatus) Valid() bool {
 
 // DefinitionBinding identifies the immutable definition version used by a WorkItem.
 type DefinitionBinding struct {
-	ID      DefinitionID
-	Version int64
-	Mode    CoordinationMode
+	ID      DefinitionID     `json:"id"`
+	Version int64            `json:"version"`
+	Mode    CoordinationMode `json:"mode"`
 }
 
 // Validate checks the DefinitionBinding invariants.
@@ -42,24 +42,24 @@ func (b DefinitionBinding) Validate() error {
 
 // DefinitionMetadata contains versioned configuration shared by Workflow and Blackboard.
 type DefinitionMetadata struct {
-	ID      DefinitionID
-	Version int64
+	ID      DefinitionID `json:"id"`
+	Version int64        `json:"version"`
 
-	Name        string
-	Description string
+	Name        string `json:"name"`
+	Description string `json:"description"`
 
 	// AgentInstructions provides definition-level collaboration guidance.
-	AgentInstructions string
+	AgentInstructions string `json:"agent_instructions"`
 
 	// SuggestedTags describes the recommended tag vocabulary. Entries may be
 	// concrete tags or open patterns such as "module:*". They guide Agents and
 	// are not enforced as a schema or permission rule.
-	SuggestedTags []string
+	SuggestedTags []string `json:"suggested_tags"`
 
-	Status DefinitionStatus
+	Status DefinitionStatus `json:"status"`
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Validate checks the shared DefinitionMetadata invariants.
@@ -105,7 +105,7 @@ func (d BlackboardDefinition) Binding() DefinitionBinding {
 // WorkflowDefinition configures a versioned Workflow collaboration space.
 type WorkflowDefinition struct {
 	DefinitionMetadata
-	Graph WorkflowGraph
+	Graph WorkflowGraph `json:"graph"`
 }
 
 // Validate checks the WorkflowDefinition invariants.

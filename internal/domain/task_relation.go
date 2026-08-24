@@ -8,15 +8,15 @@ import (
 // TaskRelation is a directed edge between two concrete Task instances.
 type TaskRelation struct {
 	// WorkItemID is the parent WorkItem of both Tasks. [Both]
-	WorkItemID WorkItemID
+	WorkItemID WorkItemID `json:"work_item_id"`
 
 	// FromTaskID is the preceding Task instance. [Both]
-	FromTaskID TaskID
+	FromTaskID TaskID `json:"from_task_id"`
 
 	// ToTaskID is the subsequent Task instance. [Both]
-	ToTaskID TaskID
+	ToTaskID TaskID `json:"to_task_id"`
 
-	CreatedAt time.Time
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Validate checks the TaskRelation invariants.

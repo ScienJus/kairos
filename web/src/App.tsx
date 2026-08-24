@@ -281,7 +281,7 @@ function ConsoleApp({ identity: initialIdentity, authenticationMode, onLogout }:
       </Suspense>
     </main>
 
-    <CreateWorkModal open={createOpen} onOpenChange={open => { setCreateOpen(open); if (!open) setCreateDefinition(null) }} identity={identity} definition={createDefinition} onCreated={workItem => { if (createDefinition) navigate({ workItemID: workItem.ID, taskID: null, homeView: 'all' }) }} />
+    <CreateWorkModal open={createOpen} onOpenChange={open => { setCreateOpen(open); if (!open) setCreateDefinition(null) }} identity={identity} definition={createDefinition} onCreated={workItem => { if (createDefinition) navigate({ workItemID: workItem.id, taskID: null, homeView: 'all' }) }} />
     {authenticationMode === 'trusted' && <IdentityModal open={settingsOpen} onOpenChange={setSettingsOpen} identity={identity} onSave={updateIdentity} />}
   </div>
 }

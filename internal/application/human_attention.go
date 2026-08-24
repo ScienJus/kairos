@@ -19,9 +19,9 @@ const (
 
 // HumanAttentionItem is one lightweight homepage entry that needs a person.
 type HumanAttentionItem struct {
-	Kind     HumanAttentionKind
-	WorkItem domain.WorkItem
-	Task     *domain.Task
+	Kind     HumanAttentionKind `json:"kind"`
+	WorkItem domain.WorkItem    `json:"work_item"`
+	Task     *domain.Task       `json:"task"`
 }
 
 // ListHumanAttention returns pending Reviews and unclaimed Tasks assigned to a human.

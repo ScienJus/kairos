@@ -55,47 +55,47 @@ func (m WorkItemAcceptanceMode) Valid() bool {
 // WorkItem represents one concrete unit of work.
 type WorkItem struct {
 	// ID uniquely identifies this concrete work item. [Both]
-	ID WorkItemID
+	ID WorkItemID `json:"id"`
 
 	// Definition identifies the coordination space, mode, and immutable version. [Both]
-	Definition DefinitionBinding
+	Definition DefinitionBinding `json:"definition"`
 
 	// Status is the current lifecycle state. [Both]
-	Status WorkItemStatus
+	Status WorkItemStatus `json:"status"`
 
 	// AcceptanceMode controls what happens after a collaborator submits completion.
-	AcceptanceMode WorkItemAcceptanceMode
+	AcceptanceMode WorkItemAcceptanceMode `json:"acceptance_mode"`
 
 	// Title is the short label shown in lists and Kanban cards. [Both]
-	Title string
+	Title string `json:"title"`
 
 	// Goal describes the outcome this work item is expected to achieve. [Both]
-	Goal string
+	Goal string `json:"goal"`
 
 	// Context provides background information needed to understand the work. [Both]
-	Context string
+	Context string `json:"context"`
 
 	// Constraints describe boundaries that execution must respect. [Both]
-	Constraints string
+	Constraints string `json:"constraints"`
 
 	// AcceptanceCriteria define how completion should be evaluated. [Both]
-	AcceptanceCriteria string
+	AcceptanceCriteria string `json:"acceptance_criteria"`
 
 	// Tags provide discovery metadata, including before a Blackboard has Tasks. [Both]
-	Tags []string
+	Tags []string `json:"tags"`
 
 	// Result stores a submitted completion proposal while acceptance is pending,
 	// and the accepted final outcome after completion. [Both]
-	Result string
+	Result string `json:"result"`
 
 	// Version is the server-maintained WorkItem revision. Blackboard planning
 	// mutations increment it, while Task execution uses the individual Task
 	// version. [Both]
-	Version int64
+	Version int64 `json:"version"`
 
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	CompletedAt *time.Time
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	CompletedAt *time.Time `json:"completed_at"`
 }
 
 // Validate checks the WorkItem invariants.

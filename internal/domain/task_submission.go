@@ -7,15 +7,15 @@ import (
 
 // TaskSubmission records one immutable result submitted from a Claim.
 type TaskSubmission struct {
-	ID      SubmissionID
-	TaskID  TaskID
-	ClaimID ClaimID
+	ID      SubmissionID `json:"id"`
+	TaskID  TaskID       `json:"task_id"`
+	ClaimID ClaimID      `json:"claim_id"`
 
 	// Result summarizes the delivered work. Artifacts bind to this immutable
 	// Submission through their SubmissionID.
-	Result string
+	Result string `json:"result"`
 
-	SubmittedAt time.Time
+	SubmittedAt time.Time `json:"submitted_at"`
 }
 
 // Validate checks the TaskSubmission invariants.
