@@ -4,7 +4,7 @@
 
 ## 摘要
 
-Blackboard 从明确的 WorkItem 目标开始，Task Graph 可以为空或不完整。人和 Agent 在执行过程中共同创建、选择和调整 Task，使计划随着工作认知持续演化。
+Blackboard 从明确的 WorkItem 目标开始，Task Graph 可以为空或不完整。人和 Agent 在执行过程中共同创建、选择、拆分、扩展和 Skip Task，使计划随着工作认知持续演化。
 
 Task Relation 在 Blackboard 中表达推进建议。它帮助执行者理解工作结构，同时保留对执行顺序和下一步工作的判断权。
 
@@ -41,7 +41,7 @@ Blackboard 的结构追加基于服务端最新状态提交。多个协作者同
 
 Task Graph 为空时，WorkItem 本身作为候选工作被发现。协作者读取整体目标和 Blackboard Instructions 后创建首个 Task；WorkItem Tags 用于这种初始发现。
 
-Suggested Tags 提供开放的标签词汇，例如 `module:*` 或 `kind:*`。Agent 在创建和推进 Task 时根据实际内容选择具体 tags；这些建议不构成权限或格式约束。
+Suggested Tags 提供开放的标签词汇，例如 `module:*` 或 `kind:*`。Agent 在创建 Task 时根据实际内容选择具体 tags；这些建议不构成权限或格式约束。
 
 ## 2. 规划与执行
 
@@ -50,7 +50,7 @@ Blackboard 将规划放在整个执行过程中：
 ```text
 观察当前工作
       ↓
-创建或调整 Task
+创建、拆分或扩展 Task
       ↓
 选择并执行 Task
       ↓
@@ -65,7 +65,7 @@ Blackboard 将规划放在整个执行过程中：
 - 创建新的 Task；
 - 将较大的 Task 拆分为更清晰的交付单元；
 - 向尚未完成的聚合 Task 追加子 Task；
-- 调整 Task 之间的关系；
+- 在 Task 之间新增建议关系；
 - 根据新信息将已经失去价值的 Task 标记为 Skipped；
 - 使用已有成果规划后续工作。
 
@@ -87,7 +87,7 @@ Blackboard 使用 Task Relation 表达当前建议的推进顺序：
 
 前置 Task 尚未完成时，后续 Task 仍然可以成为候选。执行者会同时看到建议关系和相关前置成果，并根据实际情况决定是否开始工作。
 
-例如，实现 Task 可以在设计尚未完全结束时提前开始；后续协作者也可以调整原有关系，反映新的工作认知。
+例如，实现 Task 可以在设计尚未完全结束时提前开始。协作者可以在建立共享结构时新增建议 Relation；当前 API 中已有 Relation 不可变，不支持更新或删除。
 
 > Task Relation records shared judgment about how work should proceed.
 
@@ -120,7 +120,7 @@ Blackboard 将规划自主性持续开放给协作者：
 
 - 判断当前哪些工作值得执行；
 - 创建遗漏的 Task；
-- 调整工作拆分和建议关系；
+- 拆分或扩展工作，并新增建议关系；
 - 根据成果重新规划下一步；
 - 判断是否需要人工 Review。
 

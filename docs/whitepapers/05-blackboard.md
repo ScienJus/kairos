@@ -4,7 +4,7 @@
 
 ## Abstract
 
-Blackboard begins with an explicit WorkItem objective while allowing the Task Graph to be empty or incomplete. People and agents jointly create, select, and adjust Tasks during execution, allowing the plan to evolve with their understanding of the work.
+Blackboard begins with an explicit WorkItem objective while allowing the Task Graph to be empty or incomplete. People and agents jointly create, select, decompose, extend, and skip Tasks during execution, allowing the plan to evolve with their understanding of the work.
 
 In Blackboard, Task Relation expresses progression guidance. It helps executors understand the work structure while preserving their judgment over execution order and next steps.
 
@@ -41,7 +41,7 @@ Blackboard structural appends are committed against the latest server state. Whe
 
 When the Task Graph is empty, the WorkItem itself is exposed as candidate work. A collaborator reads the overall objective and Blackboard Instructions, then creates the first Task. WorkItem Tags support this initial discovery.
 
-Suggested Tags provide an open vocabulary such as `module:*` or `kind:*`. Agents choose concrete tags from actual Task content while creating and advancing work. Suggestions are neither permissions nor format constraints.
+Suggested Tags provide an open vocabulary such as `module:*` or `kind:*`. Agents choose concrete tags from actual Task content when creating Tasks. Suggestions are neither permissions nor format constraints.
 
 ## 2. Planning and Execution
 
@@ -50,7 +50,7 @@ Blackboard keeps planning active throughout execution:
 ```text
 Observe current work
         ↓
-Create or adjust Tasks
+Create, decompose, or extend Tasks
         ↓
 Choose and execute a Task
         ↓
@@ -65,7 +65,7 @@ Collaborators can:
 - create new Tasks;
 - decompose a larger Task into clearer deliverable units;
 - append child Tasks to an unfinished aggregate Task;
-- adjust relations between Tasks;
+- add suggested relations between Tasks;
 - mark a Task that no longer provides value as Skipped when new information appears;
 - plan follow-up work from existing results.
 
@@ -87,7 +87,7 @@ Design ⇢ Implement ⇢ Test
 
 A downstream Task can remain a candidate while its predecessor is unfinished. The executor sees the suggested relation and relevant predecessor results, then decides whether work should begin.
 
-For example, implementation can start before design is fully complete. Later collaborators can also adjust an existing relation to reflect a new understanding of the work.
+For example, implementation can start before design is fully complete. Collaborators can add a suggested Relation when creating the shared structure. Existing Relations are immutable in the current API: they cannot be updated or deleted.
 
 > Task Relation records shared judgment about how work should proceed.
 
@@ -120,7 +120,7 @@ Blackboard continuously exposes planning autonomy to collaborators:
 
 - decide which current work is worthwhile;
 - create missing Tasks;
-- adjust decomposition and suggested relations;
+- decompose or extend work and add suggested relations;
 - replan next steps from results;
 - decide whether human Review is needed.
 

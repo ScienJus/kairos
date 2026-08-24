@@ -148,12 +148,12 @@ Tasks in Blackboard can also have prerequisite relations:
 Design login ⇢ Implement login API ⇢ Test login
 ```
 
-These relations express the collaborators’ current shared guidance about progression. An executor can use the actual context to start early, work in parallel, adjust relations, or create new Tasks.
+These relations express the collaborators’ current shared guidance about progression. An executor can use the actual context to start early, work in parallel, add a suggested relation, or create new Tasks. Existing Blackboard Relations are not updated or deleted.
 
 Key characteristics of Blackboard include:
 
 - the initial Task Graph can be empty or incomplete;
-- collaborators dynamically create, decompose, and adjust Tasks;
+- collaborators dynamically create, decompose, append children to, and skip Tasks;
 - prerequisite relations are guidance by default;
 - executors choose the next work from the objective and shared context;
 - before ending the current Task, the executor decides whether follow-up Tasks are needed; the WorkItem completes when no unfinished Task remains.
