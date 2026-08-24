@@ -36,6 +36,7 @@ func normalizeWorkItemTimes(value domain.WorkItem) domain.WorkItem {
 	value.CreatedAt = normalizeTime(value.CreatedAt)
 	value.UpdatedAt = normalizeTime(value.UpdatedAt)
 	value.CompletedAt = normalizeOptionalTime(value.CompletedAt)
+	value.CancelledAt = normalizeOptionalTime(value.CancelledAt)
 	return value
 }
 

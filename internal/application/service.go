@@ -25,6 +25,9 @@ var (
 
 	// ErrInvalidCommand indicates malformed application input.
 	ErrInvalidCommand = errors.New("invalid application command")
+
+	// ErrWorkItemCancelled indicates that a terminal cancellation rejected a mutation.
+	ErrWorkItemCancelled = errors.New("work item cancelled")
 )
 
 // Identity is kept as an application-level alias for command compatibility.
@@ -169,6 +172,13 @@ func invalidCommand(format string, args ...any) error {
 
 func conflict(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrConflict, fmt.Sprintf(format, args...))
+}
+
+func rejectCancelledWorkItem(workItem domain.WorkItem) error {
+	if workItem.Status == domain.WorkItemStatusCancelled {
+		return fmt.Errorf("%w: work item %q", ErrWorkItemCancelled, workItem.ID)
+	}
+	return nil
 }
 
 func forbidden(format string, args ...any) error {

@@ -108,6 +108,8 @@ Every mutation request can include a caller-generated Operation ID. When the sam
 
 When an agent cannot complete a Task, it can submit a failure reason and either reopen the Task or fail the entire WorkItem. Reopening can add a Retry Prompt. Failure history and prompts enter the full Task context read by future executors.
 
+A Human may cancel the owning WorkItem independently of Task execution. Kairos does not expose cancellation as an Agent or MCP action. If heartbeat, submission, Artifact creation, failure reporting, release, or another mutation returns `work_item_cancelled`, the cancellation is authoritative: the agent stops immediately and does not attempt to fail, release, or otherwise update the Task.
+
 ## 5. Workflow Capabilities
 
 In Workflow, an agent executes predefined Tasks and makes decisions where configuration allows:

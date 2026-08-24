@@ -59,7 +59,7 @@ export function clearBearerToken() {
 }
 
 export class APIError extends Error {
-  constructor(public status: number, message: string) { super(message) }
+  constructor(public status: number, message: string, public code = '') { super(message) }
 }
 
 function authenticationHeaders(identity?: Identity) {
@@ -91,8 +91,8 @@ async function request<T>(path: string, identity?: Identity, init?: RequestInit)
   const response = await fetch(path, { ...init, headers })
   if (!response.ok) {
     handleUnauthorized(response.status, authentication.token)
-    const body = await response.json().catch(() => null) as { error?: { message?: string } } | null
-    throw new APIError(response.status, body?.error?.message ?? `Request failed (${response.status})`)
+    const body = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null
+    throw new APIError(response.status, body?.error?.message ?? `Request failed (${response.status})`, body?.error?.code)
   }
   if (response.status === 204) return undefined as T
   const body = await response.json() as { data: T }
@@ -141,6 +141,9 @@ export const api = {
     method: 'POST', body: JSON.stringify({ result }),
   }),
   acceptBlackboardCompletion: (identity: Identity, workItemID: string) => request<WorkItem>(`/api/v1/work-items/${workItemID}/acceptance`, identity, { method: 'POST' }),
+  cancelWorkItem: (identity: Identity, workItemID: string, reason: string) => request<WorkItem>(`/api/v1/work-items/${workItemID}/cancellation`, identity, {
+    method: 'POST', body: JSON.stringify({ reason }),
+  }),
   claimTask: (identity: Identity, taskID: string) => request<Claim>(`/api/v1/tasks/${taskID}/claims`, identity, { method: 'POST' }),
   releaseClaim: (identity: Identity, taskID: string, claimID: string) => request<void>(`/api/v1/tasks/${taskID}/claims/${claimID}`, identity, { method: 'DELETE' }),
   createArtifact: (identity: Identity, taskID: string, input: { claim_id: string; name: string; uri: string }) => request<Artifact>(`/api/v1/tasks/${taskID}/artifacts`, identity, { method: 'POST', body: JSON.stringify(input) }),

@@ -19,9 +19,10 @@ import (
 const (
 	defaultMaxArtifactUploadBytes int64 = 16 << 20
 	mcpRequestOverheadBytes       int64 = 1 << 20
+	workItemCancelledErrorCode          = "work_item_cancelled"
 )
 
-const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. End every claim with submit_task, fail_task, or release_claim. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
+const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. End every claim with submit_task, fail_task, or release_claim unless a tool returns work_item_cancelled; that terminal Human decision ends the claim, so stop immediately without another mutation. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
 
 // Options configures MCP transport limits.
 type Options struct {
@@ -148,7 +149,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor,
 			OperationID: input.OperationID, Name: input.Name,
 		}, bytes.NewReader(decoded))
-		return successResult(fmt.Sprintf("Uploaded Artifact %s for Task %s.", artifact.ID, artifact.TaskID)), artifactOutput{Artifact: artifactViewFrom(artifact)}, err
+		return successResult(fmt.Sprintf("Uploaded Artifact %s for Task %s.", artifact.ID, artifact.TaskID)), artifactOutput{Artifact: artifactViewFrom(artifact)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -194,7 +195,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			OperationID:  input.OperationID,
 			LeaseSeconds: input.LeaseSeconds,
 		})
-		return successResult(fmt.Sprintf("Claimed Task %s with Claim %s.", claim.TaskID, claim.ID)), claimOutput{Claim: claimViewFrom(claim)}, err
+		return successResult(fmt.Sprintf("Claimed Task %s with Claim %s.", claim.TaskID, claim.ID)), claimOutput{Claim: claimViewFrom(claim)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -204,7 +205,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			return nil, claimOutput{}, err
 		}
 		claim, err := service.HeartbeatClaim(ctx, application.HeartbeatClaimCommand{TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor, OperationID: input.OperationID, LeaseSeconds: input.LeaseSeconds})
-		return successResult(fmt.Sprintf("Heartbeated Claim %s.", input.ClaimID)), claimOutput{Claim: claimViewFrom(claim)}, err
+		return successResult(fmt.Sprintf("Heartbeated Claim %s.", input.ClaimID)), claimOutput{Claim: claimViewFrom(claim)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -220,7 +221,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor,
 			OperationID: input.OperationID, Name: input.Name, URI: input.URI,
 		})
-		return successResult(fmt.Sprintf("Created Artifact %s for Task %s.", artifact.ID, artifact.TaskID)), artifactOutput{Artifact: artifactViewFrom(artifact)}, err
+		return successResult(fmt.Sprintf("Created Artifact %s for Task %s.", artifact.ID, artifact.TaskID)), artifactOutput{Artifact: artifactViewFrom(artifact)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -251,7 +252,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			RequestReview: input.RequestReview,
 			Transition:    transition,
 		})
-		return successResult(fmt.Sprintf("Submitted result %s for Task %s.", submission.ID, submission.TaskID)), submissionOutput{Submission: submissionViewFrom(submission)}, err
+		return successResult(fmt.Sprintf("Submitted result %s for Task %s.", submission.ID, submission.TaskID)), submissionOutput{Submission: submissionViewFrom(submission)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -272,7 +273,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			Reason:      input.Reason,
 			RetryPrompt: input.RetryPrompt,
 		})
-		return successResult(fmt.Sprintf("Recorded failure %s for Task %s.", failure.ID, failure.TaskID)), failureOutput{Failure: failureViewFrom(failure)}, err
+		return successResult(fmt.Sprintf("Recorded failure %s for Task %s.", failure.ID, failure.TaskID)), failureOutput{Failure: failureViewFrom(failure)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -291,7 +292,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			OperationID: input.OperationID,
 			Reason:      input.Reason,
 		})
-		return successResult(fmt.Sprintf("Released Claim %s for Task %s.", input.ClaimID, input.TaskID)), releasedOutput{Released: err == nil}, err
+		return successResult(fmt.Sprintf("Released Claim %s for Task %s.", input.ClaimID, input.TaskID)), releasedOutput{Released: err == nil}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -314,7 +315,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			AllowedRoles:       input.AllowedRoles,
 			Tags:               input.Tags,
 		})
-		return successResult(fmt.Sprintf("Created Task %s in WorkItem %s.", task.ID, task.WorkItemID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
+		return successResult(fmt.Sprintf("Created Task %s in WorkItem %s.", task.ID, task.WorkItemID)), taskOutput{Task: taskSummaryViewFrom(task)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "add_blackboard_relation", Title: "Add blackboard relation", Description: "Add a suggested dependency relation between two tasks in an open Blackboard.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input addBlackboardRelationInput) (*mcp.CallToolResult, relationOutput, error) {
@@ -322,7 +323,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			return nil, relationOutput{}, err
 		}
 		relation, err := service.AddBlackboardRelation(ctx, application.AddBlackboardRelationCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), FromTaskID: domain.TaskID(input.FromTaskID), ToTaskID: domain.TaskID(input.ToTaskID), Identity: actor, OperationID: input.OperationID})
-		return successResult(fmt.Sprintf("Added relation from Task %s to Task %s.", input.FromTaskID, input.ToTaskID)), relationOutput{Relation: relationViewFrom(relation)}, err
+		return successResult(fmt.Sprintf("Added relation from Task %s to Task %s.", input.FromTaskID, input.ToTaskID)), relationOutput{Relation: relationViewFrom(relation)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "decompose_blackboard_task", Title: "Decompose blackboard task", Description: "Turn an actively claimed Blackboard task into an aggregate and create its initial child tasks.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input decomposeBlackboardTaskInput) (*mcp.CallToolResult, decompositionOutput, error) {
@@ -334,7 +335,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			children = append(children, child.spec())
 		}
 		result, err := service.DecomposeBlackboardTask(ctx, application.DecomposeBlackboardTaskCommand{TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor, OperationID: input.OperationID, Children: children})
-		return successResult(fmt.Sprintf("Decomposed Task %s into %d children.", input.TaskID, len(result.Children))), decompositionOutput{Parent: taskSummaryViewFrom(result.Parent), Children: taskSummaryViews(result.Children)}, err
+		return successResult(fmt.Sprintf("Decomposed Task %s into %d children.", input.TaskID, len(result.Children))), decompositionOutput{Parent: taskSummaryViewFrom(result.Parent), Children: taskSummaryViews(result.Children)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "add_blackboard_child_task", Title: "Add blackboard child task", Description: "Append one child task while a Blackboard aggregate remains open.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input addBlackboardChildTaskInput) (*mcp.CallToolResult, taskOutput, error) {
@@ -342,7 +343,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			return nil, taskOutput{}, err
 		}
 		task, err := service.AddBlackboardChildTask(ctx, application.AddBlackboardChildTaskCommand{ParentTaskID: domain.TaskID(input.ParentTaskID), Identity: actor, OperationID: input.OperationID, Task: input.Task.spec()})
-		return successResult(fmt.Sprintf("Added child Task %s.", task.ID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
+		return successResult(fmt.Sprintf("Added child Task %s.", task.ID)), taskOutput{Task: taskSummaryViewFrom(task)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "skip_blackboard_task", Title: "Skip blackboard task", Description: "Skip an obsolete unclaimed pending Blackboard task with a durable reason.", Annotations: mutationAnnotations(true)}, func(ctx context.Context, _ *mcp.CallToolRequest, input skipBlackboardTaskInput) (*mcp.CallToolResult, taskOutput, error) {
@@ -350,7 +351,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			return nil, taskOutput{}, err
 		}
 		task, err := service.SkipBlackboardTask(ctx, application.SkipBlackboardTaskCommand{TaskID: domain.TaskID(input.TaskID), Identity: actor, OperationID: input.OperationID, Reason: input.Reason})
-		return successResult(fmt.Sprintf("Skipped Task %s.", input.TaskID)), taskOutput{Task: taskSummaryViewFrom(task)}, err
+		return successResult(fmt.Sprintf("Skipped Task %s.", input.TaskID)), taskOutput{Task: taskSummaryViewFrom(task)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "submit_blackboard_completion", Title: "Submit blackboard completion", Description: "Submit a converged Blackboard's durable result for acceptance.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
@@ -358,7 +359,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			return nil, workItemOutput{}, err
 		}
 		workItem, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID, Result: input.Result})
-		return successResult(fmt.Sprintf("Submitted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
+		return successResult(fmt.Sprintf("Submitted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "accept_blackboard_completion", Title: "Accept blackboard completion", Description: "Accept a pending Blackboard completion proposal.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input acceptBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
@@ -366,7 +367,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			return nil, workItemOutput{}, err
 		}
 		workItem, err := service.AcceptBlackboardCompletion(ctx, application.AcceptBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID})
-		return successResult(fmt.Sprintf("Accepted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, err
+		return successResult(fmt.Sprintf("Accepted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, toolError(err)
 	})
 
 	return server
@@ -526,6 +527,13 @@ func artifactIDs(values []string) []domain.ArtifactID {
 
 func successResult(message string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: message}}}
+}
+
+func toolError(err error) error {
+	if errors.Is(err, application.ErrWorkItemCancelled) {
+		return fmt.Errorf("%s: %w", workItemCancelledErrorCode, err)
+	}
+	return err
 }
 
 func requireOperationID(value string) error {

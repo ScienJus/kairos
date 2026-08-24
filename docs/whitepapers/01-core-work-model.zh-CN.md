@@ -64,6 +64,8 @@ Result 是执行者留下的持久说明，Artifact 是具名、可寻址的实�
 
 执行者报告失败时，Kairos 在 Task 下创建不可变的 Task Failure。重新打开产生的提示会进入后续执行上下文；全局失败则结束当前 Task 与 WorkItem。Claim、Submission、Review、Failure 和推进决策同时形成持久、按顺序追加的 WorkItem Event 历史。面向用户的 WorkItem 事件时间线是独立的展现能力，目前仍在规划中。
 
+WorkItem 取消是独立的人工管理决定，不属于执行失败。它记录取消操作者、时间和原因，结束 Active Claim 并阻止后续 Task 变更，但不会改写已有 Task 结果或创建 Task Failure。
+
 > WorkItem 回答“最终要完成什么”，Task 回答“接下来具体做什么”。
 
 ## 2. Task Graph

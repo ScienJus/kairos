@@ -203,6 +203,9 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
 		}
+		if err := rejectCancelledWorkItem(workItem); err != nil {
+			return err
+		}
 		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
 		}

@@ -420,6 +420,33 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/cancellation:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: cancelWorkItem
+      summary: Cancel Work Item
+      description: Human-only terminal cancellation. Active Claims are ended; no Task is marked failed.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties: { reason: { type: string, pattern: '.*\S.*' } }
+      responses:
+        '200': { $ref: '#/components/responses/WorkItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/tasks/{task_id}:
     parameters:
       - $ref: '#/components/parameters/TaskIdPath'
@@ -868,7 +895,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     Conflict:
-      description: The operation conflicts with current state or a prior idempotent request (`conflict`)
+      description: The operation conflicts with current state or a prior idempotent request (`conflict`), or the WorkItem was terminally cancelled (`work_item_cancelled`)
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -955,6 +982,10 @@ components:
       properties:
         kind: { $ref: '#/components/schemas/ActorKind' }
         id: { type: string }
+    NullableActorRef:
+      oneOf:
+        - $ref: '#/components/schemas/ActorRef'
+        - type: 'null'
     Session:
       type: object
       required: [id, kind, role]
@@ -1145,7 +1176,7 @@ components:
         mode: { $ref: '#/components/schemas/CoordinationMode' }
     WorkItem:
       type: object
-      required: [id, definition, status, acceptance_mode, title, goal, context, constraints, acceptance_criteria, tags, result, version, created_at, updated_at, completed_at]
+      required: [id, definition, status, acceptance_mode, title, goal, context, constraints, acceptance_criteria, tags, result, version, created_at, updated_at, completed_at, cancelled_at, cancelled_by, cancellation_reason]
       properties:
         id: { type: string }
         definition: { $ref: '#/components/schemas/DefinitionBinding' }
@@ -1162,6 +1193,9 @@ components:
         created_at: { $ref: '#/components/schemas/DateTime' }
         updated_at: { $ref: '#/components/schemas/DateTime' }
         completed_at: { $ref: '#/components/schemas/NullableDateTime' }
+        cancelled_at: { $ref: '#/components/schemas/NullableDateTime' }
+        cancelled_by: { $ref: '#/components/schemas/NullableActorRef' }
+        cancellation_reason: { type: string }
     CreateWorkItemRequest:
       type: object
       additionalProperties: false
@@ -1289,7 +1323,7 @@ components:
         lease_until: { $ref: '#/components/schemas/DateTime' }
         lease_seconds: { type: integer, format: int64 }
         ended_at: { $ref: '#/components/schemas/NullableDateTime' }
-        end_reason: { type: string, enum: ['', task_completed, submitted_for_review, released, revoked, task_failed, task_decomposed, expired] }
+        end_reason: { type: string, enum: ['', task_completed, submitted_for_review, released, revoked, task_failed, task_decomposed, expired, work_item_cancelled] }
     Artifact:
       type: object
       required: [id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at]

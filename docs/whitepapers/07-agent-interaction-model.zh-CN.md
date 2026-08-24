@@ -108,6 +108,8 @@ Task
 
 Agent 无法完成 Task 时，可以提交失败原因并选择重新打开 Task 或使整个 WorkItem 失败。重新打开时可以附加 Retry Prompt；失败记录和提示会进入后续执行者读取的完整 Task 上下文。
 
+Human 可以在 Task 执行之外独立取消所属 WorkItem；Kairos 不向 Agent 或 MCP 提供取消动作。如果 heartbeat、提交、创建 Artifact、报告失败、释放 Claim 或其他变更返回 `work_item_cancelled`，取消决定具有权威性：Agent 立即停止，不再尝试失败、释放或以其他方式更新 Task。
+
 ## 5. Workflow 能力
 
 Workflow 中的 Agent 执行已经定义好的 Task，并在配置允许的位置作出判断：

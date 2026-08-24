@@ -64,6 +64,8 @@ A Result is the executor's durable narrative; an Artifact is a named, addressabl
 
 When an executor reports failure, Kairos creates an immutable Task Failure under the Task. A prompt supplied when reopening becomes part of the next execution context; a global failure ends both the Task and WorkItem. Claims, Submissions, Reviews, Failures, and progression decisions also form a persisted append-only WorkItem Event history. A user-facing WorkItem event timeline is a separate presentation capability and remains planned.
 
+WorkItem cancellation is a separate Human management decision, not an execution failure. It records the cancelling actor, time, and reason, ends active Claims, and prevents further Task mutations without changing established Task outcomes or creating Task Failures.
+
 > A WorkItem answers “What final outcome is required?” A Task answers “What concrete work comes next?”
 
 ## 2. Task Graph

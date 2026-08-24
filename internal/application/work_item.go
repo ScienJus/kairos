@@ -333,6 +333,9 @@ func (s *Service) SubmitBlackboardCompletion(ctx context.Context, command Submit
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 			return conflict("work item %q is not a blackboard", workItem.ID)
 		}
+		if err := rejectCancelledWorkItem(workItem); err != nil {
+			return err
+		}
 		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
 		}
@@ -404,6 +407,9 @@ func (s *Service) AcceptBlackboardCompletion(ctx context.Context, command Accept
 		}
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 			return conflict("work item %q is not a blackboard", workItem.ID)
+		}
+		if err := rejectCancelledWorkItem(workItem); err != nil {
+			return err
 		}
 		switch workItem.Status {
 		case domain.WorkItemStatusAwaitingAgentAcceptance:

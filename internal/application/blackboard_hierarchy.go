@@ -136,6 +136,9 @@ func validateBlackboardTaskDecomposition(
 	identity Identity,
 	claimID domain.ClaimID,
 ) error {
+	if err := rejectCancelledWorkItem(workItem); err != nil {
+		return err
+	}
 	if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 		return conflict("task %q does not belong to a blackboard", task.ID)
 	}
@@ -188,6 +191,9 @@ func (s *Service) AddBlackboardChildTask(
 		workItem, err := store.GetWorkItem(parent.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", parent.WorkItemID, err)
+		}
+		if err := rejectCancelledWorkItem(workItem); err != nil {
+			return err
 		}
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 			return conflict("task %q does not belong to a blackboard", parent.ID)

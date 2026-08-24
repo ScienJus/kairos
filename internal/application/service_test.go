@@ -449,6 +449,7 @@ func TestArtifactDownloadDoesNotBlockManagedUpload(t *testing.T) {
 	claimID := domain.ClaimID("claim")
 	task := domain.Task{ID: "task", WorkItemID: "work-item", Status: domain.TaskStatusWorking, ActiveClaimID: &claimID}
 	claim := domain.Claim{ID: claimID, TaskID: task.ID, Executor: identity.Actor, ClaimedAt: applicationTestTime}
+	repository.workItems[task.WorkItemID] = domain.WorkItem{ID: task.WorkItemID, Status: domain.WorkItemStatusOpen}
 	repository.tasks[task.ID] = task
 	repository.claims[claim.ID] = claim
 	uploadURI, err := local.UploadURI("downloaded-artifact")
@@ -773,6 +774,145 @@ func TestCreateWorkItemBindsLatestPublishedDefinition(t *testing.T) {
 	}
 	if created.Definition != v2.Binding() {
 		t.Fatalf("definition binding = %#v, want %#v", created.Definition, v2.Binding())
+	}
+}
+
+func TestCancelWorkItemEndsActiveClaimsAndRejectsFurtherMutations(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := blackboardDefinition()
+	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	human := Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "worker"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: human, Title: "Cancelable work", Goal: "Stop cleanly", AcceptanceMode: domain.WorkItemAcceptanceHuman,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	agentTask, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: human, Title: "Agent task", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create agent task: %v", err)
+	}
+	humanTask, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: human, Title: "Human task", Executor: domain.ExecutorHuman,
+	})
+	if err != nil {
+		t.Fatalf("create human task: %v", err)
+	}
+	pendingTask, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: human, Title: "Pending task", Executor: domain.ExecutorEither,
+	})
+	if err != nil {
+		t.Fatalf("create pending task: %v", err)
+	}
+	agentClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: agentTask.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim agent task: %v", err)
+	}
+	humanClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: humanTask.ID, Identity: human})
+	if err != nil {
+		t.Fatalf("claim human task: %v", err)
+	}
+	pendingVersion := repository.tasks[pendingTask.ID].Version
+
+	command := CancelWorkItemCommand{
+		WorkItemID: workItem.ID, Identity: human, OperationID: "cancel-work", Reason: "  Work is no longer required.  ",
+	}
+	cancelled, err := service.CancelWorkItem(context.Background(), command)
+	if err != nil {
+		t.Fatalf("cancel work item: %v", err)
+	}
+	if cancelled.Status != domain.WorkItemStatusCancelled || cancelled.CancelledAt == nil || cancelled.CancelledBy == nil || *cancelled.CancelledBy != human.Actor {
+		t.Fatalf("cancelled WorkItem metadata = %#v", cancelled)
+	}
+	if cancelled.CancellationReason != "Work is no longer required." || cancelled.Result != "" || cancelled.CompletedAt != nil {
+		t.Fatalf("cancelled WorkItem outcome = %#v", cancelled)
+	}
+	for _, taskID := range []domain.TaskID{agentTask.ID, humanTask.ID} {
+		task := repository.tasks[taskID]
+		if task.Status != domain.TaskStatusPending || task.ActiveClaimID != nil {
+			t.Fatalf("cancelled active task %q = %#v", taskID, task)
+		}
+	}
+	if task := repository.tasks[pendingTask.ID]; task.Status != domain.TaskStatusPending || task.Version != pendingVersion {
+		t.Fatalf("unclaimed pending task changed = %#v", task)
+	}
+	for _, claimID := range []domain.ClaimID{agentClaim.ID, humanClaim.ID} {
+		claim := repository.claims[claimID]
+		if claim.EndedAt == nil || claim.EndReason != domain.ClaimEndWorkItemCancelled {
+			t.Fatalf("cancelled claim %q = %#v", claimID, claim)
+		}
+	}
+	var revoked int
+	for _, event := range repository.events {
+		if event.Type == domain.WorkItemEventTaskRevoked {
+			revoked++
+		}
+	}
+	if revoked != 2 || repository.events[len(repository.events)-1].Type != domain.WorkItemEventWorkItemCancelled {
+		t.Fatalf("cancellation events = %#v", repository.events)
+	}
+
+	replayed, err := service.CancelWorkItem(context.Background(), command)
+	if err != nil || replayed.Status != domain.WorkItemStatusCancelled || replayed.CancellationReason != cancelled.CancellationReason {
+		t.Fatalf("idempotent cancellation = %#v, %v", replayed, err)
+	}
+	if _, err := service.CancelWorkItem(context.Background(), CancelWorkItemCommand{
+		WorkItemID: workItem.ID, Identity: human, OperationID: "cancel-again", Reason: "again",
+	}); !errors.Is(err, ErrWorkItemCancelled) {
+		t.Fatalf("second cancellation error = %v, want ErrWorkItemCancelled", err)
+	}
+	if _, err := service.HeartbeatClaim(context.Background(), HeartbeatClaimCommand{
+		TaskID: agentTask.ID, ClaimID: agentClaim.ID, Identity: agent,
+	}); !errors.Is(err, ErrWorkItemCancelled) {
+		t.Fatalf("heartbeat after cancellation error = %v, want ErrWorkItemCancelled", err)
+	}
+	if _, err := service.ClaimTask(context.Background(), ClaimTaskCommand{
+		TaskID: pendingTask.ID, Identity: human,
+	}); !errors.Is(err, ErrWorkItemCancelled) {
+		t.Fatalf("claim after cancellation error = %v, want ErrWorkItemCancelled", err)
+	}
+}
+
+func TestCancelWorkItemRequiresHumanReasonAndActiveState(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := blackboardDefinition()
+	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	human := Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "worker"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: human, Title: "Cancelable work", Goal: "Stop cleanly",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	if _, err := service.CancelWorkItem(context.Background(), CancelWorkItemCommand{
+		WorkItemID: workItem.ID, Identity: agent, Reason: "not mine",
+	}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("agent cancellation error = %v, want ErrForbidden", err)
+	}
+	if _, err := service.CancelWorkItem(context.Background(), CancelWorkItemCommand{
+		WorkItemID: workItem.ID, Identity: human, Reason: "  ",
+	}); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("empty reason error = %v, want ErrInvalidCommand", err)
+	}
+	completed := repository.workItems[workItem.ID]
+	completed.Status = domain.WorkItemStatusCompleted
+	completedAt := applicationTestTime
+	completed.CompletedAt = &completedAt
+	repository.workItems[workItem.ID] = completed
+	if _, err := service.CancelWorkItem(context.Background(), CancelWorkItemCommand{
+		WorkItemID: workItem.ID, Identity: human, Reason: "too late",
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("completed cancellation error = %v, want ErrConflict", err)
 	}
 }
 

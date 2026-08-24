@@ -36,11 +36,11 @@ Database timestamps are normalized at the application boundary to UTC with micro
 
 ## HTTP Contract
 
-The machine-readable [OpenAPI 3.1 document](openapi.yaml) is the exact contract for all 38 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
+The machine-readable [OpenAPI 3.1 document](openapi.yaml) is the exact contract for all 39 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
 
 All API JSON field names use `snake_case`. JSON request objects are closed contracts; an unknown field is rejected with `400 invalid_request`, including unknown fields inside nested objects. JSON success responses use `{ "data": ... }`; JSON errors use `{ "error": { "code": string, "message": string } }`. Release and token-revocation operations return `204` without a body, `/healthz` returns `{ "status": "ok" }`, and Artifact content is returned as `application/octet-stream`.
 
-Collection fields and list responses are always arrays, including when empty. Optional single values such as `active_claim_id`, `parent_task_id`, `current_review`, `workflow`, `blackboard`, and completion timestamps are `null` when absent. Repeated `status`, `mode`, and `tag` query parameters are represented as repeated query keys. Common error codes are:
+Collection fields and list responses are always arrays, including when empty. Optional single values such as `active_claim_id`, `parent_task_id`, `current_review`, `workflow`, `blackboard`, completion timestamps, and cancellation actor/time are `null` when absent. Repeated `status`, `mode`, and `tag` query parameters are represented as repeated query keys. Common error codes are:
 
 | Status | Code |
 | --- | --- |
@@ -49,6 +49,7 @@ Collection fields and list responses are always arrays, including when empty. Op
 | `403` | `forbidden` |
 | `404` | `not_found` |
 | `409` | `conflict` |
+| `409` | `work_item_cancelled` |
 | `413` | `artifact_too_large` |
 | `500` | `internal_error` |
 
@@ -87,7 +88,7 @@ The operations console discovers the configured mode through the public `GET /ap
 | Authentication and session | `GET /api/v1/auth/config`, `GET /api/v1/session` |
 | Workflow Definitions | `GET/POST /api/v1/definitions/workflows`, `GET /api/v1/definitions/workflows/{id}/versions/{version}` |
 | Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`, `GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
-| WorkItems | `GET/POST /api/v1/work-items`, `GET /api/v1/work-items/{id}/context`, `POST /completion`, `POST /acceptance` |
+| WorkItems | `GET/POST /api/v1/work-items`, `GET /api/v1/work-items/{id}/context`, `POST /completion`, `POST /acceptance`, `POST /cancellation` |
 | Artifacts | `GET /api/v1/work-items/{id}/artifacts`, `POST /api/v1/tasks/{id}/artifacts`, `POST /api/v1/tasks/{id}/artifact-uploads`, `GET /api/v1/artifacts/{id}/content` |
 | Discovery | `GET /api/v1/work` |
 | Task detail and execution | `GET /api/v1/tasks/{id}`, `/context`, `/claims`, `/submissions`, `/failures`, `/reviews` |
@@ -101,7 +102,9 @@ Each Workflow Definition `graph.relations[]` entry accepts optional `label` and 
 
 While acceptance is pending, `work_item.result` contains the submitted completion proposal. After acceptance, the same field contains the accepted final outcome. Reopening Agent acceptance by creating another Task clears the stale proposal.
 
-`GET /api/v1/work-items/{id}/context` remains available after terminal completion and returns the aggregate result, normalized Task and relation collections, complete Claim history in `claims`, and the currently live subset in `active_claims`. A completed Task's executor can be resolved through `submission.claim_id -> claims[].id -> executor`.
+`POST /api/v1/work-items/{id}/cancellation` is a Human-only management action for `open`, `awaiting_agent_acceptance`, and `awaiting_human_acceptance` WorkItems. It requires a non-empty `reason` and records `cancelled_at`, `cancelled_by`, and `cancellation_reason`; any pending completion proposal is cleared. In the same transaction, every active Claim ends with `work_item_cancelled`, its Task loses `active_claim_id`, and a `working` Task returns to `pending`. Existing Task outcomes are not rewritten and no Task Failure is created. A cancelled WorkItem remains readable, while subsequent Task mutations return `409 work_item_cancelled`; agents should stop when they receive that response. Cancellation is not exposed as an MCP tool.
+
+`GET /api/v1/work-items/{id}/context` remains available after any terminal state and returns the aggregate result, normalized Task and relation collections, complete Claim history in `claims`, and the currently live subset in `active_claims`. A completed Task's executor can be resolved through `submission.claim_id -> claims[].id -> executor`.
 
 Workflow Task Definitions may declare required `artifacts[]` entries with only `name` and `description`. The description is an execution instruction, not a file-type schema. An executor creates external Artifacts with an absolute URI or uploads managed content while holding a Claim, then passes their IDs in `artifact_ids` to `submit_task`. Submission atomically binds the staged Artifacts and rejects a Workflow result missing a declared name. Blackboard Tasks have no structured Artifact contract. Submitted Artifacts are visible throughout the WorkItem; staged Artifacts remain with their creating Claim.
 

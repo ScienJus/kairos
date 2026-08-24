@@ -89,6 +89,8 @@ Working
 
 Every submission and Review round is preserved. When an executor retries a failed or rejected Task, it receives the earlier results, all Review feedback, and any retry prompt as shared context.
 
+A human operator can terminally cancel an active WorkItem from its detail page. Cancellation ends active Claims without recording Task failures; agents receive `work_item_cancelled` on their next heartbeat or mutation and stop without changing the Task further.
+
 ## Human Interaction
 
 The operations console currently provides a workspace overview, a human-attention view, and WorkItem detail. Inside a WorkItem:
@@ -112,6 +114,7 @@ Available in this repository:
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
+- human-operated WorkItem cancellation with durable actor, time, and reason metadata;
 - agent Claim leases with flexible durations, heartbeat, reaper-mediated recovery, and fencing;
 - deterministic unit tests and randomized collaboration simulations.
 

@@ -38,6 +38,9 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
 		}
+		if err := rejectCancelledWorkItem(workItem); err != nil {
+			return err
+		}
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 			return conflict("work item %q is not a blackboard", workItem.ID)
 		}
@@ -167,6 +170,9 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
 		}
+		if err := rejectCancelledWorkItem(workItem); err != nil {
+			return err
+		}
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 			return conflict("work item %q is not a blackboard", workItem.ID)
 		}
@@ -243,6 +249,9 @@ func (s *Service) SkipBlackboardTask(ctx context.Context, command SkipBlackboard
 		workItem, err := store.GetWorkItem(task.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
+		}
+		if err := rejectCancelledWorkItem(workItem); err != nil {
+			return err
 		}
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
 			return conflict("task %q does not belong to a blackboard", task.ID)

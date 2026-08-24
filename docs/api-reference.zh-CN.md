@@ -36,11 +36,11 @@ go run ./cmd/kairos-server
 
 ## HTTP 契约
 
-机器可读的 [OpenAPI 3.1 文档](openapi.yaml)是当前全部 38 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
+机器可读的 [OpenAPI 3.1 文档](openapi.yaml)是当前全部 39 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
 
 所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim 和撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
 
-集合字段和列表响应即使为空也始终编码为数组。`active_claim_id`、`parent_task_id`、`current_review`、`workflow`、`blackboard` 和完成时间等可选单值在不存在时使用 `null`。重复的 `status`、`mode` 与 `tag` 查询参数通过重复 query key 传递。通用错误码如下：
+集合字段和列表响应即使为空也始终编码为数组。`active_claim_id`、`parent_task_id`、`current_review`、`workflow`、`blackboard`、完成时间以及取消操作者和时间等可选单值在不存在时使用 `null`。重复的 `status`、`mode` 与 `tag` 查询参数通过重复 query key 传递。通用错误码如下：
 
 | 状态码 | Code |
 | --- | --- |
@@ -49,6 +49,7 @@ go run ./cmd/kairos-server
 | `403` | `forbidden` |
 | `404` | `not_found` |
 | `409` | `conflict` |
+| `409` | `work_item_cancelled` |
 | `413` | `artifact_too_large` |
 | `500` | `internal_error` |
 
@@ -87,7 +88,7 @@ Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式�
 | 认证与会话 | `GET /api/v1/auth/config`、`GET /api/v1/session` |
 | Workflow Definitions | `GET/POST /api/v1/definitions/workflows`、`GET /api/v1/definitions/workflows/{id}/versions/{version}` |
 | Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`、`GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
-| WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance` |
+| WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance`、`POST /cancellation` |
 | Artifacts | `GET /api/v1/work-items/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifact-uploads`、`GET /api/v1/artifacts/{id}/content` |
 | 工作发现 | `GET /api/v1/work` |
 | Task 详情与执行 | `GET /api/v1/tasks/{id}`、`/context`、`/claims`、`/submissions`、`/failures`、`/reviews` |
@@ -100,6 +101,8 @@ Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；�
 Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `agent_guidance` 字符串。空字符串表示没有额外 Guidance。两者不改变图编译或推进语义。HTTP Workflow Task context 的每个 Choice Group 在 `relations` 中返回完整 Guidance；MCP `get_task_context` 则在对应的 `targets[]` 项上提供合并后的 `relation_guidance`（优先使用 `agent_guidance`，否则使用 `label`），避免重复目标结构。
 
 等待验收期间，`work_item.result` 保存已提交的 completion proposal；验收通过后，同一字段表示已接受的最终结果。Agent 验收阶段若通过创建新 Task 重新打开 WorkItem，会清除已经失效的 proposal。
+
+`POST /api/v1/work-items/{id}/cancellation` 是只允许 Human 调用的管理动作，适用于 `open`、`awaiting_agent_acceptance` 和 `awaiting_human_acceptance` WorkItem。请求必须提供非空 `reason`，服务端记录 `cancelled_at`、`cancelled_by` 和 `cancellation_reason`，并清除待验收的完成提案。同一事务会让全部 Active Claim 以 `work_item_cancelled` 结束、清除对应 Task 的 `active_claim_id`，并只把 `working` Task 恢复为 `pending`；已有 Task 结果不会被重写，也不会创建 Task Failure。取消后的 WorkItem 仍可读取，后续 Task 变更返回 `409 work_item_cancelled`，Agent 收到后应直接停止。MCP 不提供取消工具。
 
 `GET /api/v1/work-items/{id}/context` 在 WorkItem 终态后仍可读取，返回聚合结果、规范化的 Task 与 relation 集合、`claims` 中的完整 Claim 历史，以及 `active_claims` 中当前仍存活的子集。完成态 Task 的执行人可通过 `submission.claim_id -> claims[].id -> executor` 关联。
 

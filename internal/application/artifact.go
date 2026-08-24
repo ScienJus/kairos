@@ -354,6 +354,13 @@ func activeOwnedClaim(store ReadStore, taskID domain.TaskID, claimID domain.Clai
 	if err != nil {
 		return domain.Task{}, domain.Claim{}, fmt.Errorf("get task %q: %w", taskID, err)
 	}
+	workItem, err := store.GetWorkItem(task.WorkItemID)
+	if err != nil {
+		return domain.Task{}, domain.Claim{}, fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
+	}
+	if err := rejectCancelledWorkItem(workItem); err != nil {
+		return domain.Task{}, domain.Claim{}, err
+	}
 	claims, err := store.ListClaims(task.ID)
 	if err != nil {
 		return domain.Task{}, domain.Claim{}, fmt.Errorf("list claims for task %q: %w", task.ID, err)

@@ -76,8 +76,11 @@ The current interaction surface supports:
 - requesting or handling Review;
 - skipping a Pending Task with a durable reason;
 - submitting or accepting WorkItem completion when current Tasks converge.
+- terminally cancelling an active WorkItem with a durable reason.
 
 These actions directly update the shared Task Graph and therefore the observable progress of the WorkItem. Suggested Relations remain available in the durable model, HTTP API, MCP tools, and execution context, but the current console neither displays nor creates them.
+
+Cancellation is deliberately a WorkItem-level management action. The detail page exposes it only to Human identities while the WorkItem is active or awaiting acceptance, confirms the reason, and then shows the recorded actor, time, and reason in the read-only terminal view.
 
 ## 6. History
 

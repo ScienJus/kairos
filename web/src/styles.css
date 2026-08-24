@@ -814,7 +814,18 @@ body { background: #f6f7f4; }
 .work-hero { max-width: 720px; padding: 12px 4px 34px; }
 .back-button { margin-bottom: 46px; color: #7a8988; }
 .hero-title h1 { margin-top: 15px; color: #263c3e; font-size: 32px; font-weight: 570; }
+.work-cancel-trigger { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; color: #89928f; background: transparent; border: 0; border-radius: 7px; cursor: pointer; }
+.work-cancel-trigger:hover { color: #9a5350; background: #f4eeee; }
 .goal { margin-top: 17px; color: #627271; font-size: 15px; line-height: 1.8; }
+.cancellation-summary { max-width: 720px; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; margin: 0 4px 20px; padding: 16px 0; color: #9a5350; border-top: 1px solid #eadcdc; border-bottom: 1px solid #eadcdc; }
+.cancellation-summary svg { margin-top: 2px; }
+.cancellation-summary strong { color: #704b49; font-size: 13px; font-weight: 600; }
+.cancellation-summary p { margin: 6px 0; color: #655b59; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+.cancellation-summary span { color: #968885; font-size: 10px; }
+.cancellation-warning { margin: 0; color: #756664; font-size: 12px; line-height: 1.65; }
+.cancellation-form textarea { min-height: 100px; }
+.cancellation-form .form-actions .danger-button { min-height: 34px; margin: 0; padding: 0 13px; background: #fff8f7; border: 1px solid #d7b9b6; border-radius: 7px; cursor: pointer; }
+.cancellation-form .form-actions .danger-button:disabled { opacity: .45; cursor: default; }
 .review-summary { display: inline-flex; margin: 20px 0 0; padding: 8px 11px; color: #765d22; background: #f7efd6; border: 0; border-radius: 8px; font-size: 12px; cursor: pointer; }
 .work-brief { margin: 0 4px 10px; border: 0; }
 .work-brief summary { padding: 10px 0; color: #58787e; font-size: 13px; font-weight: 500; }

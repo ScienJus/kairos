@@ -33,6 +33,29 @@ func TestWorkItemValidateDefinitionBinding(t *testing.T) {
 	}
 }
 
+func TestWorkItemValidateCancellationMetadata(t *testing.T) {
+	t.Parallel()
+
+	actor := ActorRef{Kind: ActorHuman, ID: "operator"}
+	workItem := WorkItem{
+		ID: "work-1", Definition: DefinitionBinding{ID: "blackboard-1", Version: 1, Mode: CoordinationModeBlackboard},
+		Status: WorkItemStatusCancelled, Title: "Superseded request", Goal: "Stop obsolete work",
+		CreatedAt: testTime, UpdatedAt: testTime, CancelledAt: &testTime, CancelledBy: &actor, CancellationReason: "No longer required",
+	}
+	if err := workItem.Validate(); err != nil {
+		t.Fatalf("valid cancelled work item: %v", err)
+	}
+	workItem.CancellationReason = ""
+	if err := workItem.Validate(); !errors.Is(err, ErrInvalidModel) {
+		t.Fatalf("cancelled work item without reason: got %v", err)
+	}
+	workItem.Status = WorkItemStatusOpen
+	workItem.CancellationReason = "No longer required"
+	if err := workItem.Validate(); !errors.Is(err, ErrInvalidModel) {
+		t.Fatalf("open work item with cancellation metadata: got %v", err)
+	}
+}
+
 func TestDefinitionsShareSuggestedTagGuidance(t *testing.T) {
 	t.Parallel()
 

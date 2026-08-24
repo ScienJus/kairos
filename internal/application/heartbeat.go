@@ -74,6 +74,13 @@ func (s *Service) HeartbeatClaim(ctx context.Context, command HeartbeatClaimComm
 		if err != nil {
 			return fmt.Errorf("get task: %w", err)
 		}
+		workItem, err := store.GetWorkItem(task.WorkItemID)
+		if err != nil {
+			return fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
+		}
+		if err := rejectCancelledWorkItem(workItem); err != nil {
+			return err
+		}
 		claims, err := store.ListClaims(task.ID)
 		if err != nil {
 			return fmt.Errorf("list claims: %w", err)

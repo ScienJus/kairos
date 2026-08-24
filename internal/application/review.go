@@ -43,6 +43,9 @@ func (s *Service) DecideReview(ctx context.Context, command DecideReviewCommand)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
 		}
+		if err := rejectCancelledWorkItem(workItem); err != nil {
+			return err
+		}
 		if workItem.Status != domain.WorkItemStatusOpen || task.Status != domain.TaskStatusInReview || task.ActiveClaimID != nil {
 			return conflict("task %q is not awaiting review", task.ID)
 		}

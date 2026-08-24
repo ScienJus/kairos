@@ -76,8 +76,11 @@ Blackboard WorkItem 使用分层 Task 工作区展示协作者当前共享的计
 - 请求或处理 Review；
 - 使用持久原因 Skip Pending Task；
 - 在当前 Task 收敛后提交或验收 WorkItem 完成结果。
+- 使用持久原因终止取消仍在推进的 WorkItem。
 
 这些操作直接更新共享 Task Graph，因此也会更新 WorkItem 可观察到的进展。建议 Relation 已存在于持久模型、HTTP API、MCP 工具和执行上下文中，但当前控制台既不展示也不能创建 Relation。
+
+取消被明确建模为 WorkItem 级管理动作。详情页只在 WorkItem 仍活跃或等待验收时向 Human 身份提供该操作，确认原因后进入只读终态，并展示记录的操作者、时间和原因。
 
 ## 6. 历史
 

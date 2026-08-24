@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,6 +32,62 @@ func TestRequireOperationID(t *testing.T) {
 	}
 	if err := requireOperationID("operation-1"); err != nil {
 		t.Fatalf("requireOperationID valid value: %v", err)
+	}
+}
+
+func TestMCPHeartbeatReportsCancelledWorkItemCode(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, _ := newMCPFixture(t)
+	handler, err := New(service, identity.TrustedResolver{})
+	if err != nil {
+		t.Fatalf("new MCP handler: %v", err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	session := connectMCP(t, ctx, server.URL, http.Header{
+		identity.HeaderActorID:   {"cancelled-worker"},
+		identity.HeaderActorKind: {"agent"},
+		identity.HeaderActorRole: {"backend"},
+	})
+	t.Cleanup(func() { _ = session.Close() })
+
+	find := callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{})
+	workItemID := find.Candidates[0].WorkItem.ID
+	created := callTool[taskOutput](t, ctx, session, "create_blackboard_task", createBlackboardTaskInput{
+		WorkItemID: workItemID, OperationID: "plan-cancelled-task",
+		Title: "Stop after cancellation", Executor: "agent", AllowedRoles: []string{"backend"}, Tags: []string{},
+	})
+	claimed := callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
+		TaskID: created.Task.ID, OperationID: "claim-cancelled-task",
+	})
+	_, err = service.CancelWorkItem(ctx, application.CancelWorkItemCommand{
+		WorkItemID: domain.WorkItemID(workItemID),
+		Identity:   identity.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}},
+		Reason:     "The request was superseded.",
+	})
+	if err != nil {
+		t.Fatalf("cancel WorkItem: %v", err)
+	}
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "heartbeat_claim", Arguments: heartbeatClaimInput{
+		TaskID: created.Task.ID, ClaimID: claimed.Claim.ID, OperationID: "heartbeat-cancelled-task",
+	}})
+	if err != nil {
+		t.Fatalf("call heartbeat_claim after cancellation: %v", err)
+	}
+	if !result.IsError || len(result.Content) != 1 {
+		t.Fatalf("heartbeat_claim result = %+v, want one tool error", result)
+	}
+	message, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || !strings.HasPrefix(message.Text, workItemCancelledErrorCode+":") {
+		t.Fatalf("heartbeat_claim error = %#v, want stable %q code", result.Content[0], workItemCancelledErrorCode)
+	}
+	initialized := session.InitializeResult()
+	if initialized == nil || !strings.Contains(initialized.Instructions, workItemCancelledErrorCode) {
+		t.Fatalf("server instructions do not describe %q: %#v", workItemCancelledErrorCode, initialized)
 	}
 }
 

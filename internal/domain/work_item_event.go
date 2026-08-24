@@ -10,7 +10,6 @@ type WorkItemEventType string
 
 const (
 	WorkItemEventWorkItemCreated     WorkItemEventType = "work_item.created"
-	WorkItemEventWorkItemUpdated     WorkItemEventType = "work_item.updated"
 	WorkItemEventWorkItemCompleted   WorkItemEventType = "work_item.completed"
 	WorkItemEventWorkItemCancelled   WorkItemEventType = "work_item.cancelled"
 	WorkItemEventWorkItemFailed      WorkItemEventType = "work_item.failed"
@@ -18,7 +17,6 @@ const (
 	WorkItemEventAcceptanceRequested WorkItemEventType = "work_item.acceptance_requested"
 
 	WorkItemEventTaskCreated      WorkItemEventType = "task.created"
-	WorkItemEventTaskUpdated      WorkItemEventType = "task.updated"
 	WorkItemEventTaskClaimed      WorkItemEventType = "task.claimed"
 	WorkItemEventTaskReleased     WorkItemEventType = "task.released"
 	WorkItemEventTaskRevoked      WorkItemEventType = "task.revoked"
@@ -48,7 +46,6 @@ func (t WorkItemEventType) Valid() bool {
 func (t WorkItemEventType) workItemScoped() (bool, bool) {
 	switch t {
 	case WorkItemEventWorkItemCreated,
-		WorkItemEventWorkItemUpdated,
 		WorkItemEventWorkItemCompleted,
 		WorkItemEventWorkItemCancelled,
 		WorkItemEventWorkItemFailed,
@@ -56,7 +53,6 @@ func (t WorkItemEventType) workItemScoped() (bool, bool) {
 		WorkItemEventAcceptanceRequested:
 		return true, true
 	case WorkItemEventTaskCreated,
-		WorkItemEventTaskUpdated,
 		WorkItemEventTaskClaimed,
 		WorkItemEventTaskReleased,
 		WorkItemEventTaskRevoked,

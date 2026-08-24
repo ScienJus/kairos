@@ -89,6 +89,8 @@ Working
 
 每次提交和 Review 都会完整保留。执行者重新处理失败或被驳回的 Task 时，可以读取此前成果、全部 Review 反馈和 Retry Prompt。
 
+人工管理员可以在 WorkItem 详情中终止取消仍在推进的 WorkItem。取消会结束 Active Claim，但不会记录 Task Failure；Agent 在下一次 heartbeat 或其他变更操作收到 `work_item_cancelled` 后停止，不再改变 Task。
+
 ## 人类交互
 
 当前 operations console 已提供 workspace 总览、人工关注视图和 WorkItem 详情。进入 WorkItem 后：
@@ -112,6 +114,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
 - 包含 workspace 总览、人工关注、Workflow 图、Blackboard Task 层级和 Definition 编辑器的 operations console；
+- 记录操作者、时间和原因的人工 WorkItem 取消能力；
 - 支持灵活时长、heartbeat、reaper 回收和 fencing 的 Agent Claim lease；
 - 确定性单元测试和随机协作模拟测试。
 

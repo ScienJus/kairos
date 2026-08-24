@@ -8,6 +8,7 @@ export interface WorkItem {
   id: string; definition: DefinitionBinding; status: WorkItemStatus; acceptance_mode: 'none' | 'agent' | 'human'; title: string; goal: string
   context: string; constraints: string; acceptance_criteria: string; tags: string[]; result: string
   version: number; created_at: string; updated_at: string; completed_at: string | null
+  cancelled_at: string | null; cancelled_by: ActorRef | null; cancellation_reason: string
 }
 export interface Review {
   id: string; task_id: string; submission_id: string | null; status: 'pending' | 'approved' | 'rejected'

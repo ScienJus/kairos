@@ -93,9 +93,12 @@ type WorkItem struct {
 	// version. [Both]
 	Version int64 `json:"version"`
 
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	CompletedAt *time.Time `json:"completed_at"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	CompletedAt        *time.Time `json:"completed_at"`
+	CancelledAt        *time.Time `json:"cancelled_at"`
+	CancelledBy        *ActorRef  `json:"cancelled_by"`
+	CancellationReason string     `json:"cancellation_reason"`
 }
 
 // Validate checks the WorkItem invariants.
@@ -137,6 +140,22 @@ func (w WorkItem) Validate() error {
 		}
 	} else if w.CompletedAt != nil {
 		return invalid("completed_at", "must be nil unless the work item is completed")
+	}
+	if w.Status == WorkItemStatusCancelled {
+		if w.CancelledAt == nil {
+			return invalid("cancelled_at", "is required for cancelled work items")
+		}
+		if w.CancelledBy == nil {
+			return invalid("cancelled_by", "is required for cancelled work items")
+		}
+		if err := w.CancelledBy.Validate(); err != nil {
+			return err
+		}
+		if strings.TrimSpace(w.CancellationReason) == "" {
+			return invalid("cancellation_reason", "is required for cancelled work items")
+		}
+	} else if w.CancelledAt != nil || w.CancelledBy != nil || w.CancellationReason != "" {
+		return invalid("cancellation", "metadata must be empty unless the work item is cancelled")
 	}
 
 	return nil

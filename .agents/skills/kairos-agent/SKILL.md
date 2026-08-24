@@ -19,9 +19,9 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 4. For a Task candidate, call `get_task_context` before claiming. Read the complete Task, WorkItem, Definition instructions, previous failures, upstream Workflow results, and current Blackboard state.
 5. Call `claim_task` immediately before beginning execution. Do not work on a Task whose Claim was not acquired successfully.
 6. Perform the requested work outside Kairos using the available repository, browser, API, or other tools. Keep the Claim ID.
-   While working, run a background heartbeat loop. Call `heartbeat_claim` before the reported `lease_until` (normally around one third of the remaining lease), and always renew before starting a long-running shell command. Pass `lease_seconds` when the expected next interval changes; the default Agent lease is five minutes. Reaching `lease_until` makes the Claim eligible for the background reaper but does not itself revoke ownership, so a heartbeat may still renew it before reaping. Use a fresh `operation_id` for each new heartbeat request, and reuse it only for an identical retry. Stop work immediately if heartbeat reports that the Claim is no longer active or owned by this agent.
+   While working, run a background heartbeat loop. Call `heartbeat_claim` before the reported `lease_until` (normally around one third of the remaining lease), and always renew before starting a long-running shell command. Pass `lease_seconds` when the expected next interval changes; the default Agent lease is five minutes. Reaching `lease_until` makes the Claim eligible for the background reaper but does not itself revoke ownership, so a heartbeat may still renew it before reaping. Use a fresh `operation_id` for each new heartbeat request, and reuse it only for an identical retry. Stop work immediately if heartbeat reports that the Claim is no longer active or owned by this agent, or returns `work_item_cancelled`.
 7. Read `expected_artifacts` from Task context. For each required deliverable, create an external Artifact with `create_artifact` or Base64-encode the file bytes and call `upload_artifact` for a small managed file. The Agent never selects an Artifact Store. Base64 expands content and is not a large-file transport; publish large deliverables to durable storage such as S3 and register their absolute URI with `create_artifact`.
-8. Finish with exactly one lifecycle action:
+8. Unless Kairos returned `work_item_cancelled`, finish with exactly one lifecycle action:
    - Call `submit_task` with a durable result and every staged Artifact ID in `artifact_ids` when acceptance criteria are met. Workflow submissions must include every declared Artifact name; Blackboard submissions may include any useful Artifacts.
    - Call `fail_task` with `reopen` and a useful retry prompt when another attempt can succeed.
    - Call `fail_task` with `fail_work_item` only when the whole WorkItem cannot continue.
@@ -34,6 +34,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 - Reuse an `operation_id` only when retrying the exact same tool call with identical arguments.
 - If arguments change, generate a different `operation_id`.
 - Treat Claim conflicts as normal concurrency: stop working on that Task and call `find_work` again.
+- Treat `work_item_cancelled` as a terminal Human decision. Stop immediately and do not call `fail_task`, `release_claim`, or any other mutation for that Task.
 - Never place Bearer tokens or trusted identity headers in tool arguments. MCP transport authentication supplies the actor identity.
 
 ## Workflow submissions

@@ -173,6 +173,29 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if len(listedWorkItems) != 1 || listedWorkItems[0].ID != workItem.ID {
 		t.Fatalf("listed WorkItems = %+v, want %q", listedWorkItems, workItem.ID)
 	}
+	cancelTarget := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
+		"definition_id": "engineering", "mode": "blackboard",
+		"title": "Superseded work", "goal": "Exercise cancellation", "tags": []string{"cancel-test"},
+	}, "create-cancel-target", http.StatusCreated)
+	cancelTask := requestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(cancelTarget.ID)+"/tasks", map[string]any{
+		"title": "Obsolete task", "executor": "agent", "allowed_roles": []string{"database"}, "tags": []string{},
+	}, "create-cancel-task", http.StatusCreated)
+	cancelClaim := requestData[domain.Claim](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(cancelTask.ID)+"/claims", nil, "claim-cancel-task", http.StatusCreated)
+	humanOperator := trustedTestIdentity{ID: "operator", Kind: domain.ActorHuman}
+	cancelled := requestDataAs[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(cancelTarget.ID)+"/cancellation", map[string]any{
+		"reason": "This request was superseded.",
+	}, "cancel-work-item", http.StatusOK, humanOperator)
+	if cancelled.Status != domain.WorkItemStatusCancelled || cancelled.CancelledAt == nil || cancelled.CancelledBy == nil || cancelled.CancelledBy.ID != "operator" || cancelled.CancellationReason != "This request was superseded." {
+		t.Fatalf("cancelled WorkItem = %+v", cancelled)
+	}
+	cancelledContext := requestDataAs[application.WorkItemExecutionContext](t, client, http.MethodGet,
+		server.URL+"/api/v1/work-items/"+string(cancelTarget.ID)+"/context", nil, "", http.StatusOK, humanOperator)
+	if cancelledContext.WorkItem.CancelledAt == nil || cancelledContext.WorkItem.CancelledBy == nil || cancelledContext.WorkItem.CancellationReason != cancelled.CancellationReason ||
+		cancelledContext.ActiveClaims == nil || len(cancelledContext.ActiveClaims) != 0 || len(cancelledContext.Claims) != 1 || cancelledContext.Claims[0].EndReason != domain.ClaimEndWorkItemCancelled {
+		t.Fatalf("persisted cancelled WorkItem context = %+v", cancelledContext)
+	}
+	requestErrorAs(t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(cancelTask.ID)+"/claims/"+string(cancelClaim.ID)+"/heartbeat", nil,
+		"heartbeat-cancelled-task", http.StatusConflict, "work_item_cancelled", trustedTestIdentity{ID: "codex-storage", Role: "database"})
 
 	candidates := requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work?tag=backend", nil, "", http.StatusOK)
 	if len(candidates) != 1 || candidates[0].Kind != application.WorkCandidateEmptyBlackboard {

@@ -46,12 +46,13 @@ const (
 	ClaimEndTaskFailed         ClaimEndReason = "task_failed"
 	ClaimEndTaskDecomposed     ClaimEndReason = "task_decomposed"
 	ClaimEndExpired            ClaimEndReason = "expired"
+	ClaimEndWorkItemCancelled  ClaimEndReason = "work_item_cancelled"
 )
 
 // Valid reports whether the claim end reason is recognized.
 func (r ClaimEndReason) Valid() bool {
 	switch r {
-	case ClaimEndTaskCompleted, ClaimEndSubmittedForReview, ClaimEndReleased, ClaimEndRevoked, ClaimEndTaskFailed, ClaimEndTaskDecomposed, ClaimEndExpired:
+	case ClaimEndTaskCompleted, ClaimEndSubmittedForReview, ClaimEndReleased, ClaimEndRevoked, ClaimEndTaskFailed, ClaimEndTaskDecomposed, ClaimEndExpired, ClaimEndWorkItemCancelled:
 		return true
 	default:
 		return false
@@ -220,7 +221,7 @@ func ValidateTaskContext(mode CoordinationMode, task Task, claims []Claim) error
 			if count != 1 {
 				return invalid("submissions", "claim %q requires exactly one submission", claim.ID)
 			}
-		case ClaimEndReleased, ClaimEndRevoked, ClaimEndTaskDecomposed, "":
+		case ClaimEndReleased, ClaimEndRevoked, ClaimEndTaskDecomposed, ClaimEndWorkItemCancelled, ClaimEndExpired, "":
 			if count != 0 {
 				return invalid("submissions", "claim %q must not have a submission", claim.ID)
 			}

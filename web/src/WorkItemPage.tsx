@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Bot, ChevronLeft, ChevronRight, UserRound, X, XCircle } from 'lucide-react'
+import { ArrowLeft, Ban, Bot, ChevronLeft, ChevronRight, UserRound, X, XCircle } from 'lucide-react'
 import { APIError } from './api'
 import { api } from './api'
 import { useI18n } from './i18n'
@@ -8,8 +8,8 @@ import { useWorkItemData, useWorkflowDefinitionData } from './pageData'
 import type { HomeView, RouteState } from './route'
 import { TaskDetail, BlackboardCompletionActions, CreateTask, EmptyBlackboardActions } from './TaskDetail'
 import { TaskMap } from './TaskMap'
-import type { Identity, Task } from './types'
-import { FormError, Status } from './ui'
+import type { Identity, Task, WorkItem } from './types'
+import { FormError, Modal, Status } from './ui'
 
 export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, navigate }: {
   identity: Identity
@@ -18,7 +18,7 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
   homeView: HomeView
   navigate: (route: RouteState, replace?: boolean) => void
 }) {
-  const { t } = useI18n()
+  const { t, formatTime } = useI18n()
   const context = useWorkItemData(identity, workItemID)
   const workflowBinding = context.data?.work_item.definition.mode === 'workflow' ? context.data.work_item.definition : null
   const workflowDefinition = useWorkflowDefinitionData(identity, workflowBinding?.id ?? null, workflowBinding?.version ?? null)
@@ -52,8 +52,9 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
     <section className="work-panel mobile-work">
       {!context.data && <PanelPlaceholder loading={context.isLoading} />}
       {context.data && <>
-        <div className="work-hero"><button className="back-button" onClick={() => navigate({ workItemID: null, taskID: null, homeView })}><ArrowLeft size={17} />{t('putDown')}</button><div className="hero-title"><div><Status value={context.data.work_item.status} /><h1>{context.data.work_item.title}</h1></div></div>
+        <div className="work-hero"><button className="back-button" onClick={() => navigate({ workItemID: null, taskID: null, homeView })}><ArrowLeft size={17} />{t('putDown')}</button><div className="hero-title"><div><Status value={context.data.work_item.status} /><h1>{context.data.work_item.title}</h1></div><CancelWorkItemAction identity={identity} workItem={context.data.work_item} /></div>
           <p className="goal">{context.data.work_item.goal}</p>{pendingReviews.length > 0 && <button className="review-summary" onClick={() => { const task = context.data.tasks.find(item => (item.reviews ?? []).some(review => review.status === 'pending')); if (task) navigate({ workItemID, taskID: task.id, homeView }) }}>{t('waitingReviews', { count: pendingReviews.length })}</button>}</div>
+        {context.data.work_item.status === 'cancelled' && <section className="cancellation-summary"><Ban size={17} /><div><strong>{t('workItemCancelled')}</strong><p>{context.data.work_item.cancellation_reason}</p><span>{t('cancelledByAt', { actor: context.data.work_item.cancelled_by?.id ?? t('notRecorded'), time: context.data.work_item.cancelled_at ? formatTime(context.data.work_item.cancelled_at) : t('notRecorded') })}</span></div></section>}
         {(context.data.work_item.acceptance_criteria || context.data.work_item.context || context.data.work_item.constraints) && <details className="work-brief"><summary>{t('readBrief')}</summary><div className="brief-grid">{context.data.work_item.context && <Brief label={t('context')} value={context.data.work_item.context} />}{context.data.work_item.acceptance_criteria && <Brief label={t('doneWhen')} value={context.data.work_item.acceptance_criteria} />}{context.data.work_item.constraints && <Brief label={t('keepInMind')} value={context.data.work_item.constraints} />}</div></details>}
         {context.data.artifacts.length > 0 && <details className="work-brief"><summary>{t('workArtifacts')}</summary><div className="artifact-list">{context.data.artifacts.map(artifact => <div key={artifact.id}><strong>{artifact.name}</strong>{artifact.uri.startsWith('kairos://') ? <button className="quiet-button" onClick={async () => { const blob = await api.downloadArtifact(identity, artifact.id); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = artifact.name; link.click(); URL.revokeObjectURL(url) }}>{t('downloadArtifact')}</button> : /^https?:\/\//.test(artifact.uri) ? <a href={artifact.uri} target="_blank" rel="noreferrer">{artifact.uri}</a> : <span>{artifact.uri}</span>}</div>)}</div></details>}
         {context.data.work_item.status === 'awaiting_human_acceptance' && <HumanAcceptance result={context.data.work_item.result} error={accept.error} onAccept={() => accept.mutate()} pending={accept.isPending} />}
@@ -90,6 +91,45 @@ export function WorkflowInstancePager({ tasks, selectedTaskID, onSelect }: { tas
 }
 
 function Brief({ label, value }: { label: string; value: string }) { return <div className="brief"><span>{label}</span><p>{value || '—'}</p></div> }
+function CancelWorkItemAction({ identity, workItem }: { identity: Identity; workItem: WorkItem }) {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const cancellable = identity.kind === 'human' && ['open', 'awaiting_agent_acceptance', 'awaiting_human_acceptance'].includes(workItem.status)
+  const cancellation = useMutation({
+    mutationFn: () => api.cancelWorkItem(identity, workItem.id, reason.trim()),
+    onSuccess: () => {
+      setOpen(false)
+      setReason('')
+      queryClient.invalidateQueries({ queryKey: ['work-item', identity, workItem.id] })
+      queryClient.invalidateQueries({ queryKey: ['work-items', identity] })
+      queryClient.invalidateQueries({ queryKey: ['human-attention', identity] })
+      queryClient.invalidateQueries({ queryKey: ['task-detail', identity] })
+      queryClient.invalidateQueries({ queryKey: ['task-context', identity] })
+    },
+  })
+  if (!cancellable) return null
+  const changeOpen = (next: boolean) => {
+    setOpen(next)
+    if (!next) cancellation.reset()
+  }
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    if (reason.trim()) cancellation.mutate()
+  }
+  return <>
+    <button type="button" className="work-cancel-trigger" aria-label={t('cancelWorkItem')} title={t('cancelWorkItem')} onClick={() => setOpen(true)}><Ban size={17} /></button>
+    <Modal open={open} onOpenChange={changeOpen} eyebrow={t('workItemManagement')} title={t('cancelWorkItem')}>
+      <form className="form-grid cancellation-form" onSubmit={submit}>
+        <p className="cancellation-warning wide">{t('cancelWorkItemBody')}</p>
+        <label className="wide">{t('cancellationReason')}<textarea autoFocus rows={4} value={reason} onChange={event => setReason(event.target.value)} placeholder={t('cancellationReasonPlaceholder')} /></label>
+        {cancellation.error && <FormError error={cancellation.error} />}
+        <div className="form-actions"><button type="button" onClick={() => changeOpen(false)}>{t('keepWorkItem')}</button><button type="submit" className="danger-button" disabled={!reason.trim() || cancellation.isPending}>{t('confirmCancellation')}</button></div>
+      </form>
+    </Modal>
+  </>
+}
 function HumanAcceptance({ result, error, onAccept, pending }: { result: string; error: Error | null; onAccept: () => void; pending: boolean }) {
   const { t } = useI18n()
   return <div className="empty-planning"><h3>{t('humanAcceptance')}</h3><p>{t('humanAcceptanceBody')}</p><div className="brief"><span>{t('completionResult')}</span><p>{result}</p></div>{error && <FormError error={error} />}<button className="quiet-button" disabled={pending} onClick={onAccept}>{t('approveAcceptance')}</button></div>

@@ -151,6 +151,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/relations", h.addBlackboardRelation)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/completion", h.submitBlackboardCompletion)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/acceptance", h.acceptBlackboardCompletion)
+	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/cancellation", h.cancelWorkItem)
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}/context", h.getTaskContext)
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}", h.getTaskDetail)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/claims", h.claimTask)
@@ -616,6 +617,30 @@ func (h *Handler) acceptBlackboardCompletion(writer http.ResponseWriter, request
 	writeJSON(writer, http.StatusOK, dataResponse{Data: workItem})
 }
 
+type cancelWorkItemRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (h *Handler) cancelWorkItem(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	var body cancelWorkItemRequest
+	if !decodeRequest(writer, request, &body) {
+		return
+	}
+	workItem, err := h.service.CancelWorkItem(request.Context(), application.CancelWorkItemCommand{
+		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor,
+		OperationID: operationID(request), Reason: body.Reason,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: workItem})
+}
+
 func (h *Handler) getTaskContext(writer http.ResponseWriter, request *http.Request) {
 	actor, ok := h.resolveIdentity(writer, request)
 	if !ok {
@@ -1023,6 +1048,8 @@ func writeError(writer http.ResponseWriter, err error) {
 		status, code = http.StatusForbidden, "forbidden"
 	case errors.Is(err, application.ErrNotFound):
 		status, code = http.StatusNotFound, "not_found"
+	case errors.Is(err, application.ErrWorkItemCancelled):
+		status, code = http.StatusConflict, "work_item_cancelled"
 	case errors.Is(err, application.ErrConflict):
 		status, code = http.StatusConflict, "conflict"
 	}

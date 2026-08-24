@@ -45,6 +45,19 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 	workItem := requestData[domain.WorkItem](t, server.Client(), http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
 		"definition_id": "contract", "mode": "blackboard", "title": "Check contract", "goal": "Keep the API stable", "tags": []string{},
 	}, "create-contract-work-item", http.StatusCreated)
+	workItemBody := rawTrustedResponse(t, server.Client(), http.MethodGet, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", http.StatusOK)
+	var workItemEnvelope map[string]any
+	if err := json.Unmarshal(workItemBody, &workItemEnvelope); err != nil {
+		t.Fatalf("decode WorkItem context: %v", err)
+	}
+	workItemData := workItemEnvelope["data"].(map[string]any)["work_item"].(map[string]any)
+	assertJSONKeys(t, workItemData,
+		[]string{"cancelled_at", "cancelled_by", "cancellation_reason"},
+		[]string{"cancelledat", "cancelledby", "cancellationreason"},
+	)
+	if workItemData["cancelled_at"] != nil || workItemData["cancelled_by"] != nil || workItemData["cancellation_reason"] != "" {
+		t.Fatalf("open WorkItem cancellation metadata = %#v, want null/null/empty", workItemData)
+	}
 	task := requestData[domain.Task](t, server.Client(), http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
 		"title": "Inspect response", "executor": "human", "allowed_roles": []string{}, "tags": []string{},
 	}, "create-contract-task", http.StatusCreated)
@@ -84,25 +97,60 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 	if values, ok := data["artifacts"].([]any); !ok || len(values) != 0 {
 		t.Fatalf("artifacts = %#v, want []", data["artifacts"])
 	}
+
+	cancelledBody := rawTrustedJSONResponse(t, server.Client(), http.MethodPost,
+		server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/cancellation",
+		map[string]any{"reason": "No longer required"}, "cancel-contract-work-item", http.StatusOK,
+		trustedTestIdentity{ID: "contract-reviewer", Kind: domain.ActorHuman},
+	)
+	var cancelledEnvelope map[string]any
+	if err := json.Unmarshal(cancelledBody, &cancelledEnvelope); err != nil {
+		t.Fatalf("decode cancelled WorkItem: %v", err)
+	}
+	cancelledData := cancelledEnvelope["data"].(map[string]any)
+	assertJSONKeys(t, cancelledData,
+		[]string{"cancelled_at", "cancelled_by", "cancellation_reason"},
+		[]string{"cancelledat", "cancelledby", "cancellationreason"},
+	)
+	cancelledBy, actorOK := cancelledData["cancelled_by"].(map[string]any)
+	if cancelledAt, timeOK := cancelledData["cancelled_at"].(string); !timeOK || cancelledAt == "" ||
+		!actorOK || cancelledBy["kind"] != "human" || cancelledBy["id"] != "contract-reviewer" ||
+		cancelledData["cancellation_reason"] != "No longer required" {
+		t.Fatalf("cancelled WorkItem metadata = %#v", cancelledData)
+	}
 }
 
 func rawTrustedResponse(t *testing.T, client *http.Client, method, url string, wantStatus int) []byte {
 	t.Helper()
-	request := newTrustedRequest(t, method, url, nil, "", trustedTestIdentity{ID: "contract-reviewer", Kind: domain.ActorHuman})
+	return rawTrustedJSONResponse(t, client, method, url, nil, "", wantStatus, trustedTestIdentity{ID: "contract-reviewer", Kind: domain.ActorHuman})
+}
+
+func rawTrustedJSONResponse(
+	t *testing.T,
+	client *http.Client,
+	method string,
+	url string,
+	requestBody any,
+	operationID string,
+	wantStatus int,
+	actor trustedTestIdentity,
+) []byte {
+	t.Helper()
+	request := newTrustedRequest(t, method, url, requestBody, operationID, actor)
 	response, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("request %s: %v", url, err)
 	}
 	defer response.Body.Close()
-	var body json.RawMessage
+	var responseBody json.RawMessage
 	decoder := json.NewDecoder(response.Body)
-	if err := decoder.Decode(&body); err != nil {
+	if err := decoder.Decode(&responseBody); err != nil {
 		t.Fatalf("decode raw response: %v", err)
 	}
 	if response.StatusCode != wantStatus {
-		t.Fatalf("response status = %d, want %d: %s", response.StatusCode, wantStatus, body)
+		t.Fatalf("response status = %d, want %d: %s", response.StatusCode, wantStatus, responseBody)
 	}
-	return append(body, '\n')
+	return append(responseBody, '\n')
 }
 
 var snakeCaseJSONKey = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`)
