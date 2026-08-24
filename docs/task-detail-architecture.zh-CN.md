@@ -86,7 +86,7 @@ type TaskDetailView struct {
 }
 ```
 
-该接口允许已认证查看者读取 Task 生命周期信息。具体可见范围仍由 WorkItem 的查看授权控制，但不得使用“能否执行该 Task”作为查看条件。
+该接口允许已认证查看者读取 Task 生命周期信息。当前版本没有 WorkItem 或对象级查看隔离，所有已签发身份属于同一个全局信任域；未来引入 Team 等隔离边界时，应在 WorkItem 查看授权中控制可见范围，但不得使用“能否执行该 Task”作为查看条件。
 
 ### 4.2 Task Execution Context API
 

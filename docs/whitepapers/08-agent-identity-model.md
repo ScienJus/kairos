@@ -4,7 +4,7 @@
 
 ## Abstract
 
-Kairos provides agents with native identity. An Agent Identity contains a stable, readable identifier and one role, and is authenticated with a Token. An agent only needs to carry its Token; Kairos resolves its identity and returns the Tasks it can see and claim.
+Kairos provides agents with native identity. An Agent Identity contains a stable, readable identifier and one role, and is authenticated with a Token. An agent only needs to carry its Token; Kairos resolves its identity and returns the Tasks it is eligible to discover and claim for execution.
 
 Kairos also supports Trusted Mode. In a trusted environment, an agent can declare its own id and role without a Token. Both modes use the same Task discovery and execution model but provide different levels of identity assurance.
 
@@ -64,7 +64,7 @@ Use configured id and role
 
 An agent cannot temporarily change its role through a request. Task discovery and claiming both use the identity information granted in Kairos. Authenticated Mode ignores Trusted Mode identity headers and accepts only a Bearer Token.
 
-This mode is suited to shared environments requiring explicit identity attribution and access control.
+This mode is suited to one trusted collaboration group that requires explicit identity attribution and operation-specific execution constraints. It does not provide tenant, team, project, or object-level data isolation: all issued identities belong to one global trust domain. Mutually untrusted groups require separate Kairos instances. A future Team model may introduce an isolation boundary, but it is not part of the current identity contract.
 
 ## 4. Trusted Mode
 

@@ -42,7 +42,7 @@ X-Kairos-Actor-Role: backend
 
 `X-Kairos-Actor-Kind` defaults to `agent`. Human identities have no role. Mutation requests should provide `Idempotency-Key`; an identical retry reuses the same key, while changed arguments require a new key.
 
-Authenticated Mode is intended for shared environments:
+Authenticated Mode is intended for shared environments within one trusted collaboration group:
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
@@ -51,6 +51,8 @@ go run ./cmd/kairos-server
 ```
 
 Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes require an issued identity token. Authenticated Mode ignores trusted actor headers.
+
+Authentication establishes caller identity and operation-specific rules still constrain actions such as Task discovery, claiming, and Claim-owned execution. It is not a data-isolation boundary: all issued identities belong to one global trust domain, and Kairos does not currently partition reads or writes by tenant, team, project, or object. Deploy separate Kairos instances when groups must not access one another's data.
 
 The operations console discovers the configured mode through the public `GET /api/v1/auth/config` endpoint. In Authenticated Mode it presents a Token login before loading any workspace data, validates the Token through `GET /api/v1/session`, and then uses it as the Bearer credential for API requests, managed uploads, and Artifact downloads. The Token is held only in browser `sessionStorage`, so it is scoped to the current tab session rather than persisted as a durable browser login; the console reports an unavailable state if the browser blocks that storage. Signing out clears the Token and cached API data. A `401` response, including one caused by Token revocation or rotation, also clears the session and returns the console to login.
 

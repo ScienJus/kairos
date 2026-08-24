@@ -42,7 +42,7 @@ X-Kairos-Actor-Role: backend
 
 `X-Kairos-Actor-Kind` 默认为 `agent`，Human 没有 role。变更请求应提供 `Idempotency-Key`；相同重试复用原 key，参数变化后使用新 key。
 
-共享环境应使用 Authenticated Mode：
+同一可信协作群体内的共享环境应使用 Authenticated Mode：
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
@@ -51,6 +51,8 @@ go run ./cmd/kairos-server
 ```
 
 身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由使用签发的 identity token。Authenticated Mode 忽略 Trusted actor headers。
+
+认证用于确定调用方身份；Task 发现、领取以及基于 Claim 的执行等操作仍受各自规则约束。但认证不是数据隔离边界：所有已签发身份都属于同一个全局信任域，Kairos 当前不会按租户、Team、项目或对象隔离读写。需要阻止不同群体访问彼此数据时，应分别部署 Kairos 实例。
 
 Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式。在 Authenticated Mode 下，控制台会在加载任何工作区数据前显示 Token 登录页，通过 `GET /api/v1/session` 验证 Token，之后所有 API 请求、托管上传和 Artifact 下载都使用该 Bearer 凭据。Token 只保存在浏览器 `sessionStorage` 中，因此仅属于当前标签页会话，不会形成持久浏览器登录；如果浏览器禁止访问该存储，控制台会明确报告不可用。退出登录会清除 Token 和缓存的 API 数据；包括 Token 被撤销或轮换在内的任何 `401` 响应，也会清除会话并返回登录页。
 
