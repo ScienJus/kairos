@@ -1,5 +1,9 @@
 # Kairos
 
+<p align="center">
+  <img src="docs/assets/kairos-logo-wordmark.png" alt="Kairos" width="520">
+</p>
+
 English | [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/ScienJus/kairos/actions/workflows/ci.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/ci.yml)
