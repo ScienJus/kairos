@@ -54,8 +54,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	databasePath := environment("KAIROS_SQLITE_PATH", "kairos.db")
-	repo, err := repository.OpenSQLite(ctx, databasePath)
+	repo, err := openConfiguredRepository(ctx)
 	if err != nil {
 		return err
 	}
@@ -169,6 +168,36 @@ func environment(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+type databaseBackend string
+
+const (
+	databaseBackendSQLite   databaseBackend = "sqlite"
+	databaseBackendPostgres databaseBackend = "postgres"
+)
+
+type databaseConfiguration struct {
+	backend  databaseBackend
+	location string
+}
+
+func databaseConfigurationFromEnvironment() databaseConfiguration {
+	if dsn := os.Getenv("KAIROS_POSTGRES_DSN"); dsn != "" {
+		return databaseConfiguration{backend: databaseBackendPostgres, location: dsn}
+	}
+	return databaseConfiguration{
+		backend:  databaseBackendSQLite,
+		location: environment("KAIROS_SQLITE_PATH", "kairos.db"),
+	}
+}
+
+func openConfiguredRepository(ctx context.Context) (*repository.SQLRepository, error) {
+	configuration := databaseConfigurationFromEnvironment()
+	if configuration.backend == databaseBackendPostgres {
+		return repository.OpenPostgres(ctx, configuration.location)
+	}
+	return repository.OpenSQLite(ctx, configuration.location)
 }
 
 type systemClock struct{}

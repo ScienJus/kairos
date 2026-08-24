@@ -143,7 +143,7 @@ make build
 
 开发构建执行 `./bin/kairos-server --version` 时输出 `dev`，Release 构建则输出对应 Tag。维护者发布步骤见 [Kairos 发布指南](docs/releasing.zh-CN.md)。
 
-默认使用 SQLite 与 Trusted Mode。共享部署应使用 Authenticated Mode；此时控制台要求使用已签发的 Identity Token 登录，在当前浏览器会话中使用该 Token，并支持退出登录。仅用于开发的服务启动方式、HTTP 路由、身份配置、MCP 传输与响应契约见 [API 参考](docs/api-reference.zh-CN.md)。
+默认使用 SQLite 与 Trusted Mode；设置 `KAIROS_POSTGRES_DSN` 后，同一服务改用 PostgreSQL。共享部署应使用 Authenticated Mode；此时控制台要求使用已签发的 Identity Token 登录，在当前浏览器会话中使用该 Token，并支持退出登录。仅用于开发的服务启动方式、数据库与身份配置、HTTP 路由、MCP 传输与响应契约见 [API 参考](docs/api-reference.zh-CN.md)。
 
 ## MCP 与 Agent 集成
 

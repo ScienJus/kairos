@@ -19,6 +19,15 @@ KAIROS_ARTIFACT_GC_INTERVAL=15m \
 go run ./cmd/kairos-server
 ```
 
+Set `KAIROS_POSTGRES_DSN` to use PostgreSQL instead of SQLite:
+
+```bash
+KAIROS_POSTGRES_DSN='postgres://kairos:<password>@127.0.0.1:5432/kairos?sslmode=disable' \
+go run ./cmd/kairos-server
+```
+
+When `KAIROS_POSTGRES_DSN` is non-empty it takes precedence over `KAIROS_SQLITE_PATH`. Startup verifies the connection and applies the embedded PostgreSQL migrations before serving requests; an invalid or unavailable explicitly configured database causes startup to fail.
+
 `GET /healthz` is unauthenticated. HTTP management and execution routes use `/api/v1`; Streamable HTTP MCP uses `/mcp`.
 
 ## Identity Modes

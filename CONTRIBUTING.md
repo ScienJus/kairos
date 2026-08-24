@@ -59,6 +59,8 @@ cd ..
 git diff --check
 ```
 
+Repository changes should also run the SQL contract against a disposable PostgreSQL database. Set `KAIROS_TEST_POSTGRES_DSN` before `go test ./...`; CI provides PostgreSQL 17 and always runs this path.
+
 The pull request should explain the behavior change, identify documentation or migration effects, and list the checks that were run. Maintainers may ask for a smaller change when a pull request combines unrelated work.
 
 ## Commit and review expectations

@@ -59,6 +59,8 @@ cd ..
 git diff --check
 ```
 
+Repository 变更还应使用一次性 PostgreSQL 数据库执行 SQL 契约测试。在运行 `go test ./...` 前设置 `KAIROS_TEST_POSTGRES_DSN`；CI 会提供 PostgreSQL 17 并始终执行这条路径。
+
 Pull Request 应说明行为变化、文档或 Migration 影响，以及已经执行的检查。一个 Pull Request 包含不相关修改时，维护者可能要求拆分。
 
 ## Commit 与 Review

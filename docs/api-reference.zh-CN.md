@@ -19,6 +19,15 @@ KAIROS_ARTIFACT_GC_INTERVAL=15m \
 go run ./cmd/kairos-server
 ```
 
+设置 `KAIROS_POSTGRES_DSN` 后，服务改用 PostgreSQL：
+
+```bash
+KAIROS_POSTGRES_DSN='postgres://kairos:<password>@127.0.0.1:5432/kairos?sslmode=disable' \
+go run ./cmd/kairos-server
+```
+
+`KAIROS_POSTGRES_DSN` 非空时优先于 `KAIROS_SQLITE_PATH`。服务在开始接收请求前会验证连接并应用内嵌的 PostgreSQL Migration；显式配置的数据库无效或不可访问时，启动将直接失败。
+
 `GET /healthz` 无需认证。HTTP 管理与执行路由位于 `/api/v1`，Streamable HTTP MCP 位于 `/mcp`。
 
 ## 身份模式

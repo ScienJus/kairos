@@ -36,3 +36,35 @@ func TestHandleCommand(t *testing.T) {
 		}
 	})
 }
+
+func TestDatabaseConfigurationFromEnvironment(t *testing.T) {
+	t.Run("default sqlite", func(t *testing.T) {
+		t.Setenv("KAIROS_POSTGRES_DSN", "")
+		t.Setenv("KAIROS_SQLITE_PATH", "")
+
+		configuration := databaseConfigurationFromEnvironment()
+		if configuration.backend != databaseBackendSQLite || configuration.location != "kairos.db" {
+			t.Fatalf("database configuration = %+v, want default sqlite", configuration)
+		}
+	})
+
+	t.Run("configured sqlite", func(t *testing.T) {
+		t.Setenv("KAIROS_POSTGRES_DSN", "")
+		t.Setenv("KAIROS_SQLITE_PATH", "/data/kairos.db")
+
+		configuration := databaseConfigurationFromEnvironment()
+		if configuration.backend != databaseBackendSQLite || configuration.location != "/data/kairos.db" {
+			t.Fatalf("database configuration = %+v, want configured sqlite", configuration)
+		}
+	})
+
+	t.Run("postgres takes precedence", func(t *testing.T) {
+		t.Setenv("KAIROS_POSTGRES_DSN", "postgres://kairos:secret@database/kairos")
+		t.Setenv("KAIROS_SQLITE_PATH", "/data/ignored.db")
+
+		configuration := databaseConfigurationFromEnvironment()
+		if configuration.backend != databaseBackendPostgres || configuration.location != "postgres://kairos:secret@database/kairos" {
+			t.Fatalf("database configuration = %+v, want configured postgres", configuration)
+		}
+	})
+}
