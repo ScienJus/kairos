@@ -143,7 +143,7 @@ make build
 
 Development builds report `dev`; release builds report their tag with `./bin/kairos-server --version`. Maintainer release steps are documented in [Releasing Kairos](docs/releasing.md).
 
-The default uses SQLite and Trusted Mode. Shared deployments should use Authenticated Mode. See the [API Reference](docs/api-reference.md) for development-only server startup, HTTP routes, identity configuration, MCP transport, and response contracts.
+The default uses SQLite and Trusted Mode. Shared deployments should use Authenticated Mode; the console then requires an issued identity Token, uses it for the browser session, and provides sign-out. See the [API Reference](docs/api-reference.md) for development-only server startup, HTTP routes, identity configuration, MCP transport, and response contracts.
 
 ## MCP and Agent Integration
 

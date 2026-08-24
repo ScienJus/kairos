@@ -24,6 +24,7 @@ If private vulnerability reporting is not available on the Security page, do not
 
 - Trusted Mode accepts caller identity from HTTP headers and is only for loopback use or a network boundary that authenticates and overwrites those headers. Its default listener is `127.0.0.1:8080`.
 - Shared or remotely reachable deployments must use Authenticated Mode with a high-entropy admin token and separately issued identity tokens.
+- In Authenticated Mode, the operations console keeps its identity token only in browser `sessionStorage`. Signing out or receiving `401` clears the Token and cached API data. Protect the browser session and avoid using shared browser profiles for privileged identities.
 - Kairos does not terminate TLS. Put shared deployments behind a correctly configured TLS reverse proxy.
 - Treat the SQLite/PostgreSQL database, admin token, identity tokens, and managed Artifact directory as sensitive. Restrict filesystem and database access, back them up together, and never commit them.
 - The bundled managed Artifact Store is intended for small files. Review retention settings and storage permissions before accepting untrusted uploads.

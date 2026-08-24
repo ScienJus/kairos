@@ -24,6 +24,7 @@
 
 - Trusted Mode 从 HTTP Header 接受调用者身份，仅适用于本机回环地址，或能够认证并覆盖这些 Header 的可信网络边界。默认监听地址是 `127.0.0.1:8080`。
 - 共享或可被远程访问的部署必须使用 Authenticated Mode、高熵 Admin Token，以及分别签发的 Identity Token。
+- Authenticated Mode 下，operations console 只在浏览器 `sessionStorage` 中保存 Identity Token；退出登录或收到 `401` 时会清除 Token 和缓存的 API 数据。应保护浏览器会话，避免在共享浏览器 Profile 中使用高权限身份。
 - Kairos 不负责 TLS 终止。共享部署应位于正确配置的 TLS 反向代理之后。
 - SQLite/PostgreSQL 数据库、Admin Token、Identity Token 和托管 Artifact 目录都属于敏感数据。应限制文件系统和数据库访问、统一备份，并且不得提交到仓库。
 - 内置托管 Artifact Store 面向小文件。接受不可信上传前，应检查保留配置和存储权限。

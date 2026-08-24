@@ -100,6 +100,14 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	client := server.Client()
+	config := requestData[authenticationConfigPayload](t, client, http.MethodGet, server.URL+"/api/v1/auth/config", nil, "", http.StatusOK)
+	if config.Mode != httpapi.AuthenticationModeTrusted {
+		t.Fatalf("authentication mode = %q, want trusted", config.Mode)
+	}
+	session := requestData[sessionPayload](t, client, http.MethodGet, server.URL+"/api/v1/session", nil, "", http.StatusOK)
+	if session.ID != "codex-storage" || session.Kind != domain.ActorAgent || session.Role != "database" {
+		t.Fatalf("trusted session = %+v", session)
+	}
 	blackboardDefinition := requestData[domain.BlackboardDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/blackboards", map[string]any{
 		"id": "engineering", "version": 1, "name": "Engineering", "status": "published",
 		"suggested_tags": []string{"backend", "database"},

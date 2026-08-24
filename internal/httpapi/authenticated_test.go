@@ -39,6 +39,7 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 		identity.AuthenticatedResolver{Authenticator: identityService},
 		identityService,
 		authenticatedTestAdminToken,
+		httpapi.Options{AuthenticationMode: httpapi.AuthenticationModeAuthenticated},
 	)
 	if err != nil {
 		t.Fatalf("new authenticated HTTP API: %v", err)
@@ -46,6 +47,11 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	client := server.Client()
+	config := authenticatedRequestData[authenticationConfigPayload](t, client, http.MethodGet, server.URL+"/api/v1/auth/config", nil, "", http.StatusOK)
+	if config.Mode != "authenticated" {
+		t.Fatalf("authentication mode = %q, want authenticated", config.Mode)
+	}
+	requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/session", nil, "", http.StatusUnauthorized, "unauthenticated")
 
 	agent := authenticatedRequestData[issuedTokenPayload](t, client, http.MethodPost, server.URL+"/api/v1/identities", map[string]any{
 		"id": "codex-database", "kind": "agent", "role": "database",
@@ -55,6 +61,10 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 	}, authenticatedTestAdminToken, http.StatusCreated)
 	if agent.Token == "" || human.Token == "" || agent.Role != "database" {
 		t.Fatalf("issued identities = %+v and %+v", agent, human)
+	}
+	session := authenticatedRequestData[sessionPayload](t, client, http.MethodGet, server.URL+"/api/v1/session", nil, human.Token, http.StatusOK)
+	if session.ID != human.ID || session.Kind != domain.ActorHuman || session.Role != "" {
+		t.Fatalf("authenticated session = %+v, want human identity %+v", session, human)
 	}
 	requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/identities", map[string]any{
 		"id": "codex-database", "kind": "agent", "role": "database",
@@ -137,6 +147,16 @@ type issuedTokenPayload struct {
 	Kind  domain.ActorKind `json:"kind"`
 	Role  string           `json:"role"`
 	Token string           `json:"token"`
+}
+
+type authenticationConfigPayload struct {
+	Mode httpapi.AuthenticationMode `json:"mode"`
+}
+
+type sessionPayload struct {
+	ID   domain.ActorID   `json:"id"`
+	Kind domain.ActorKind `json:"kind"`
+	Role string           `json:"role"`
 }
 
 type identityRecordPayload struct {

@@ -22,9 +22,18 @@ const DefaultMaxArtifactUploadBytes int64 = 16 << 20
 const artifactMultipartOverheadBytes int64 = 1 << 20
 const maxConfiguredArtifactUploadBytes int64 = (1<<63 - 1) - artifactMultipartOverheadBytes
 
-// Options configures HTTP transport limits.
+// AuthenticationMode identifies how work requests resolve their actor.
+type AuthenticationMode string
+
+const (
+	AuthenticationModeTrusted       AuthenticationMode = "trusted"
+	AuthenticationModeAuthenticated AuthenticationMode = "authenticated"
+)
+
+// Options configures HTTP transport behavior.
 type Options struct {
 	MaxArtifactUploadBytes int64
+	AuthenticationMode     AuthenticationMode
 }
 
 // Handler serves the versioned Kairos HTTP API.
@@ -35,6 +44,7 @@ type Handler struct {
 	adminTokenHash         [32]byte
 	hasAdminToken          bool
 	maxArtifactUploadBytes int64
+	authenticationMode     AuthenticationMode
 	mux                    *http.ServeMux
 }
 
@@ -50,7 +60,10 @@ func New(service *application.Service, resolver identity.Resolver, options ...Op
 	if err != nil {
 		return nil, err
 	}
-	handler := &Handler{service: service, identity: resolver, maxArtifactUploadBytes: configured.MaxArtifactUploadBytes, mux: http.NewServeMux()}
+	handler := &Handler{
+		service: service, identity: resolver, maxArtifactUploadBytes: configured.MaxArtifactUploadBytes,
+		authenticationMode: configured.AuthenticationMode, mux: http.NewServeMux(),
+	}
 	handler.routes()
 	return handler, nil
 }
@@ -77,7 +90,8 @@ func NewWithIdentityManagement(
 	handler := &Handler{
 		service: service, identity: resolver, identityManagement: identityService,
 		adminTokenHash: sha256.Sum256([]byte(adminToken)), hasAdminToken: true,
-		maxArtifactUploadBytes: configured.MaxArtifactUploadBytes, mux: http.NewServeMux(),
+		maxArtifactUploadBytes: configured.MaxArtifactUploadBytes,
+		authenticationMode:     configured.AuthenticationMode, mux: http.NewServeMux(),
 	}
 	handler.routes()
 	return handler, nil
@@ -88,12 +102,22 @@ func httpOptions(values []Options) (Options, error) {
 		return Options{}, errors.New("HTTP options must be provided at most once")
 	}
 	if len(values) == 0 {
-		return Options{MaxArtifactUploadBytes: DefaultMaxArtifactUploadBytes}, nil
+		return Options{MaxArtifactUploadBytes: DefaultMaxArtifactUploadBytes, AuthenticationMode: AuthenticationModeTrusted}, nil
 	}
-	if values[0].MaxArtifactUploadBytes <= 0 || values[0].MaxArtifactUploadBytes > maxConfiguredArtifactUploadBytes {
+	configured := values[0]
+	if configured.MaxArtifactUploadBytes == 0 {
+		configured.MaxArtifactUploadBytes = DefaultMaxArtifactUploadBytes
+	}
+	if configured.MaxArtifactUploadBytes < 0 || configured.MaxArtifactUploadBytes > maxConfiguredArtifactUploadBytes {
 		return Options{}, errors.New("max Artifact upload bytes must be positive and leave room for multipart overhead")
 	}
-	return values[0], nil
+	if configured.AuthenticationMode == "" {
+		configured.AuthenticationMode = AuthenticationModeTrusted
+	}
+	if configured.AuthenticationMode != AuthenticationModeTrusted && configured.AuthenticationMode != AuthenticationModeAuthenticated {
+		return Options{}, errors.New("authentication mode must be trusted or authenticated")
+	}
+	return configured, nil
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -102,6 +126,8 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
 func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /healthz", h.health)
+	h.mux.HandleFunc("GET /api/v1/auth/config", h.getAuthenticationConfig)
+	h.mux.HandleFunc("GET /api/v1/session", h.getSession)
 	if h.identityManagement != nil {
 		h.mux.HandleFunc("GET /api/v1/identities", h.listIdentities)
 		h.mux.HandleFunc("POST /api/v1/identities", h.createIdentity)
@@ -139,6 +165,26 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/decomposition", h.decomposeBlackboardTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/children", h.addBlackboardChildTask)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/reviews/{review_id}/decision", h.decideReview)
+}
+
+func (h *Handler) getAuthenticationConfig(writer http.ResponseWriter, _ *http.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	writeJSON(writer, http.StatusOK, dataResponse{Data: struct {
+		Mode AuthenticationMode `json:"mode"`
+	}{Mode: h.authenticationMode}})
+}
+
+func (h *Handler) getSession(writer http.ResponseWriter, request *http.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: struct {
+		ID   domain.ActorID   `json:"id"`
+		Kind domain.ActorKind `json:"kind"`
+		Role string           `json:"role"`
+	}{ID: actor.Actor.ID, Kind: actor.Actor.Kind, Role: actor.Role}})
 }
 
 func (h *Handler) getTaskDetail(writer http.ResponseWriter, request *http.Request) {

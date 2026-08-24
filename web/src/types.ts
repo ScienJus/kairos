@@ -1,6 +1,7 @@
 export type WorkItemStatus = 'open' | 'completed' | 'cancelled' | 'failed' | 'awaiting_agent_acceptance' | 'awaiting_human_acceptance'
 export type TaskStatus = 'pending' | 'working' | 'waiting_children' | 'in_review' | 'completed' | 'skipped' | 'failed'
 export type Mode = 'blackboard' | 'workflow'
+export type AuthenticationMode = 'trusted' | 'authenticated'
 
 export interface DefinitionBinding { ID: string; Version: number; Mode: Mode }
 export interface WorkItem {
@@ -64,7 +65,8 @@ export interface WorkflowRelationDefinition { ID: string; FromTaskID: string; To
 export interface WorkflowDefinition extends Definition {
   Graph: { StartTaskIDs: string[]; Tasks: WorkflowTaskDefinition[]; Relations: WorkflowRelationDefinition[]; MaxTaskExecutions: number }
 }
-export interface Identity { id: string; kind: 'human'; role: '' }
+export interface AuthenticationConfig { mode: AuthenticationMode }
+export interface Identity { id: string; kind: 'human' | 'agent'; role: string }
 export interface HumanAttentionItem { Kind: 'review' | 'human_task' | 'work_item_acceptance'; WorkItem: WorkItem; Task: Task | null }
 
 export interface TaskDraftInput {

@@ -43,10 +43,15 @@ go run ./cmd/kairos-server
 
 身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由使用签发的 identity token。Authenticated Mode 忽略 Trusted actor headers。
 
+Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式。在 Authenticated Mode 下，控制台会在加载任何工作区数据前显示 Token 登录页，通过 `GET /api/v1/session` 验证 Token，之后所有 API 请求、托管上传和 Artifact 下载都使用该 Bearer 凭据。Token 只保存在浏览器 `sessionStorage` 中，因此仅属于当前标签页会话，不会形成持久浏览器登录；如果浏览器禁止访问该存储，控制台会明确报告不可用。退出登录会清除 Token 和缓存的 API 数据；包括 Token 被撤销或轮换在内的任何 `401` 响应，也会清除会话并返回登录页。
+
+`GET /api/v1/auth/config` 无需认证，返回 `{ "data": { "mode": "trusted" | "authenticated" } }`。`GET /api/v1/session` 使用普通业务路由的认证方式，返回传输层实际解析出的身份：`{ "data": { "id": string, "kind": "human" | "agent", "role": string } }`。客户端应信任该结果，而不是自行从 Token 推导身份字段。
+
 ## HTTP 资源
 
 | 资源 | 路由 |
 | --- | --- |
+| 认证与会话 | `GET /api/v1/auth/config`、`GET /api/v1/session` |
 | Workflow Definitions | `GET/POST /api/v1/definitions/workflows`、`GET /api/v1/definitions/workflows/{id}/versions/{version}` |
 | Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`、`GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
 | WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance` |

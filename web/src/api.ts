@@ -1,6 +1,23 @@
-import type { Artifact, BlackboardTaskDecomposition, Claim, CreateDefinitionInput, CreateWorkflowDefinitionInput, CreateWorkItemInput, DecomposeTaskInput, Definition, FailTaskInput, HumanAttentionItem, Identity, Mode, ReviewDecisionInput, Submission, SubmitTaskInput, Task, TaskDetailView, TaskDraftInput, TaskExecutionContext, WorkflowDefinition, WorkItem, WorkItemContext } from './types'
+import type { Artifact, AuthenticationConfig, BlackboardTaskDecomposition, Claim, CreateDefinitionInput, CreateWorkflowDefinitionInput, CreateWorkItemInput, DecomposeTaskInput, Definition, FailTaskInput, HumanAttentionItem, Identity, Mode, ReviewDecisionInput, Submission, SubmitTaskInput, Task, TaskDetailView, TaskDraftInput, TaskExecutionContext, WorkflowDefinition, WorkItem, WorkItemContext } from './types'
 
 const identityKey = 'kairos-console-identity'
+const bearerTokenKey = 'kairos-console-token'
+export const authenticationRequiredEvent = 'kairos:authentication-required'
+export const tokenStorageUnavailableEvent = 'kairos:token-storage-unavailable'
+let authenticationMode: AuthenticationConfig['mode'] = 'trusted'
+
+export class TokenStorageError extends Error {
+  constructor() { super('Browser session storage is unavailable') }
+}
+
+export function configureAuthenticationMode(mode: AuthenticationConfig['mode']) {
+  authenticationMode = mode
+}
+
+function tokenStorageError() {
+  window.dispatchEvent(new Event(tokenStorageUnavailableEvent))
+  return new TokenStorageError()
+}
 
 export function loadIdentity(): Identity {
   try {
@@ -17,19 +34,63 @@ export function saveIdentity(identity: Identity) {
   localStorage.setItem(identityKey, JSON.stringify(identity))
 }
 
+export function loadBearerToken() {
+  try {
+    return sessionStorage.getItem(bearerTokenKey) ?? ''
+  } catch {
+    throw tokenStorageError()
+  }
+}
+
+export function saveBearerToken(token: string) {
+  try {
+    sessionStorage.setItem(bearerTokenKey, token)
+  } catch {
+    throw tokenStorageError()
+  }
+}
+
+export function clearBearerToken() {
+  try {
+    sessionStorage.removeItem(bearerTokenKey)
+  } catch {
+    throw tokenStorageError()
+  }
+}
+
 export class APIError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
 
-async function request<T>(path: string, identity: Identity, init?: RequestInit): Promise<T> {
+function authenticationHeaders(identity?: Identity) {
+  const headers = new Headers()
+  const token = authenticationMode === 'authenticated' ? loadBearerToken() : ''
+  if (authenticationMode === 'authenticated' && token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  } else if (identity) {
+    headers.set('X-Kairos-Actor-Id', identity.id)
+    headers.set('X-Kairos-Actor-Kind', identity.kind)
+  }
+  return { headers, token }
+}
+
+function handleUnauthorized(status: number, requestToken: string) {
+  if (status !== 401 || !requestToken) return
+  try {
+    if (loadBearerToken() === requestToken) window.dispatchEvent(new Event(authenticationRequiredEvent))
+  } catch { /* the authentication gate reports storage failures on its next operation */ }
+}
+
+async function request<T>(path: string, identity?: Identity, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
+  const authentication = authenticationHeaders(identity)
   headers.set('Accept', 'application/json')
-  headers.set('X-Kairos-Actor-Id', identity.id)
-  headers.set('X-Kairos-Actor-Kind', identity.kind)
+  authentication.headers.forEach((value, name) => headers.set(name, value))
   if (init?.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   if (init?.method && init.method !== 'GET' && !headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID())
   const response = await fetch(path, { ...init, headers })
   if (!response.ok) {
+    handleUnauthorized(response.status, authentication.token)
     const body = await response.json().catch(() => null) as { error?: { message?: string } } | null
     throw new APIError(response.status, body?.error?.message ?? `Request failed (${response.status})`)
   }
@@ -39,6 +100,13 @@ async function request<T>(path: string, identity: Identity, init?: RequestInit):
 }
 
 export const api = {
+  getAuthenticationConfig: async () => {
+    const response = await fetch('/api/v1/auth/config', { cache: 'no-store', headers: { Accept: 'application/json' } })
+    if (!response.ok) throw new APIError(response.status, `Request failed (${response.status})`)
+    const body = await response.json() as { data: AuthenticationConfig }
+    return body.data
+  },
+  getSession: (identity?: Identity) => request<Identity>('/api/v1/session', identity, { cache: 'no-store' }),
   listWorkItems: (identity: Identity) => request<WorkItem[]>('/api/v1/work-items', identity),
   listHumanAttention: (identity: Identity) => request<HumanAttentionItem[]>('/api/v1/human-attention', identity),
   getWorkItem: (identity: Identity, id: string) => request<WorkItemContext>(`/api/v1/work-items/${id}/context`, identity),
@@ -84,8 +152,12 @@ export const api = {
     })
   },
   downloadArtifact: async (identity: Identity, artifactID: string) => {
-    const response = await fetch(`/api/v1/artifacts/${artifactID}/content`, { headers: { 'X-Kairos-Actor-Id': identity.id, 'X-Kairos-Actor-Kind': identity.kind } })
-    if (!response.ok) throw new APIError(response.status, `Request failed (${response.status})`)
+    const authentication = authenticationHeaders(identity)
+    const response = await fetch(`/api/v1/artifacts/${artifactID}/content`, { headers: authentication.headers })
+    if (!response.ok) {
+      handleUnauthorized(response.status, authentication.token)
+      throw new APIError(response.status, `Request failed (${response.status})`)
+    }
     return response.blob()
   },
   submitTask: (identity: Identity, taskID: string, input: SubmitTaskInput) => request<Submission>(`/api/v1/tasks/${taskID}/submissions`, identity, { method: 'POST', body: JSON.stringify(input) }),

@@ -954,6 +954,39 @@ body { background: #f6f7f4; }
 .planning-action-body > label > textarea { font-size: 12px; }
 .planning-action-body > .danger-button { margin-top: 14px; }
 
+.auth-shell { min-height: 100vh; display: grid; grid-template-rows: 64px 1fr; color: #344846; background: #f6f7f4; }
+.auth-header { width: min(1080px, calc(100% - 40px)); height: 64px; display: flex; align-items: center; justify-content: space-between; margin: 0 auto; }
+.auth-brand { display: flex; align-items: center; gap: 10px; }
+.auth-brand strong { color: #304849; font-size: 15px; font-weight: 600; }
+.auth-main { min-height: 0; display: grid; place-items: center; padding: 40px 20px 15vh; }
+.auth-status { max-width: 430px; display: flex; flex-direction: column; align-items: center; color: #607471; text-align: center; }
+.auth-status > strong { color: #304849; font-size: 17px; font-weight: 600; }
+.auth-status > p { margin: 10px 0 0; color: #788784; font-size: 12px; line-height: 1.65; }
+.auth-status > svg { margin-bottom: 13px; color: #527d82; }
+.auth-retry { margin-top: 20px; }
+.token-login { width: min(400px, 100%); padding: 28px; background: #fff; border: 1px solid #dfe5e1; border-radius: 8px; box-shadow: 0 16px 45px rgba(47, 69, 64, .07); }
+.token-login-icon { width: 42px; height: 42px; display: grid; place-items: center; color: #336774; background: #e8f0ee; border-radius: 8px; }
+.token-login h1 { margin: 22px 0 0; color: #304849; font-size: 22px; font-weight: 600; }
+.token-login > p { margin: 9px 0 24px; color: #788784; font-size: 12px; line-height: 1.65; }
+.token-login > label { display: block; margin-bottom: 8px; color: #607471; font-size: 10px; font-weight: 600; }
+.token-login > input { width: 100%; height: 42px; padding: 0 12px; color: #304849; background: #fbfcfa; border: 1px solid #d7e0dc; border-radius: 7px; font-family: Inter, system-ui, sans-serif; font-size: 13px; }
+.token-login > input:focus { background: #fff; border-color: #8badaa; box-shadow: 0 0 0 3px rgba(51, 103, 116, .08); outline: 0; }
+.token-login > input[aria-invalid="true"] { border-color: #c89494; }
+.auth-error { margin-top: 10px; padding: 9px 10px; color: #8e4949; background: #f8eeee; border: 1px solid #e3caca; border-radius: 7px; font-size: 11px; line-height: 1.5; }
+.token-submit { width: 100%; min-height: 40px; margin-top: 18px; }
+.spin { animation: auth-spin .8s linear infinite; }
+@keyframes auth-spin { to { transform: rotate(360deg); } }
+.top-nav { display: flex; align-items: center; gap: 3px; margin-left: 30px; }
+.account-menu { position: relative; }
+.account-trigger[aria-expanded="true"] { color: #336774; background: #edf2ef; }
+.account-popover { position: absolute; z-index: 40; top: calc(100% + 8px); right: 0; width: 230px; padding: 8px; background: #fff; border: 1px solid #dce3df; border-radius: 8px; box-shadow: 0 14px 36px rgba(47, 69, 64, .13); }
+.account-identity { min-width: 0; padding: 9px 10px 12px; border-bottom: 1px solid #e6ebe8; }
+.account-identity span { display: block; color: #84918f; font-family: "Geist Mono", monospace; font-size: 9px; }
+.account-identity strong { display: block; margin-top: 6px; overflow: hidden; color: #344846; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.account-identity small { display: block; margin-top: 5px; color: #527d82; font-family: "Geist Mono", monospace; font-size: 9px; }
+.account-popover > button { width: 100%; min-height: 36px; display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 0 10px; color: #765b5b; text-align: left; background: transparent; border: 0; border-radius: 6px; font-size: 11px; cursor: pointer; }
+.account-popover > button:hover { color: #944d4d; background: #f8eeee; }
+
 @media (max-width: 760px) {
   .topbar { height: 56px; margin: 0 auto; }
   .language-button { width: 34px; padding: 0; justify-content: center; }
@@ -991,4 +1024,12 @@ body { background: #f6f7f4; }
   .empty-planning textarea { min-width: 0; width: 100%; }
   .task-draft-row { grid-template-columns: 1fr; }
   .task-draft-row label + label { margin-top: 2px; }
+  .auth-header { width: calc(100% - 28px); }
+  .auth-main { align-items: start; padding: 56px 16px 30px; }
+  .token-login { padding: 24px 20px; }
+  .topbar .brand { flex: 0 0 auto; }
+  .top-nav { gap: 0; margin-left: auto; }
+  .top-actions { margin-left: 4px; padding: 0; }
+  .top-actions > .icon-button { display: grid; }
+  .account-popover { position: fixed; top: 60px; right: 12px; }
 }

@@ -98,7 +98,6 @@ func run() error {
 	if err != nil || maxArtifactUploadBytes <= 0 {
 		return fmt.Errorf("KAIROS_ARTIFACT_MAX_UPLOAD_BYTES must be a positive integer")
 	}
-	httpOptions := httpapi.Options{MaxArtifactUploadBytes: maxArtifactUploadBytes}
 	identityService, err := identity.NewService(repo, systemClock{}, identity.SecureTokenGenerator{})
 	if err != nil {
 		return err
@@ -116,6 +115,10 @@ func run() error {
 		resolver = identity.AuthenticatedResolver{Authenticator: identityService}
 	default:
 		return fmt.Errorf("unsupported KAIROS_AUTH_MODE %q", authMode)
+	}
+	httpOptions := httpapi.Options{
+		MaxArtifactUploadBytes: maxArtifactUploadBytes,
+		AuthenticationMode:     httpapi.AuthenticationMode(authMode),
 	}
 
 	var apiHandler *httpapi.Handler

@@ -43,10 +43,15 @@ go run ./cmd/kairos-server
 
 Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes require an issued identity token. Authenticated Mode ignores trusted actor headers.
 
+The operations console discovers the configured mode through the public `GET /api/v1/auth/config` endpoint. In Authenticated Mode it presents a Token login before loading any workspace data, validates the Token through `GET /api/v1/session`, and then uses it as the Bearer credential for API requests, managed uploads, and Artifact downloads. The Token is held only in browser `sessionStorage`, so it is scoped to the current tab session rather than persisted as a durable browser login; the console reports an unavailable state if the browser blocks that storage. Signing out clears the Token and cached API data. A `401` response, including one caused by Token revocation or rotation, also clears the session and returns the console to login.
+
+`GET /api/v1/auth/config` is unauthenticated and returns `{ "data": { "mode": "trusted" | "authenticated" } }`. `GET /api/v1/session` uses the normal work-route authentication and returns the transport-resolved identity as `{ "data": { "id": string, "kind": "human" | "agent", "role": string } }`. Clients should use this resolved identity rather than deriving identity fields from a Token.
+
 ## HTTP Resources
 
 | Resource | Routes |
 | --- | --- |
+| Authentication and session | `GET /api/v1/auth/config`, `GET /api/v1/session` |
 | Workflow Definitions | `GET/POST /api/v1/definitions/workflows`, `GET /api/v1/definitions/workflows/{id}/versions/{version}` |
 | Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`, `GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
 | WorkItems | `GET/POST /api/v1/work-items`, `GET /api/v1/work-items/{id}/context`, `POST /completion`, `POST /acceptance` |
