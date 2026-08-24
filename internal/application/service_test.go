@@ -2445,12 +2445,26 @@ func (r *testRepository) GetWorkItem(id domain.WorkItemID) (domain.WorkItem, err
 	return value, nil
 }
 
-func (r *testRepository) ListWorkItems() ([]domain.WorkItem, error) {
+func (r *testRepository) ListWorkItems(filter WorkItemFilter) ([]domain.WorkItem, error) {
 	result := make([]domain.WorkItem, 0, len(r.workItems))
 	for _, workItem := range r.workItems {
+		if len(filter.Statuses) > 0 && !slices.Contains(filter.Statuses, workItem.Status) {
+			continue
+		}
+		if len(filter.Modes) > 0 && !slices.Contains(filter.Modes, workItem.CoordinationMode()) {
+			continue
+		}
+		if !containsAll(workItem.Tags, filter.Tags) {
+			continue
+		}
 		result = append(result, workItem)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+			return result[i].ID < result[j].ID
+		}
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
 	return result, nil
 }
 
@@ -2578,22 +2592,26 @@ func (r *testRepository) ListWorkflowTaskActivations(workItemID domain.WorkItemI
 	return result, nil
 }
 
-func (r *testRepository) ListOpenTasks() ([]WorkCandidate, error) {
+func (r *testRepository) ListOpenTasks(filter OpenTaskFilter) ([]WorkCandidate, error) {
 	var result []WorkCandidate
 	for _, task := range r.tasks {
 		workItem := r.workItems[task.WorkItemID]
-		if workItem.Status == domain.WorkItemStatusOpen {
+		identity := Identity{Actor: domain.ActorRef{Kind: filter.ActorKind, ID: "repository-filter"}, Role: filter.Role}
+		if workItem.Status == domain.WorkItemStatusOpen &&
+			identityCanExecute(identity, task) == nil &&
+			(workItem.CoordinationMode() == domain.CoordinationModeWorkflow || containsAll(task.Tags, filter.Tags)) {
 			result = append(result, WorkCandidate{Kind: WorkCandidateTask, WorkItem: workItem, Task: &task})
 		}
 	}
 	return result, nil
 }
 
-func (r *testRepository) ListEmptyBlackboards() ([]domain.WorkItem, error) {
+func (r *testRepository) ListEmptyBlackboards(tags []string) ([]domain.WorkItem, error) {
 	var result []domain.WorkItem
 	for _, workItem := range r.workItems {
 		if workItem.Status == domain.WorkItemStatusOpen &&
 			workItem.CoordinationMode() == domain.CoordinationModeBlackboard &&
+			containsAll(workItem.Tags, tags) &&
 			len(r.tasksFor(workItem.ID)) == 0 {
 			result = append(result, workItem)
 		}
@@ -2601,10 +2619,13 @@ func (r *testRepository) ListEmptyBlackboards() ([]domain.WorkItem, error) {
 	return result, nil
 }
 
-func (r *testRepository) ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem, error) {
+func (r *testRepository) ListBlackboardsAwaitingLifecycleDecision(tags []string) ([]domain.WorkItem, error) {
 	var result []domain.WorkItem
 	for _, workItem := range r.workItems {
 		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
+			continue
+		}
+		if !containsAll(workItem.Tags, tags) {
 			continue
 		}
 		tasks := r.tasksFor(workItem.ID)
@@ -2686,6 +2707,21 @@ func (r *testRepository) ListWorkflowDefinitions() ([]domain.WorkflowDefinition,
 	return result, nil
 }
 
+func (r *testRepository) GetLatestPublishedWorkflowDefinition(id domain.DefinitionID) (domain.WorkflowDefinition, error) {
+	var result domain.WorkflowDefinition
+	found := false
+	for _, definition := range r.workflows {
+		if definition.ID == id && definition.Status == domain.DefinitionStatusPublished && (!found || definition.Version > result.Version) {
+			result = definition
+			found = true
+		}
+	}
+	if !found {
+		return domain.WorkflowDefinition{}, ErrNotFound
+	}
+	return result, nil
+}
+
 func (r *testRepository) ListBlackboardDefinitions() ([]domain.BlackboardDefinition, error) {
 	result := make([]domain.BlackboardDefinition, 0, len(r.blackboards))
 	for _, definition := range r.blackboards {
@@ -2697,6 +2733,21 @@ func (r *testRepository) ListBlackboardDefinitions() ([]domain.BlackboardDefinit
 		}
 		return result[i].ID < result[j].ID
 	})
+	return result, nil
+}
+
+func (r *testRepository) GetLatestPublishedBlackboardDefinition(id domain.DefinitionID) (domain.BlackboardDefinition, error) {
+	var result domain.BlackboardDefinition
+	found := false
+	for _, definition := range r.blackboards {
+		if definition.ID == id && definition.Status == domain.DefinitionStatusPublished && (!found || definition.Version > result.Version) {
+			result = definition
+			found = true
+		}
+	}
+	if !found {
+		return domain.BlackboardDefinition{}, ErrNotFound
+	}
 	return result, nil
 }
 
@@ -2823,7 +2874,7 @@ func (r *testRepository) CreateArtifact(value domain.Artifact) error {
 	return nil
 }
 
-func (r *testRepository) SaveArtifact(value domain.Artifact) error {
+func (r *testRepository) SaveArtifact(value domain.Artifact, _ time.Time) error {
 	if _, exists := r.artifacts[value.ID]; !exists {
 		return ErrNotFound
 	}
@@ -2879,7 +2930,7 @@ func (r *testRepository) CreateIdempotencyRecord(value IdempotencyRecord) error 
 	return nil
 }
 
-func (r *testRepository) SaveIdempotencyRecord(value IdempotencyRecord) error {
+func (r *testRepository) SaveIdempotencyRecord(value IdempotencyRecord, _ time.Time) error {
 	key := idempotencyTestKey(value.Actor, value.OperationID)
 	if _, exists := r.idempotency[key]; !exists {
 		return ErrNotFound

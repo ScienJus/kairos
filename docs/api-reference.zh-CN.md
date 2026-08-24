@@ -28,6 +28,10 @@ go run ./cmd/kairos-server
 
 `KAIROS_POSTGRES_DSN` 非空时优先于 `KAIROS_SQLITE_PATH`。服务在开始接收请求前会验证连接并应用内嵌的 PostgreSQL Migration；显式配置的数据库无效或不可访问时，启动将直接失败。
 
+参与发现、授权候选收窄、筛选或排序的运行时字段，除了保留在聚合 payload 中，也存入专用列。PostgreSQL 对 WorkItem/Task tags 和 Task allowed roles 使用原生 `TEXT[]`，并为当前的包含查询建立 GIN 索引。SQLite 将相同逻辑字段保存为经过校验的 JSON 数组 `TEXT` 列，通过 `json_each` 执行包含查询；SQLite 定位于本地和较小规模部署。空集合在存储和响应中均为数组，不使用 `null`。
+
+数据库时间在应用边界统一规范为 UTC、微秒精度，因此 API 值、聚合 payload 和查询列表示同一个时间点。PostgreSQL 使用 `TIMESTAMPTZ`；SQLite 使用固定宽度的 RFC 3339 UTC 文本，使文本范围比较保持时间顺序。Definition、WorkItem、Task、Workflow activation 和 Identity 按照领域元数据使用 `created_at` 与 `updated_at`。Task Relation 持久化其不可变的 `created_at`；可变的 Claim、暂存 Artifact 和幂等记录在状态变化时更新 `updated_at`。具有更精确不可变事件或生命周期语义的行继续使用 `occurred_at`、`claimed_at`、`applied_at` 等字段名，不额外添加没有含义的重复时间列。
+
 `GET /healthz` 无需认证。HTTP 管理与执行路由位于 `/api/v1`，Streamable HTTP MCP 位于 `/mcp`。
 
 ## 身份模式

@@ -31,7 +31,12 @@ func (s *Service) ListHumanAttention(ctx context.Context, identity Identity) ([]
 	}
 	items := []HumanAttentionItem{}
 	err := s.repository.View(ctx, func(store ReadStore) error {
-		workItems, err := store.ListWorkItems()
+		workItems, err := store.ListWorkItems(WorkItemFilter{
+			Statuses: []domain.WorkItemStatus{
+				domain.WorkItemStatusOpen,
+				domain.WorkItemStatusAwaitingHumanAcceptance,
+			},
+		})
 		if err != nil {
 			return fmt.Errorf("list work items: %w", err)
 		}

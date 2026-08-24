@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/ScienJus/kairos/internal/application"
 	"github.com/ScienJus/kairos/internal/domain"
@@ -19,10 +18,10 @@ func (r *SQLRepository) CreateIdentity(ctx context.Context, value identity.Store
 	return translateIdentityError(r.withWriteTransaction(ctx, func(store *sqlStore) error {
 		_, err := store.exec(`
 			INSERT INTO identities
-				(actor_kind, actor_id, role, token_hash, version, created_at_ns, updated_at_ns)
+				(actor_kind, actor_id, role, token_hash, version, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			value.Identity.Actor.Kind, value.Identity.Actor.ID, value.Identity.Role,
-			nullTokenHash(value.TokenHash), value.Version, value.CreatedAt.UnixNano(), value.UpdatedAt.UnixNano(),
+			nullTokenHash(value.TokenHash), value.Version, databaseTime(value.CreatedAt), databaseTime(value.UpdatedAt),
 		)
 		return err
 	}))
@@ -36,9 +35,9 @@ func (r *SQLRepository) SaveIdentity(ctx context.Context, value identity.StoredI
 	return translateIdentityError(r.withWriteTransaction(ctx, func(store *sqlStore) error {
 		result, err := store.exec(`
 			UPDATE identities
-			SET role = ?, token_hash = ?, version = ?, updated_at_ns = ?
+			SET role = ?, token_hash = ?, version = ?, updated_at = ?
 			WHERE actor_kind = ? AND actor_id = ? AND version = ?`,
-			value.Identity.Role, nullTokenHash(value.TokenHash), value.Version, value.UpdatedAt.UnixNano(),
+			value.Identity.Role, nullTokenHash(value.TokenHash), value.Version, databaseTime(value.UpdatedAt),
 			value.Identity.Actor.Kind, value.Identity.Actor.ID, value.Version-1,
 		)
 		if err != nil {
@@ -68,7 +67,7 @@ func (r *SQLRepository) SaveIdentity(ctx context.Context, value identity.StoredI
 // GetIdentity loads one managed identity by stable actor reference.
 func (r *SQLRepository) GetIdentity(ctx context.Context, actor domain.ActorRef) (identity.StoredIdentity, error) {
 	row := r.db.QueryRowContext(ctx, rebind(r.dialect, `
-		SELECT role, token_hash, version, created_at_ns, updated_at_ns
+		SELECT role, token_hash, version, created_at, updated_at
 		FROM identities
 		WHERE actor_kind = ? AND actor_id = ?`), actor.Kind, actor.ID)
 	value, err := scanIdentity(row, actor)
@@ -80,26 +79,27 @@ func (r *SQLRepository) GetIdentityByTokenHash(ctx context.Context, tokenHash st
 	var actorKind domain.ActorKind
 	var actorID domain.ActorID
 	row := r.db.QueryRowContext(ctx, rebind(r.dialect, `
-		SELECT actor_kind, actor_id, role, token_hash, version, created_at_ns, updated_at_ns
+		SELECT actor_kind, actor_id, role, token_hash, version, created_at, updated_at
 		FROM identities
 		WHERE token_hash = ?`), tokenHash)
 	var role string
 	var storedHash sql.NullString
-	var version, createdAtNS, updatedAtNS int64
-	if err := row.Scan(&actorKind, &actorID, &role, &storedHash, &version, &createdAtNS, &updatedAtNS); err != nil {
+	var version int64
+	var createdAt, updatedAt scannedTime
+	if err := row.Scan(&actorKind, &actorID, &role, &storedHash, &version, &createdAt, &updatedAt); err != nil {
 		return identity.StoredIdentity{}, translateIdentityError(normalizeError(err))
 	}
 	return identity.StoredIdentity{
 		Identity:  identity.Identity{Actor: domain.ActorRef{Kind: actorKind, ID: actorID}, Role: role},
 		TokenHash: storedHash.String, Version: version,
-		CreatedAt: time.Unix(0, createdAtNS).UTC(), UpdatedAt: time.Unix(0, updatedAtNS).UTC(),
+		CreatedAt: createdAt.Time, UpdatedAt: updatedAt.Time,
 	}, nil
 }
 
 // ListIdentities returns identities ordered by kind and stable ID.
 func (r *SQLRepository) ListIdentities(ctx context.Context) ([]identity.StoredIdentity, error) {
 	rows, err := r.db.QueryContext(ctx, rebind(r.dialect, `
-		SELECT actor_kind, actor_id, role, token_hash, version, created_at_ns, updated_at_ns
+		SELECT actor_kind, actor_id, role, token_hash, version, created_at, updated_at
 		FROM identities
 		ORDER BY actor_kind, actor_id`))
 	if err != nil {
@@ -112,14 +112,15 @@ func (r *SQLRepository) ListIdentities(ctx context.Context) ([]identity.StoredId
 		var actorID domain.ActorID
 		var role string
 		var tokenHash sql.NullString
-		var version, createdAtNS, updatedAtNS int64
-		if err := rows.Scan(&actorKind, &actorID, &role, &tokenHash, &version, &createdAtNS, &updatedAtNS); err != nil {
+		var version int64
+		var createdAt, updatedAt scannedTime
+		if err := rows.Scan(&actorKind, &actorID, &role, &tokenHash, &version, &createdAt, &updatedAt); err != nil {
 			return nil, translateIdentityError(normalizeError(err))
 		}
 		result = append(result, identity.StoredIdentity{
 			Identity:  identity.Identity{Actor: domain.ActorRef{Kind: actorKind, ID: actorID}, Role: role},
 			TokenHash: tokenHash.String, Version: version,
-			CreatedAt: time.Unix(0, createdAtNS).UTC(), UpdatedAt: time.Unix(0, updatedAtNS).UTC(),
+			CreatedAt: createdAt.Time, UpdatedAt: updatedAt.Time,
 		})
 	}
 	return result, translateIdentityError(normalizeError(rows.Err()))
@@ -132,13 +133,14 @@ type identityScanner interface {
 func scanIdentity(row identityScanner, actor domain.ActorRef) (identity.StoredIdentity, error) {
 	var role string
 	var tokenHash sql.NullString
-	var version, createdAtNS, updatedAtNS int64
-	if err := row.Scan(&role, &tokenHash, &version, &createdAtNS, &updatedAtNS); err != nil {
+	var version int64
+	var createdAt, updatedAt scannedTime
+	if err := row.Scan(&role, &tokenHash, &version, &createdAt, &updatedAt); err != nil {
 		return identity.StoredIdentity{}, normalizeError(err)
 	}
 	return identity.StoredIdentity{
 		Identity: identity.Identity{Actor: actor, Role: role}, TokenHash: tokenHash.String, Version: version,
-		CreatedAt: time.Unix(0, createdAtNS).UTC(), UpdatedAt: time.Unix(0, updatedAtNS).UTC(),
+		CreatedAt: createdAt.Time, UpdatedAt: updatedAt.Time,
 	}, nil
 }
 

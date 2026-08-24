@@ -36,7 +36,7 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 	err := s.repository.View(ctx, func(store ReadStore) error {
 		atLimit := func() bool { return query.Limit > 0 && len(result) >= query.Limit }
 
-		workItems, err := store.ListBlackboardsAwaitingLifecycleDecision()
+		workItems, err := store.ListBlackboardsAwaitingLifecycleDecision(query.Tags)
 		if err != nil {
 			return fmt.Errorf("list blackboards for completion or acceptance: %w", err)
 		}
@@ -46,7 +46,7 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 			domain.WorkItemStatusOpen,
 		} {
 			for _, workItem := range workItems {
-				if workItem.Status != status || !containsAll(workItem.Tags, query.Tags) {
+				if workItem.Status != status {
 					continue
 				}
 				kind := WorkCandidateBlackboardCompletion
@@ -64,7 +64,11 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 		}
 
 		if !atLimit() {
-			candidates, err := store.ListOpenTasks()
+			candidates, err := store.ListOpenTasks(OpenTaskFilter{
+				ActorKind: query.Identity.Actor.Kind,
+				Role:      query.Identity.Role,
+				Tags:      query.Tags,
+			})
 			if err != nil {
 				return fmt.Errorf("list open tasks: %w", err)
 			}
@@ -103,14 +107,11 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 		}
 
 		if !atLimit() {
-			emptyBlackboards, err := store.ListEmptyBlackboards()
+			emptyBlackboards, err := store.ListEmptyBlackboards(query.Tags)
 			if err != nil {
 				return fmt.Errorf("list empty blackboards: %w", err)
 			}
 			for _, workItem := range emptyBlackboards {
-				if !containsAll(workItem.Tags, query.Tags) {
-					continue
-				}
 				result = append(result, WorkCandidate{Kind: WorkCandidateEmptyBlackboard, WorkItem: workItem})
 				if atLimit() {
 					break

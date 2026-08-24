@@ -30,11 +30,15 @@ func (r *SQLRepository) migrate(ctx context.Context) error {
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `
+	migrationTimestampType := "TEXT"
+	if r.dialect == dialectPostgres {
+		migrationTimestampType = "TIMESTAMPTZ"
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version TEXT PRIMARY KEY,
-			applied_at_ns BIGINT NOT NULL
-		)`); err != nil {
+			applied_at %s NOT NULL
+		)`, migrationTimestampType)); err != nil {
 		return err
 	}
 
@@ -69,8 +73,8 @@ func (r *SQLRepository) migrate(ctx context.Context) error {
 				return fmt.Errorf("migration %s: %w", version, err)
 			}
 		}
-		insert := "INSERT INTO schema_migrations (version, applied_at_ns) VALUES (?, ?)"
-		if _, err := tx.ExecContext(ctx, rebind(r.dialect, insert), version, time.Now().UTC().UnixNano()); err != nil {
+		insert := "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)"
+		if _, err := tx.ExecContext(ctx, rebind(r.dialect, insert), version, databaseTime(time.Now())); err != nil {
 			return err
 		}
 	}

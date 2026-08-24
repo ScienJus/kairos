@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -49,13 +50,12 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 		var binding domain.DefinitionBinding
 		switch command.Definition.Mode {
 		case domain.CoordinationModeWorkflow:
-			definitions, err := store.ListWorkflowDefinitions()
-			if err != nil {
-				return fmt.Errorf("list workflow definitions: %w", err)
-			}
-			definition, ok := latestPublishedWorkflowDefinition(definitions, command.Definition.ID)
-			if !ok {
+			definition, err := store.GetLatestPublishedWorkflowDefinition(command.Definition.ID)
+			if errors.Is(err, ErrNotFound) {
 				return fmt.Errorf("%w: published workflow definition %q", ErrNotFound, command.Definition.ID)
+			}
+			if err != nil {
+				return fmt.Errorf("get published workflow definition: %w", err)
 			}
 			if err := definition.Validate(); err != nil {
 				return fmt.Errorf("validate workflow definition: %w", err)
@@ -63,13 +63,12 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 			workflow = &definition
 			binding = definition.Binding()
 		case domain.CoordinationModeBlackboard:
-			definitions, err := store.ListBlackboardDefinitions()
-			if err != nil {
-				return fmt.Errorf("list blackboard definitions: %w", err)
-			}
-			definition, ok := latestPublishedBlackboardDefinition(definitions, command.Definition.ID)
-			if !ok {
+			definition, err := store.GetLatestPublishedBlackboardDefinition(command.Definition.ID)
+			if errors.Is(err, ErrNotFound) {
 				return fmt.Errorf("%w: published blackboard definition %q", ErrNotFound, command.Definition.ID)
+			}
+			if err != nil {
+				return fmt.Errorf("get published blackboard definition: %w", err)
 			}
 			if err := definition.Validate(); err != nil {
 				return fmt.Errorf("validate blackboard definition: %w", err)
@@ -166,28 +165,6 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 		return domain.WorkItem{}, err
 	}
 	return created, nil
-}
-
-func latestPublishedWorkflowDefinition(definitions []domain.WorkflowDefinition, id domain.DefinitionID) (domain.WorkflowDefinition, bool) {
-	var latest domain.WorkflowDefinition
-	found := false
-	for _, definition := range definitions {
-		if definition.ID == id && definition.Status == domain.DefinitionStatusPublished && (!found || definition.Version > latest.Version) {
-			latest, found = definition, true
-		}
-	}
-	return latest, found
-}
-
-func latestPublishedBlackboardDefinition(definitions []domain.BlackboardDefinition, id domain.DefinitionID) (domain.BlackboardDefinition, bool) {
-	var latest domain.BlackboardDefinition
-	found := false
-	for _, definition := range definitions {
-		if definition.ID == id && definition.Status == domain.DefinitionStatusPublished && (!found || definition.Version > latest.Version) {
-			latest, found = definition, true
-		}
-	}
-	return latest, found
 }
 
 func (s *Service) newWorkflowTask(

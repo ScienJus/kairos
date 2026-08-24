@@ -156,7 +156,7 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 		}
 		for _, artifact := range artifacts {
 			artifact.SubmissionID = &submission.ID
-			if err := store.SaveArtifact(artifact); err != nil {
+			if err := store.SaveArtifact(artifact, now); err != nil {
 				return fmt.Errorf("bind artifact %q to submission: %w", artifact.ID, err)
 			}
 		}

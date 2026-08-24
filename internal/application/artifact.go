@@ -268,7 +268,7 @@ func (s *Service) saveArtifactUploadState(ctx context.Context, command UploadArt
 			return conflict("operation id %q was already completed", command.OperationID)
 		}
 		record.Response = mustArtifactUploadState(state)
-		return store.SaveIdempotencyRecord(record)
+		return store.SaveIdempotencyRecord(record, s.clock.Now())
 	})
 }
 
@@ -326,7 +326,7 @@ func (s *Service) finalizeArtifactUpload(ctx context.Context, command UploadArti
 		}
 		record.Status = IdempotencyCompleted
 		record.Response = response
-		if err := store.SaveIdempotencyRecord(record); err != nil {
+		if err := store.SaveIdempotencyRecord(record, s.clock.Now()); err != nil {
 			return fmt.Errorf("complete Artifact upload operation %q: %w", command.OperationID, err)
 		}
 		return nil

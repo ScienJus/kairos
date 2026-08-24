@@ -4,9 +4,23 @@ import (
 	"errors"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
 )
+
+type identityTestClock struct{ now time.Time }
+
+func (clock identityTestClock) Now() time.Time { return clock.now }
+
+func TestServiceClockUsesUTCMicroseconds(t *testing.T) {
+	raw := time.Date(2026, time.August, 24, 20, 0, 0, 123456789, time.FixedZone("test", 8*60*60))
+	got := (microsecondClock{Clock: identityTestClock{now: raw}}).Now()
+	want := raw.UTC().Truncate(time.Microsecond)
+	if !got.Equal(want) || got.Location() != time.UTC {
+		t.Fatalf("normalized identity time = %s, want %s in UTC", got, want)
+	}
+}
 
 func TestTrustedResolverResolvesAgentRole(t *testing.T) {
 	request := httptest.NewRequest("GET", "/", nil)

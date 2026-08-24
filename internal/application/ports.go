@@ -90,10 +90,24 @@ type IdempotencyRecord struct {
 	CreatedAt   time.Time
 }
 
+// WorkItemFilter contains fields that are evaluated by the persistence layer.
+type WorkItemFilter struct {
+	Statuses []domain.WorkItemStatus
+	Modes    []domain.CoordinationMode
+	Tags     []string
+}
+
+// OpenTaskFilter narrows discovery candidates before application-level checks.
+type OpenTaskFilter struct {
+	ActorKind domain.ActorKind
+	Role      string
+	Tags      []string
+}
+
 // ReadStore exposes the state required by application operations.
 type ReadStore interface {
 	GetWorkItem(domain.WorkItemID) (domain.WorkItem, error)
-	ListWorkItems() ([]domain.WorkItem, error)
+	ListWorkItems(WorkItemFilter) ([]domain.WorkItem, error)
 	GetTask(domain.TaskID) (domain.Task, error)
 	ListTasks(domain.WorkItemID) ([]domain.Task, error)
 	ListTaskRelations(domain.WorkItemID) ([]domain.TaskRelation, error)
@@ -106,14 +120,16 @@ type ReadStore interface {
 	ArtifactBlobReferenced(string) (bool, error)
 	GetWorkflowTaskActivation(domain.WorkflowTaskActivationID) (domain.WorkflowTaskActivation, error)
 	ListWorkflowTaskActivations(domain.WorkItemID) ([]domain.WorkflowTaskActivation, error)
-	ListOpenTasks() ([]WorkCandidate, error)
-	ListEmptyBlackboards() ([]domain.WorkItem, error)
-	ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem, error)
+	ListOpenTasks(OpenTaskFilter) ([]WorkCandidate, error)
+	ListEmptyBlackboards([]string) ([]domain.WorkItem, error)
+	ListBlackboardsAwaitingLifecycleDecision([]string) ([]domain.WorkItem, error)
 	ListReapableAgentClaimTasks(time.Time) ([]domain.TaskID, error)
 
 	GetDefinitionMetadata([]domain.DefinitionBinding) (map[domain.DefinitionBinding]domain.DefinitionMetadata, error)
 	GetWorkflowDefinition(domain.DefinitionID, int64) (domain.WorkflowDefinition, error)
 	GetBlackboardDefinition(domain.DefinitionID, int64) (domain.BlackboardDefinition, error)
+	GetLatestPublishedWorkflowDefinition(domain.DefinitionID) (domain.WorkflowDefinition, error)
+	GetLatestPublishedBlackboardDefinition(domain.DefinitionID) (domain.BlackboardDefinition, error)
 	ListWorkflowDefinitions() ([]domain.WorkflowDefinition, error)
 	ListBlackboardDefinitions() ([]domain.BlackboardDefinition, error)
 
@@ -140,7 +156,7 @@ type WriteStore interface {
 	CreateClaim(domain.Claim) error
 	SaveClaim(domain.Claim) error
 	CreateArtifact(domain.Artifact) error
-	SaveArtifact(domain.Artifact) error
+	SaveArtifact(domain.Artifact, time.Time) error
 	DeleteArtifact(domain.ArtifactID) error
 	CreateArtifactBlob(domain.ArtifactBlob) error
 	DeleteArtifactBlob(string) error
@@ -148,7 +164,7 @@ type WriteStore interface {
 	AppendWorkItemEvent(domain.WorkItemEvent) error
 	LockIdempotencyKey(domain.ActorRef, string) error
 	CreateIdempotencyRecord(IdempotencyRecord) error
-	SaveIdempotencyRecord(IdempotencyRecord) error
+	SaveIdempotencyRecord(IdempotencyRecord, time.Time) error
 	DeleteIdempotencyRecord(domain.ActorRef, string) error
 }
 

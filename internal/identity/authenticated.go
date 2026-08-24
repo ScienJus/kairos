@@ -77,12 +77,20 @@ type Service struct {
 	tokens     TokenGenerator
 }
 
+type microsecondClock struct {
+	Clock
+}
+
+func (clock microsecondClock) Now() time.Time {
+	return clock.Clock.Now().UTC().Truncate(time.Microsecond)
+}
+
 // NewService creates an authenticated identity service.
 func NewService(repository Repository, clock Clock, tokens TokenGenerator) (*Service, error) {
 	if repository == nil || clock == nil || tokens == nil {
 		return nil, fmt.Errorf("%w: repository, clock and token generator are required", ErrInvalid)
 	}
-	return &Service{repository: repository, clock: clock, tokens: tokens}, nil
+	return &Service{repository: repository, clock: microsecondClock{Clock: clock}, tokens: tokens}, nil
 }
 
 // CreateIdentity creates one identity and its initial token.

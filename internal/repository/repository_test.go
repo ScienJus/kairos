@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -41,6 +42,12 @@ func TestSQLRepositoryContract(t *testing.T) {
 		})
 		t.Run("definition metadata batch", func(t *testing.T) {
 			testDefinitionMetadataBatch(t, repository, workflow, blackboard)
+		})
+		t.Run("queryable domain columns", func(t *testing.T) {
+			testQueryableDomainColumns(t, repository, workflow, blackboard)
+		})
+		t.Run("mutable record timestamps", func(t *testing.T) {
+			testMutableRecordTimestamps(t, repository, blackboard)
 		})
 		t.Run("blackboard lifecycle candidates", func(t *testing.T) {
 			testBlackboardLifecycleCandidates(t, repository, blackboard)
@@ -81,6 +88,304 @@ func TestSQLRepositoryContract(t *testing.T) {
 			})
 		}
 	})
+}
+
+func testMutableRecordTimestamps(t *testing.T, repository *SQLRepository, definition domain.BlackboardDefinition) {
+	t.Helper()
+	ctx := context.Background()
+	createdAt := repositoryTestTime.Add(10*time.Minute + 123456789*time.Nanosecond)
+	updatedAt := repositoryTestTime.Add(20*time.Minute + 987654321*time.Nanosecond)
+	creator, err := application.NewService(repository, repositoryTestClockAt{now: createdAt}, &repositoryTestIDs{})
+	if err != nil {
+		t.Fatalf("new timestamp creator: %v", err)
+	}
+	agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "timestamp-agent"}, Role: "generalist"}
+	workItem, err := creator.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Mutable timestamps", Goal: "Verify persisted updates",
+	})
+	if err != nil {
+		t.Fatalf("create timestamp WorkItem: %v", err)
+	}
+	task, err := creator.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent, Title: "Submit timestamped Artifact", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create timestamp Task: %v", err)
+	}
+	claim, err := creator.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("create timestamp Claim: %v", err)
+	}
+	artifact, err := creator.CreateArtifact(ctx, application.CreateArtifactCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Name: "timestamp", URI: "https://example.test/timestamp",
+	})
+	if err != nil {
+		t.Fatalf("create timestamp Artifact: %v", err)
+	}
+	updater, err := application.NewService(repository, repositoryTestClockAt{now: updatedAt}, &repositoryTestIDs{})
+	if err != nil {
+		t.Fatalf("new timestamp updater: %v", err)
+	}
+	if _, err := updater.SubmitTask(ctx, application.SubmitTaskCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Result: "done", ArtifactIDs: []domain.ArtifactID{artifact.ID},
+	}); err != nil {
+		t.Fatalf("submit timestamp Task: %v", err)
+	}
+
+	pending := application.IdempotencyRecord{
+		Actor: agent.Actor, OperationID: "timestamp-pending", Operation: "upload_artifact",
+		Status: application.IdempotencyPending, RequestHash: "timestamp-hash", Response: `{}`, CreatedAt: createdAt,
+	}
+	if err := repository.Update(ctx, func(store application.WriteStore) error {
+		if err := store.CreateIdempotencyRecord(pending); err != nil {
+			return err
+		}
+		pending.Response = `{"digest":"sha256:timestamp"}`
+		return store.SaveIdempotencyRecord(pending, updatedAt)
+	}); err != nil {
+		t.Fatalf("update timestamp Idempotency Record: %v", err)
+	}
+
+	wantCreated := createdAt.UTC().Truncate(time.Microsecond)
+	wantUpdated := updatedAt.UTC().Truncate(time.Microsecond)
+	if !workItem.CreatedAt.Equal(wantCreated) || !task.CreatedAt.Equal(wantCreated) || !claim.ClaimedAt.Equal(wantCreated) || !artifact.CreatedAt.Equal(wantCreated) {
+		t.Fatalf("application timestamps were not normalized to %s: work=%s task=%s claim=%s artifact=%s", wantCreated, workItem.CreatedAt, task.CreatedAt, claim.ClaimedAt, artifact.CreatedAt)
+	}
+	var claimUpdated, artifactCreated, artifactUpdated, recordCreated, recordUpdated scannedTime
+	query := rebind(repository.dialect, "SELECT updated_at FROM claims WHERE id = ?")
+	if err := repository.db.QueryRowContext(ctx, query, claim.ID).Scan(&claimUpdated); err != nil {
+		t.Fatalf("query Claim updated_at: %v", err)
+	}
+	query = rebind(repository.dialect, "SELECT created_at, updated_at FROM artifacts WHERE id = ?")
+	if err := repository.db.QueryRowContext(ctx, query, artifact.ID).Scan(&artifactCreated, &artifactUpdated); err != nil {
+		t.Fatalf("query Artifact timestamps: %v", err)
+	}
+	query = rebind(repository.dialect, "SELECT created_at, updated_at FROM idempotency_records WHERE actor_kind = ? AND actor_id = ? AND operation_id = ?")
+	if err := repository.db.QueryRowContext(ctx, query, agent.Actor.Kind, agent.Actor.ID, pending.OperationID).Scan(&recordCreated, &recordUpdated); err != nil {
+		t.Fatalf("query Idempotency timestamps: %v", err)
+	}
+	if !claimUpdated.Time.Equal(wantUpdated) {
+		t.Fatalf("Claim updated_at = %s, want %s", claimUpdated.Time, wantUpdated)
+	}
+	if !artifactCreated.Time.Equal(wantCreated) || !artifactUpdated.Time.Equal(wantUpdated) {
+		t.Fatalf("Artifact timestamps = %s/%s, want %s/%s", artifactCreated.Time, artifactUpdated.Time, wantCreated, wantUpdated)
+	}
+	if !recordCreated.Time.Equal(wantCreated) || !recordUpdated.Time.Equal(wantUpdated) {
+		t.Fatalf("Idempotency timestamps = %s/%s, want %s/%s", recordCreated.Time, recordUpdated.Time, wantCreated, wantUpdated)
+	}
+}
+
+func testQueryableDomainColumns(
+	t *testing.T,
+	repository *SQLRepository,
+	workflow domain.WorkflowDefinition,
+	blackboard domain.BlackboardDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	olderTime := repositoryTestTime.Add(time.Minute + 123456789*time.Nanosecond)
+	newerTime := repositoryTestTime.Add(2*time.Minute + 987654321*time.Nanosecond)
+	older := domain.WorkItem{
+		ID: "queryable-older", Definition: blackboard.Binding(), Status: domain.WorkItemStatusOpen,
+		AcceptanceMode: domain.WorkItemAcceptanceNone, Title: "Older", Goal: "Verify query columns",
+		Tags: []string{"osr05", "auth"}, CreatedAt: olderTime, UpdatedAt: olderTime,
+	}
+	newer := domain.WorkItem{
+		ID: "queryable-newer", Definition: blackboard.Binding(), Status: domain.WorkItemStatusOpen,
+		AcceptanceMode: domain.WorkItemAcceptanceNone, Title: "Newer", Goal: "Verify query ordering",
+		Tags: []string{"osr05"}, CreatedAt: newerTime, UpdatedAt: newerTime,
+	}
+	workflowItem := domain.WorkItem{
+		ID: "queryable-workflow", Definition: workflow.Binding(), Status: domain.WorkItemStatusOpen,
+		AcceptanceMode: domain.WorkItemAcceptanceNone, Title: "Workflow", Goal: "Verify mode filtering",
+		Tags: []string{"osr05", "workflow"}, CreatedAt: newerTime, UpdatedAt: newerTime,
+	}
+	workflowDraft := workflow
+	workflowDraft.Version++
+	workflowDraft.Status = domain.DefinitionStatusDraft
+	workflowDraft.UpdatedAt = newerTime
+	blackboardDraft := blackboard
+	blackboardDraft.Version++
+	blackboardDraft.Status = domain.DefinitionStatusDraft
+	blackboardDraft.UpdatedAt = newerTime
+	workflowTaskID := workflow.Graph.Tasks[0].ID
+	workflowActivationID := domain.WorkflowTaskActivationID("queryable-workflow-activation")
+	workflowExecution := workflow.Graph.Tasks[0].Execution
+	workflowReview := workflow.Graph.Tasks[0].ReviewPolicy
+	relation := domain.TaskRelation{
+		WorkItemID: older.ID, FromTaskID: "queryable-agent-match", ToTaskID: "queryable-unrestricted", CreatedAt: olderTime,
+	}
+	tasks := []domain.Task{
+		{ID: "queryable-agent-match", WorkItemID: older.ID, Status: domain.TaskStatusPending, Title: "Agent match", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Tags: []string{"osr05-task", "auth"}, CreatedAt: olderTime, UpdatedAt: olderTime},
+		{ID: "queryable-agent-other-role", WorkItemID: older.ID, Status: domain.TaskStatusPending, Title: "Agent other role", Executor: domain.ExecutorAgent, AllowedRoles: []string{"frontend"}, Tags: []string{"osr05-task", "auth"}, Position: 1, CreatedAt: olderTime, UpdatedAt: olderTime},
+		{ID: "queryable-human", WorkItemID: older.ID, Status: domain.TaskStatusPending, Title: "Human", Executor: domain.ExecutorHuman, Tags: []string{"osr05-task", "auth"}, Position: 2, CreatedAt: olderTime, UpdatedAt: olderTime},
+		{ID: "queryable-unrestricted", WorkItemID: older.ID, Status: domain.TaskStatusPending, Title: "Unrestricted", Executor: domain.ExecutorAgent, Tags: []string{"osr05-task", "other"}, Position: 3, CreatedAt: olderTime, UpdatedAt: olderTime},
+		{ID: "queryable-workflow-task", WorkItemID: workflowItem.ID, WorkflowTaskID: &workflowTaskID, WorkflowActivationID: &workflowActivationID, Status: domain.TaskStatusPending, Title: "Workflow tags are descriptive", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Tags: []string{"workflow-label"}, Execution: &workflowExecution, ReviewPolicy: &workflowReview, CreatedAt: newerTime, UpdatedAt: newerTime},
+	}
+	if err := repository.Update(ctx, func(store application.WriteStore) error {
+		if err := store.CreateWorkflowDefinition(workflowDraft); err != nil {
+			return err
+		}
+		if err := store.CreateBlackboardDefinition(blackboardDraft); err != nil {
+			return err
+		}
+		for _, workItem := range []domain.WorkItem{older, newer, workflowItem} {
+			if err := store.CreateWorkItem(workItem); err != nil {
+				return err
+			}
+		}
+		for _, task := range tasks {
+			if err := store.CreateTask(task); err != nil {
+				return err
+			}
+		}
+		if err := store.CreateTaskRelation(relation); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("create queryable records: %v", err)
+	}
+
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		persistedOlder, err := store.GetWorkItem(older.ID)
+		if err != nil {
+			return err
+		}
+		if !persistedOlder.CreatedAt.Equal(olderTime.Truncate(time.Microsecond)) || !persistedOlder.UpdatedAt.Equal(olderTime.Truncate(time.Microsecond)) {
+			return fmt.Errorf("payload timestamps = %s/%s, want microsecond precision", persistedOlder.CreatedAt, persistedOlder.UpdatedAt)
+		}
+		latestWorkflow, err := store.GetLatestPublishedWorkflowDefinition(workflow.ID)
+		if err != nil || latestWorkflow.Version != workflow.Version {
+			return fmt.Errorf("latest published Workflow = version %d, err %v; want %d", latestWorkflow.Version, err, workflow.Version)
+		}
+		latestBlackboard, err := store.GetLatestPublishedBlackboardDefinition(blackboard.ID)
+		if err != nil || latestBlackboard.Version != blackboard.Version {
+			return fmt.Errorf("latest published Blackboard = version %d, err %v; want %d", latestBlackboard.Version, err, blackboard.Version)
+		}
+		workItems, err := store.ListWorkItems(application.WorkItemFilter{
+			Statuses: []domain.WorkItemStatus{domain.WorkItemStatusOpen},
+			Modes:    []domain.CoordinationMode{domain.CoordinationModeBlackboard},
+			Tags:     []string{"osr05"},
+		})
+		if err != nil {
+			return err
+		}
+		if len(workItems) != 2 || workItems[0].ID != newer.ID || workItems[1].ID != older.ID {
+			return fmt.Errorf("filtered work items = %v, want %q then %q", workItemIDs(workItems), newer.ID, older.ID)
+		}
+		matching, err := store.ListWorkItems(application.WorkItemFilter{Tags: []string{"osr05", "auth"}})
+		if err != nil {
+			return err
+		}
+		if len(matching) != 1 || matching[0].ID != older.ID {
+			return fmt.Errorf("contains-all work items = %v, want only %q", workItemIDs(matching), older.ID)
+		}
+
+		agentCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "backend", Tags: []string{"osr05-task", "auth"}})
+		if err != nil {
+			return err
+		}
+		if !candidateContains(agentCandidates, "queryable-agent-match") || candidateContains(agentCandidates, "queryable-agent-other-role") || candidateContains(agentCandidates, "queryable-human") {
+			return fmt.Errorf("backend candidates = %v", candidateTaskIDs(agentCandidates))
+		}
+		humanCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorHuman, Tags: []string{"osr05-task", "auth"}})
+		if err != nil {
+			return err
+		}
+		if !candidateContains(humanCandidates, "queryable-human") || candidateContains(humanCandidates, "queryable-agent-match") {
+			return fmt.Errorf("human candidates = %v", candidateTaskIDs(humanCandidates))
+		}
+		unrestricted, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "any-role", Tags: []string{"osr05-task", "other"}})
+		if err != nil {
+			return err
+		}
+		if !candidateContains(unrestricted, "queryable-unrestricted") {
+			return fmt.Errorf("unrestricted candidates = %v", candidateTaskIDs(unrestricted))
+		}
+		workflowCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "backend", Tags: []string{"not-a-workflow-label"}})
+		if err != nil {
+			return err
+		}
+		if !candidateContains(workflowCandidates, "queryable-workflow-task") {
+			return fmt.Errorf("Workflow candidates filtered by descriptive tags: %v", candidateTaskIDs(workflowCandidates))
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("query dedicated columns: %v", err)
+	}
+
+	arrayExpression := "tags"
+	rolesExpression := "allowed_roles"
+	if repository.dialect == dialectPostgres {
+		arrayExpression = "to_json(tags)::text"
+		rolesExpression = "to_json(allowed_roles)::text"
+	}
+	var tagsJSON, rolesJSON, executor, definitionStatus string
+	var createdAt, updatedAt scannedTime
+	query := rebind(repository.dialect, "SELECT "+arrayExpression+", created_at, updated_at FROM work_items WHERE id = ?")
+	if err := repository.db.QueryRowContext(ctx, query, older.ID).Scan(&tagsJSON, &createdAt, &updatedAt); err != nil {
+		t.Fatalf("query WorkItem columns: %v", err)
+	}
+	var storedTags []string
+	if err := json.Unmarshal([]byte(tagsJSON), &storedTags); err != nil || !slices.Equal(storedTags, older.Tags) {
+		t.Fatalf("stored WorkItem tags = %q (%v), want %v", tagsJSON, err, older.Tags)
+	}
+	if !createdAt.Time.Equal(olderTime.Truncate(time.Microsecond)) || !updatedAt.Time.Equal(olderTime.Truncate(time.Microsecond)) {
+		t.Fatalf("stored WorkItem timestamps = %s/%s, want microsecond-normalized %s", createdAt.Time, updatedAt.Time, olderTime)
+	}
+	query = rebind(repository.dialect, "SELECT executor, "+rolesExpression+" FROM tasks WHERE id = ?")
+	if err := repository.db.QueryRowContext(ctx, query, tasks[0].ID).Scan(&executor, &rolesJSON); err != nil {
+		t.Fatalf("query Task columns: %v", err)
+	}
+	var storedRoles []string
+	if err := json.Unmarshal([]byte(rolesJSON), &storedRoles); err != nil || executor != string(domain.ExecutorAgent) || !slices.Equal(storedRoles, tasks[0].AllowedRoles) {
+		t.Fatalf("stored Task executor/roles = %q/%q (%v)", executor, rolesJSON, err)
+	}
+	query = rebind(repository.dialect, "SELECT "+rolesExpression+" FROM tasks WHERE id = ?")
+	if err := repository.db.QueryRowContext(ctx, query, tasks[3].ID).Scan(&rolesJSON); err != nil {
+		t.Fatalf("query empty roles: %v", err)
+	}
+	if rolesJSON != "[]" {
+		t.Fatalf("stored empty roles = %q, want []", rolesJSON)
+	}
+	var relationCreatedAt scannedTime
+	query = rebind(repository.dialect, "SELECT created_at FROM task_relations WHERE work_item_id = ? AND from_task_id = ? AND to_task_id = ?")
+	if err := repository.db.QueryRowContext(ctx, query, relation.WorkItemID, relation.FromTaskID, relation.ToTaskID).Scan(&relationCreatedAt); err != nil {
+		t.Fatalf("query TaskRelation created_at: %v", err)
+	}
+	if !relationCreatedAt.Time.Equal(olderTime.Truncate(time.Microsecond)) {
+		t.Fatalf("TaskRelation created_at = %s, want %s", relationCreatedAt.Time, olderTime.Truncate(time.Microsecond))
+	}
+	query = rebind(repository.dialect, "SELECT status FROM definitions WHERE id = ? AND version = ? AND mode = ?")
+	if err := repository.db.QueryRowContext(ctx, query, workflow.ID, workflow.Version, domain.CoordinationModeWorkflow).Scan(&definitionStatus); err != nil {
+		t.Fatalf("query Definition status: %v", err)
+	}
+	if definitionStatus != string(domain.DefinitionStatusPublished) {
+		t.Fatalf("Definition status = %q, want published", definitionStatus)
+	}
+}
+
+func workItemIDs(values []domain.WorkItem) []domain.WorkItemID {
+	result := make([]domain.WorkItemID, len(values))
+	for index := range values {
+		result[index] = values[index].ID
+	}
+	return result
+}
+
+func candidateContains(values []application.WorkCandidate, id domain.TaskID) bool {
+	return slices.Contains(candidateTaskIDs(values), id)
+}
+
+func candidateTaskIDs(values []application.WorkCandidate) []domain.TaskID {
+	result := make([]domain.TaskID, 0, len(values))
+	for _, value := range values {
+		if value.Task != nil {
+			result = append(result, value.Task.ID)
+		}
+	}
+	return result
 }
 
 func testArtifactBlobConflict(t *testing.T, repository *SQLRepository) {
@@ -271,7 +576,7 @@ func testBlackboardLifecycleCandidates(t *testing.T, repository *SQLRepository, 
 	var candidates []domain.WorkItem
 	if err := repository.View(ctx, func(store application.ReadStore) error {
 		var err error
-		candidates, err = store.ListBlackboardsAwaitingLifecycleDecision()
+		candidates, err = store.ListBlackboardsAwaitingLifecycleDecision(nil)
 		return err
 	}); err != nil {
 		t.Fatalf("list lifecycle candidates: %v", err)
@@ -320,8 +625,9 @@ func testClaimLeaseColumns(t *testing.T, repository *SQLRepository, definition d
 	assertColumns := func(id domain.ClaimID, wantKind, wantID string, wantLease bool) {
 		t.Helper()
 		var kind, executorID string
-		var heartbeat, until, seconds sql.NullInt64
-		query := rebind(repository.dialect, "SELECT executor_kind, executor_id, last_heartbeat_at_ns, lease_until_ns, lease_seconds FROM claims WHERE id = ?")
+		var heartbeat, until nullableScannedTime
+		var seconds sql.NullInt64
+		query := rebind(repository.dialect, "SELECT executor_kind, executor_id, last_heartbeat_at, lease_until, lease_seconds FROM claims WHERE id = ?")
 		if err := repository.db.QueryRowContext(ctx, query, id).Scan(&kind, &executorID, &heartbeat, &until, &seconds); err != nil {
 			t.Fatalf("query claim columns: %v", err)
 		}

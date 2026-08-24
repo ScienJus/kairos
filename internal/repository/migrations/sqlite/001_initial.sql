@@ -2,6 +2,9 @@ CREATE TABLE definitions (
     id TEXT NOT NULL,
     version INTEGER NOT NULL,
     mode TEXT NOT NULL CHECK (mode IN ('workflow', 'blackboard')),
+    status TEXT NOT NULL CHECK (status IN ('draft', 'published', 'archived')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload)),
     PRIMARY KEY (id, version, mode)
 );
@@ -13,22 +16,30 @@ CREATE TABLE work_items (
     mode TEXT NOT NULL CHECK (mode IN ('workflow', 'blackboard')),
     status TEXT NOT NULL,
     acceptance_mode TEXT NOT NULL DEFAULT 'none' CHECK (acceptance_mode IN ('none', 'agent', 'human')),
+    tags TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags) AND json_type(tags) = 'array'),
     version INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload)),
     FOREIGN KEY (definition_id, definition_version, mode)
         REFERENCES definitions (id, version, mode)
 );
 -- +kairos StatementBreak
-CREATE INDEX work_items_status_idx ON work_items (status, id);
+CREATE INDEX work_items_status_idx ON work_items (status, mode, updated_at, id);
 -- +kairos StatementBreak
 CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
     work_item_id TEXT NOT NULL REFERENCES work_items (id),
     parent_task_id TEXT REFERENCES tasks (id),
     status TEXT NOT NULL,
+    executor TEXT NOT NULL CHECK (executor IN ('agent', 'human', 'either')),
+    allowed_roles TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(allowed_roles) AND json_type(allowed_roles) = 'array'),
+    tags TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags) AND json_type(tags) = 'array'),
     active_claim_id TEXT,
     position INTEGER NOT NULL,
     version INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload)),
     UNIQUE (work_item_id, id)
 );
@@ -44,6 +55,7 @@ CREATE TABLE task_relations (
     work_item_id TEXT NOT NULL REFERENCES work_items (id),
     from_task_id TEXT NOT NULL,
     to_task_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload)),
     PRIMARY KEY (work_item_id, from_task_id, to_task_id),
     FOREIGN KEY (work_item_id, from_task_id)
@@ -60,16 +72,17 @@ CREATE TABLE claims (
     executor_kind TEXT NOT NULL CHECK (executor_kind IN ('agent', 'human')),
     executor_id TEXT NOT NULL,
     active INTEGER NOT NULL CHECK (active IN (0, 1)),
-    claimed_at_ns INTEGER NOT NULL,
-    last_heartbeat_at_ns INTEGER,
-    lease_until_ns INTEGER,
+    claimed_at TEXT NOT NULL,
+    last_heartbeat_at TEXT,
+    lease_until TEXT,
     lease_seconds INTEGER,
+    updated_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload))
 );
 -- +kairos StatementBreak
-CREATE INDEX claims_task_time_idx ON claims (task_id, claimed_at_ns, id);
+CREATE INDEX claims_task_time_idx ON claims (task_id, claimed_at, id);
 -- +kairos StatementBreak
-CREATE INDEX claims_active_lease_idx ON claims (active, lease_until_ns, task_id);
+CREATE INDEX claims_active_lease_idx ON claims (active, lease_until, task_id);
 -- +kairos StatementBreak
 CREATE TABLE workflow_activations (
     id TEXT PRIMARY KEY,
@@ -77,18 +90,19 @@ CREATE TABLE workflow_activations (
     workflow_task_id TEXT NOT NULL,
     correlation_id TEXT NOT NULL,
     status TEXT NOT NULL,
-    created_at_ns INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload))
 );
 -- +kairos StatementBreak
 CREATE INDEX workflow_activations_lookup_idx
-    ON workflow_activations (work_item_id, workflow_task_id, correlation_id, status, created_at_ns, id);
+    ON workflow_activations (work_item_id, workflow_task_id, correlation_id, status, created_at, id);
 -- +kairos StatementBreak
 CREATE TABLE work_item_events (
     id TEXT PRIMARY KEY,
     work_item_id TEXT NOT NULL REFERENCES work_items (id),
     sequence INTEGER NOT NULL,
-    occurred_at_ns INTEGER NOT NULL,
+    occurred_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload)),
     UNIQUE (work_item_id, sequence)
 );
@@ -104,12 +118,13 @@ CREATE TABLE idempotency_records (
 	status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed')),
 	request_hash TEXT NOT NULL,
     response TEXT NOT NULL CHECK (json_valid(response)),
-    created_at_ns INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     PRIMARY KEY (actor_kind, actor_id, operation_id)
 );
 -- +kairos StatementBreak
 CREATE INDEX idempotency_records_pending_gc_idx
-    ON idempotency_records (status, created_at_ns, actor_kind, actor_id, operation_id);
+    ON idempotency_records (status, created_at, actor_kind, actor_id, operation_id);
 -- +kairos StatementBreak
 CREATE TABLE identities (
     actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human', 'agent')),
@@ -117,8 +132,8 @@ CREATE TABLE identities (
     role TEXT NOT NULL,
     token_hash TEXT UNIQUE,
     version INTEGER NOT NULL,
-    created_at_ns INTEGER NOT NULL,
-    updated_at_ns INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     PRIMARY KEY (actor_kind, actor_id),
     CHECK (
         (actor_kind = 'human' AND role = '') OR

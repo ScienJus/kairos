@@ -42,6 +42,14 @@ type Service struct {
 	artifactStoreMu     sync.RWMutex
 }
 
+type microsecondClock struct {
+	Clock
+}
+
+func (clock microsecondClock) Now() time.Time {
+	return clock.Clock.Now().UTC().Truncate(time.Microsecond)
+}
+
 // StartLeaseReaper periodically returns abandoned tasks to the pending queue.
 // The returned stop function waits for the worker to exit.
 func (s *Service) StartLeaseReaper(ctx context.Context, interval time.Duration) func() {
@@ -124,7 +132,7 @@ func NewService(repository Repository, clock Clock, ids IDGenerator) (*Service, 
 	if ids == nil {
 		return nil, fmt.Errorf("%w: id generator is required", ErrInvalidCommand)
 	}
-	return &Service{repository: repository, clock: clock, ids: ids, claimLease: DefaultClaimLease}, nil
+	return &Service{repository: repository, clock: microsecondClock{Clock: clock}, ids: ids, claimLease: DefaultClaimLease}, nil
 }
 
 // ConfigureArtifactStore selects the managed content store for this service.

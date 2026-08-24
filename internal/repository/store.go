@@ -61,8 +61,39 @@ func (s *sqlStore) GetWorkItem(id domain.WorkItemID) (domain.WorkItem, error) {
 	return decodeJSON[domain.WorkItem](payload)
 }
 
-func (s *sqlStore) ListWorkItems() ([]domain.WorkItem, error) {
-	rows, err := s.query("SELECT payload FROM work_items ORDER BY id")
+func (s *sqlStore) ListWorkItems(filter application.WorkItemFilter) ([]domain.WorkItem, error) {
+	conditions := make([]string, 0)
+	args := make([]any, 0)
+	if len(filter.Statuses) > 0 {
+		placeholders := make([]string, len(filter.Statuses))
+		for index, status := range filter.Statuses {
+			placeholders[index] = "?"
+			args = append(args, status)
+		}
+		conditions = append(conditions, "status IN ("+strings.Join(placeholders, ", ")+")")
+	}
+	if len(filter.Modes) > 0 {
+		placeholders := make([]string, len(filter.Modes))
+		for index, mode := range filter.Modes {
+			placeholders[index] = "?"
+			args = append(args, mode)
+		}
+		conditions = append(conditions, "mode IN ("+strings.Join(placeholders, ", ")+")")
+	}
+	for _, tag := range filter.Tags {
+		if s.dialect == dialectPostgres {
+			conditions = append(conditions, "tags @> ARRAY[?]::TEXT[]")
+		} else {
+			conditions = append(conditions, "EXISTS (SELECT 1 FROM json_each(work_items.tags) WHERE value = ?)")
+		}
+		args = append(args, tag)
+	}
+	query := "SELECT payload FROM work_items"
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY updated_at DESC, id"
+	rows, err := s.query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +181,7 @@ func (s *sqlStore) ListTaskRelations(workItemID domain.WorkItemID) ([]domain.Tas
 
 func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
 	rows, err := s.query(
-		"SELECT payload, executor_kind, executor_id, last_heartbeat_at_ns, lease_until_ns, lease_seconds FROM claims WHERE task_id = ? ORDER BY claimed_at_ns, id",
+		"SELECT payload, executor_kind, executor_id, last_heartbeat_at, lease_until, lease_seconds FROM claims WHERE task_id = ? ORDER BY claimed_at, id",
 		taskID,
 	)
 	if err != nil {
@@ -161,7 +192,7 @@ func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
 	for rows.Next() {
 		var payload string
 		var executorKind, executorID string
-		var heartbeat, lease sql.NullInt64
+		var heartbeat, lease nullableScannedTime
 		var leaseSeconds sql.NullInt64
 		if err := rows.Scan(&payload, &executorKind, &executorID, &heartbeat, &lease, &leaseSeconds); err != nil {
 			return nil, normalizeError(err)
@@ -172,10 +203,10 @@ func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
 		}
 		value.Executor = domain.ActorRef{Kind: domain.ActorKind(executorKind), ID: domain.ActorID(executorID)}
 		if heartbeat.Valid {
-			value.LastHeartbeatAt = time.Unix(0, heartbeat.Int64).UTC()
+			value.LastHeartbeatAt = heartbeat.Time
 		}
 		if lease.Valid {
-			value.LeaseUntil = time.Unix(0, lease.Int64).UTC()
+			value.LeaseUntil = lease.Time
 		}
 		if leaseSeconds.Valid {
 			value.LeaseSeconds = leaseSeconds.Int64
@@ -188,12 +219,12 @@ func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
 func (s *sqlStore) GetArtifact(id domain.ArtifactID) (domain.Artifact, error) {
 	var artifact domain.Artifact
 	var submissionID sql.NullString
-	var createdAtNS int64
+	var createdAt scannedTime
 	if err := s.queryRow(`
-		SELECT id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at_ns
+		SELECT id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at
 		FROM artifacts WHERE id = ?`, id).Scan(
 		&artifact.ID, &artifact.WorkItemID, &artifact.TaskID, &artifact.ClaimID,
-		&submissionID, &artifact.Name, &artifact.URI, &createdAtNS,
+		&submissionID, &artifact.Name, &artifact.URI, &createdAt,
 	); err != nil {
 		return domain.Artifact{}, normalizeError(err)
 	}
@@ -201,14 +232,14 @@ func (s *sqlStore) GetArtifact(id domain.ArtifactID) (domain.Artifact, error) {
 		value := domain.SubmissionID(submissionID.String)
 		artifact.SubmissionID = &value
 	}
-	artifact.CreatedAt = time.Unix(0, createdAtNS).UTC()
+	artifact.CreatedAt = createdAt.Time
 	return artifact, nil
 }
 
 func (s *sqlStore) ListArtifacts(workItemID domain.WorkItemID) ([]domain.Artifact, error) {
 	rows, err := s.query(`
-		SELECT id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at_ns
-		FROM artifacts WHERE work_item_id = ? ORDER BY created_at_ns, id`, workItemID)
+		SELECT id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at
+		FROM artifacts WHERE work_item_id = ? ORDER BY created_at, id`, workItemID)
 	if err != nil {
 		return nil, err
 	}
@@ -217,10 +248,10 @@ func (s *sqlStore) ListArtifacts(workItemID domain.WorkItemID) ([]domain.Artifac
 	for rows.Next() {
 		var artifact domain.Artifact
 		var submissionID sql.NullString
-		var createdAtNS int64
+		var createdAt scannedTime
 		if err := rows.Scan(
 			&artifact.ID, &artifact.WorkItemID, &artifact.TaskID, &artifact.ClaimID,
-			&submissionID, &artifact.Name, &artifact.URI, &createdAtNS,
+			&submissionID, &artifact.Name, &artifact.URI, &createdAt,
 		); err != nil {
 			return nil, normalizeError(err)
 		}
@@ -228,7 +259,7 @@ func (s *sqlStore) ListArtifacts(workItemID domain.WorkItemID) ([]domain.Artifac
 			value := domain.SubmissionID(submissionID.String)
 			artifact.SubmissionID = &value
 		}
-		artifact.CreatedAt = time.Unix(0, createdAtNS).UTC()
+		artifact.CreatedAt = createdAt.Time
 		result = append(result, artifact)
 	}
 	return result, normalizeError(rows.Err())
@@ -236,23 +267,23 @@ func (s *sqlStore) ListArtifacts(workItemID domain.WorkItemID) ([]domain.Artifac
 
 func (s *sqlStore) GetArtifactBlob(uri string) (domain.ArtifactBlob, error) {
 	var blob domain.ArtifactBlob
-	var createdAtNS int64
+	var createdAt scannedTime
 	if err := s.queryRow(`
-		SELECT uri, digest, size, created_at_ns FROM artifact_blobs WHERE uri = ?`, uri,
-	).Scan(&blob.URI, &blob.Digest, &blob.Size, &createdAtNS); err != nil {
+		SELECT uri, digest, size, created_at FROM artifact_blobs WHERE uri = ?`, uri,
+	).Scan(&blob.URI, &blob.Digest, &blob.Size, &createdAt); err != nil {
 		return domain.ArtifactBlob{}, normalizeError(err)
 	}
-	blob.CreatedAt = time.Unix(0, createdAtNS).UTC()
+	blob.CreatedAt = createdAt.Time
 	return blob, nil
 }
 
 func (s *sqlStore) ListArtifactGarbage(before time.Time) ([]domain.Artifact, error) {
 	rows, err := s.query(`
-		SELECT a.id, a.work_item_id, a.task_id, a.claim_id, a.submission_id, a.name, a.uri, a.created_at_ns
+		SELECT a.id, a.work_item_id, a.task_id, a.claim_id, a.submission_id, a.name, a.uri, a.created_at
 		FROM artifacts a
 		JOIN claims c ON c.id = a.claim_id
-		WHERE a.submission_id IS NULL AND c.active = ? AND a.created_at_ns <= ?
-		ORDER BY a.created_at_ns, a.id`, false, before.UnixNano())
+		WHERE a.submission_id IS NULL AND c.active = ? AND a.created_at <= ?
+		ORDER BY a.created_at, a.id`, false, databaseTime(before))
 	if err != nil {
 		return nil, err
 	}
@@ -270,11 +301,11 @@ func (s *sqlStore) ListArtifactGarbage(before time.Time) ([]domain.Artifact, err
 
 func (s *sqlStore) ListUnreferencedArtifactBlobs(before time.Time) ([]domain.ArtifactBlob, error) {
 	rows, err := s.query(`
-		SELECT b.uri, b.digest, b.size, b.created_at_ns
+		SELECT b.uri, b.digest, b.size, b.created_at
 		FROM artifact_blobs b
-		WHERE b.created_at_ns <= ?
+		WHERE b.created_at <= ?
 		  AND NOT EXISTS (SELECT 1 FROM artifacts a WHERE a.uri = b.uri)
-		ORDER BY b.created_at_ns, b.uri`, before.UnixNano())
+		ORDER BY b.created_at, b.uri`, databaseTime(before))
 	if err != nil {
 		return nil, err
 	}
@@ -282,11 +313,11 @@ func (s *sqlStore) ListUnreferencedArtifactBlobs(before time.Time) ([]domain.Art
 	result := make([]domain.ArtifactBlob, 0)
 	for rows.Next() {
 		var blob domain.ArtifactBlob
-		var createdAtNS int64
-		if err := rows.Scan(&blob.URI, &blob.Digest, &blob.Size, &createdAtNS); err != nil {
+		var createdAt scannedTime
+		if err := rows.Scan(&blob.URI, &blob.Digest, &blob.Size, &createdAt); err != nil {
 			return nil, normalizeError(err)
 		}
-		blob.CreatedAt = time.Unix(0, createdAtNS).UTC()
+		blob.CreatedAt = createdAt.Time
 		result = append(result, blob)
 	}
 	return result, normalizeError(rows.Err())
@@ -307,10 +338,10 @@ type artifactScanner interface {
 func scanArtifact(scanner artifactScanner) (domain.Artifact, error) {
 	var artifact domain.Artifact
 	var submissionID sql.NullString
-	var createdAtNS int64
+	var createdAt scannedTime
 	if err := scanner.Scan(
 		&artifact.ID, &artifact.WorkItemID, &artifact.TaskID, &artifact.ClaimID,
-		&submissionID, &artifact.Name, &artifact.URI, &createdAtNS,
+		&submissionID, &artifact.Name, &artifact.URI, &createdAt,
 	); err != nil {
 		return domain.Artifact{}, normalizeError(err)
 	}
@@ -318,7 +349,7 @@ func scanArtifact(scanner artifactScanner) (domain.Artifact, error) {
 		value := domain.SubmissionID(submissionID.String)
 		artifact.SubmissionID = &value
 	}
-	artifact.CreatedAt = time.Unix(0, createdAtNS).UTC()
+	artifact.CreatedAt = createdAt.Time
 	return artifact, nil
 }
 
@@ -336,7 +367,7 @@ func (s *sqlStore) ListWorkflowTaskActivations(
 	workItemID domain.WorkItemID,
 ) ([]domain.WorkflowTaskActivation, error) {
 	rows, err := s.query(
-		"SELECT payload FROM workflow_activations WHERE work_item_id = ? ORDER BY created_at_ns, id",
+		"SELECT payload FROM workflow_activations WHERE work_item_id = ? ORDER BY created_at, id",
 		workItemID,
 	)
 	if err != nil {
@@ -358,13 +389,39 @@ func (s *sqlStore) ListWorkflowTaskActivations(
 	return result, normalizeError(rows.Err())
 }
 
-func (s *sqlStore) ListOpenTasks() ([]application.WorkCandidate, error) {
+func (s *sqlStore) ListOpenTasks(filter application.OpenTaskFilter) ([]application.WorkCandidate, error) {
+	conditions := []string{"w.status = ?", "t.status = ?"}
+	args := []any{domain.WorkItemStatusOpen, domain.TaskStatusPending}
+	switch filter.ActorKind {
+	case domain.ActorHuman:
+		conditions = append(conditions, "t.executor IN (?, ?)")
+		args = append(args, domain.ExecutorHuman, domain.ExecutorEither)
+	case domain.ActorAgent:
+		conditions = append(conditions, "t.executor IN (?, ?)")
+		args = append(args, domain.ExecutorAgent, domain.ExecutorEither)
+		if s.dialect == dialectPostgres {
+			conditions = append(conditions, "(cardinality(t.allowed_roles) = 0 OR t.allowed_roles @> ARRAY[?]::TEXT[])")
+		} else {
+			conditions = append(conditions, "(json_array_length(t.allowed_roles) = 0 OR EXISTS (SELECT 1 FROM json_each(t.allowed_roles) WHERE value = ?))")
+		}
+		args = append(args, filter.Role)
+	default:
+		conditions = append(conditions, "1 = 0")
+	}
+	for _, tag := range filter.Tags {
+		if s.dialect == dialectPostgres {
+			conditions = append(conditions, "(w.mode = ? OR t.tags @> ARRAY[?]::TEXT[])")
+		} else {
+			conditions = append(conditions, "(w.mode = ? OR EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ?))")
+		}
+		args = append(args, domain.CoordinationModeWorkflow, tag)
+	}
 	rows, err := s.query(`
 		SELECT w.payload, t.payload
 		FROM tasks t
 		JOIN work_items w ON w.id = t.work_item_id
-		WHERE w.status = ? AND t.status = ?
-		ORDER BY w.id, t.position, t.id`, domain.WorkItemStatusOpen, domain.TaskStatusPending)
+		WHERE `+strings.Join(conditions, " AND ")+`
+		ORDER BY w.id, t.position, t.id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -390,13 +447,15 @@ func (s *sqlStore) ListOpenTasks() ([]application.WorkCandidate, error) {
 	return result, normalizeError(rows.Err())
 }
 
-func (s *sqlStore) ListEmptyBlackboards() ([]domain.WorkItem, error) {
+func (s *sqlStore) ListEmptyBlackboards(tags []string) ([]domain.WorkItem, error) {
+	conditions := []string{"w.status = ?", "w.mode = ?", "NOT EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)"}
+	args := []any{domain.WorkItemStatusOpen, domain.CoordinationModeBlackboard}
+	conditions, args = s.appendWorkItemTagConditions(conditions, args, "w", tags)
 	rows, err := s.query(`
 		SELECT w.payload
 		FROM work_items w
-		WHERE w.status = ? AND w.mode = ?
-		  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)
-		ORDER BY w.id`, domain.WorkItemStatusOpen, domain.CoordinationModeBlackboard)
+		WHERE `+strings.Join(conditions, " AND ")+`
+		ORDER BY w.id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -416,12 +475,8 @@ func (s *sqlStore) ListEmptyBlackboards() ([]domain.WorkItem, error) {
 	return result, normalizeError(rows.Err())
 }
 
-func (s *sqlStore) ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem, error) {
-	rows, err := s.query(`
-		SELECT w.payload
-		FROM work_items w
-		WHERE w.mode = ?
-		  AND (
+func (s *sqlStore) ListBlackboardsAwaitingLifecycleDecision(tags []string) ([]domain.WorkItem, error) {
+	conditions := []string{`w.mode = ?`, `(
 			w.status = ?
 			OR (
 			  w.status = ?
@@ -431,14 +486,20 @@ func (s *sqlStore) ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem
 				WHERE t.work_item_id = w.id AND t.status NOT IN (?, ?)
 			  )
 			)
-		  )
-		ORDER BY w.id`,
+		  )`}
+	args := []any{
 		domain.CoordinationModeBlackboard,
 		domain.WorkItemStatusAwaitingAgentAcceptance,
 		domain.WorkItemStatusOpen,
 		domain.TaskStatusCompleted,
 		domain.TaskStatusSkipped,
-	)
+	}
+	conditions, args = s.appendWorkItemTagConditions(conditions, args, "w", tags)
+	rows, err := s.query(`
+		SELECT w.payload
+		FROM work_items w
+		WHERE `+strings.Join(conditions, " AND ")+`
+		ORDER BY w.id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -456,6 +517,18 @@ func (s *sqlStore) ListBlackboardsAwaitingLifecycleDecision() ([]domain.WorkItem
 		result = append(result, workItem)
 	}
 	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) appendWorkItemTagConditions(conditions []string, args []any, alias string, tags []string) ([]string, []any) {
+	for _, tag := range tags {
+		if s.dialect == dialectPostgres {
+			conditions = append(conditions, alias+".tags @> ARRAY[?]::TEXT[]")
+		} else {
+			conditions = append(conditions, "EXISTS (SELECT 1 FROM json_each("+alias+".tags) WHERE value = ?)")
+		}
+		args = append(args, tag)
+	}
+	return conditions, args
 }
 
 func (s *sqlStore) ListReapableAgentClaimTasks(now time.Time) ([]domain.TaskID, error) {
@@ -466,15 +539,15 @@ func (s *sqlStore) ListReapableAgentClaimTasks(now time.Time) ([]domain.TaskID, 
 		JOIN work_items w ON w.id = t.work_item_id
 		WHERE c.executor_kind = ?
 		  AND c.active = ?
-		  AND c.lease_until_ns IS NOT NULL
-		  AND c.lease_until_ns <= ?
+		  AND c.lease_until IS NOT NULL
+		  AND c.lease_until <= ?
 		  AND t.status = ?
 		  AND t.active_claim_id = c.id
 		  AND w.status = ?
-		ORDER BY c.lease_until_ns, c.task_id`,
+		ORDER BY c.lease_until, c.task_id`,
 		domain.ActorAgent,
 		true,
-		now.UnixNano(),
+		databaseTime(now),
 		domain.TaskStatusWorking,
 		domain.WorkItemStatusOpen,
 	)
@@ -567,6 +640,27 @@ func (s *sqlStore) GetBlackboardDefinition(
 	return decodeJSON[domain.BlackboardDefinition](payload)
 }
 
+func (s *sqlStore) GetLatestPublishedWorkflowDefinition(id domain.DefinitionID) (domain.WorkflowDefinition, error) {
+	return latestPublishedDefinition[domain.WorkflowDefinition](s, id, domain.CoordinationModeWorkflow)
+}
+
+func (s *sqlStore) GetLatestPublishedBlackboardDefinition(id domain.DefinitionID) (domain.BlackboardDefinition, error) {
+	return latestPublishedDefinition[domain.BlackboardDefinition](s, id, domain.CoordinationModeBlackboard)
+}
+
+func latestPublishedDefinition[T any](s *sqlStore, id domain.DefinitionID, mode domain.CoordinationMode) (T, error) {
+	var payload string
+	if err := s.queryRow(`
+		SELECT payload FROM definitions
+		WHERE id = ? AND mode = ? AND status = ?
+		ORDER BY version DESC LIMIT 1`, id, mode, domain.DefinitionStatusPublished,
+	).Scan(&payload); err != nil {
+		var zero T
+		return zero, normalizeError(err)
+	}
+	return decodeJSON[T](payload)
+}
+
 func (s *sqlStore) ListWorkflowDefinitions() ([]domain.WorkflowDefinition, error) {
 	return listDefinitions[domain.WorkflowDefinition](s, domain.CoordinationModeWorkflow)
 }
@@ -613,9 +707,9 @@ func (s *sqlStore) GetIdempotencyRecord(
 ) (application.IdempotencyRecord, error) {
 	var record application.IdempotencyRecord
 	var actorKind, actorID string
-	var createdAtNS int64
+	var createdAt scannedTime
 	err := s.queryRow(`
-		SELECT actor_kind, actor_id, operation_id, operation, status, request_hash, response, created_at_ns
+		SELECT actor_kind, actor_id, operation_id, operation, status, request_hash, response, created_at
 		FROM idempotency_records
 		WHERE actor_kind = ? AND actor_id = ? AND operation_id = ?`,
 		actor.Kind, actor.ID, operationID,
@@ -627,22 +721,22 @@ func (s *sqlStore) GetIdempotencyRecord(
 		&record.Status,
 		&record.RequestHash,
 		&record.Response,
-		&createdAtNS,
+		&createdAt,
 	)
 	if err != nil {
 		return application.IdempotencyRecord{}, normalizeError(err)
 	}
 	record.Actor = domain.ActorRef{Kind: domain.ActorKind(actorKind), ID: domain.ActorID(actorID)}
-	record.CreatedAt = time.Unix(0, createdAtNS).UTC()
+	record.CreatedAt = createdAt.Time
 	return record, nil
 }
 
 func (s *sqlStore) ListPendingIdempotencyRecords(before time.Time) ([]application.IdempotencyRecord, error) {
 	rows, err := s.query(`
-		SELECT actor_kind, actor_id, operation_id, operation, status, request_hash, response, created_at_ns
+		SELECT actor_kind, actor_id, operation_id, operation, status, request_hash, response, created_at
 		FROM idempotency_records
-		WHERE status = ? AND created_at_ns <= ?
-		ORDER BY created_at_ns, actor_kind, actor_id, operation_id`, application.IdempotencyPending, before.UnixNano())
+		WHERE status = ? AND created_at <= ?
+		ORDER BY created_at, actor_kind, actor_id, operation_id`, application.IdempotencyPending, databaseTime(before))
 	if err != nil {
 		return nil, err
 	}
@@ -651,34 +745,35 @@ func (s *sqlStore) ListPendingIdempotencyRecords(before time.Time) ([]applicatio
 	for rows.Next() {
 		var record application.IdempotencyRecord
 		var actorKind, actorID string
-		var createdAtNS int64
-		if err := rows.Scan(&actorKind, &actorID, &record.OperationID, &record.Operation, &record.Status, &record.RequestHash, &record.Response, &createdAtNS); err != nil {
+		var createdAt scannedTime
+		if err := rows.Scan(&actorKind, &actorID, &record.OperationID, &record.Operation, &record.Status, &record.RequestHash, &record.Response, &createdAt); err != nil {
 			return nil, normalizeError(err)
 		}
 		record.Actor = domain.ActorRef{Kind: domain.ActorKind(actorKind), ID: domain.ActorID(actorID)}
-		record.CreatedAt = time.Unix(0, createdAtNS).UTC()
+		record.CreatedAt = createdAt.Time
 		result = append(result, record)
 	}
 	return result, normalizeError(rows.Err())
 }
 
 func (s *sqlStore) CreateWorkflowDefinition(value domain.WorkflowDefinition) error {
+	value.DefinitionMetadata = normalizeDefinitionTimes(value.DefinitionMetadata)
 	if err := value.Validate(); err != nil {
 		return err
 	}
-	return s.createDefinition(value.ID, value.Version, domain.CoordinationModeWorkflow, value)
+	return s.createDefinition(value.DefinitionMetadata, domain.CoordinationModeWorkflow, value)
 }
 
 func (s *sqlStore) CreateBlackboardDefinition(value domain.BlackboardDefinition) error {
+	value.DefinitionMetadata = normalizeDefinitionTimes(value.DefinitionMetadata)
 	if err := value.Validate(); err != nil {
 		return err
 	}
-	return s.createDefinition(value.ID, value.Version, domain.CoordinationModeBlackboard, value)
+	return s.createDefinition(value.DefinitionMetadata, domain.CoordinationModeBlackboard, value)
 }
 
 func (s *sqlStore) createDefinition(
-	id domain.DefinitionID,
-	version int64,
+	metadata domain.DefinitionMetadata,
 	mode domain.CoordinationMode,
 	value any,
 ) error {
@@ -687,13 +782,15 @@ func (s *sqlStore) createDefinition(
 		return err
 	}
 	_, err = s.exec(
-		"INSERT INTO definitions (id, version, mode, payload) VALUES (?, ?, ?, ?)",
-		id, version, mode, payload,
+		"INSERT INTO definitions (id, version, mode, status, created_at, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		metadata.ID, metadata.Version, mode, metadata.Status,
+		databaseTime(metadata.CreatedAt), databaseTime(metadata.UpdatedAt), payload,
 	)
 	return err
 }
 
 func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
+	value = normalizeWorkItemTimes(value)
 	if value.AcceptanceMode == "" {
 		value.AcceptanceMode = domain.WorkItemAcceptanceNone
 	}
@@ -704,23 +801,31 @@ func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
 	if err != nil {
 		return err
 	}
+	tags, err := databaseStrings(s.dialect, value.Tags)
+	if err != nil {
+		return err
+	}
 	_, err = s.exec(`
 		INSERT INTO work_items
-			(id, definition_id, definition_version, mode, status, acceptance_mode, version, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, definition_id, definition_version, mode, status, acceptance_mode, tags, version, created_at, updated_at, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID,
 		value.Definition.ID,
 		value.Definition.Version,
 		value.Definition.Mode,
 		value.Status,
 		value.AcceptanceMode,
+		tags,
 		value.Version,
+		databaseTime(value.CreatedAt),
+		databaseTime(value.UpdatedAt),
 		payload,
 	)
 	return err
 }
 
 func (s *sqlStore) SaveWorkItem(value domain.WorkItem) error {
+	value = normalizeWorkItemTimes(value)
 	if value.AcceptanceMode == "" {
 		value.AcceptanceMode = domain.WorkItemAcceptanceNone
 	}
@@ -734,11 +839,15 @@ func (s *sqlStore) SaveWorkItem(value domain.WorkItem) error {
 	if err != nil {
 		return err
 	}
+	tags, err := databaseStrings(s.dialect, value.Tags)
+	if err != nil {
+		return err
+	}
 	result, err := s.exec(`
 		UPDATE work_items
-		SET status = ?, acceptance_mode = ?, version = ?, payload = ?
+		SET status = ?, acceptance_mode = ?, tags = ?, version = ?, updated_at = ?, payload = ?
 		WHERE id = ? AND version = ?`,
-		value.Status, value.AcceptanceMode, value.Version, payload, value.ID, value.Version-1,
+		value.Status, value.AcceptanceMode, tags, value.Version, databaseTime(value.UpdatedAt), payload, value.ID, value.Version-1,
 	)
 	if err != nil {
 		return err
@@ -747,6 +856,7 @@ func (s *sqlStore) SaveWorkItem(value domain.WorkItem) error {
 }
 
 func (s *sqlStore) CreateTask(value domain.Task) error {
+	value = normalizeTaskTimes(value)
 	mode, err := s.workItemMode(value.WorkItemID)
 	if err != nil {
 		return err
@@ -767,23 +877,37 @@ func (s *sqlStore) CreateTask(value domain.Task) error {
 	if err != nil {
 		return err
 	}
+	allowedRoles, err := databaseStrings(s.dialect, value.AllowedRoles)
+	if err != nil {
+		return err
+	}
+	tags, err := databaseStrings(s.dialect, value.Tags)
+	if err != nil {
+		return err
+	}
 	_, err = s.exec(`
 		INSERT INTO tasks
-			(id, work_item_id, parent_task_id, status, active_claim_id, position, version, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, work_item_id, parent_task_id, status, executor, allowed_roles, tags, active_claim_id, position, version, created_at, updated_at, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID,
 		value.WorkItemID,
 		nullString(value.ParentTaskID),
 		value.Status,
+		value.Executor,
+		allowedRoles,
+		tags,
 		nullString(value.ActiveClaimID),
 		value.Position,
 		value.Version,
+		databaseTime(value.CreatedAt),
+		databaseTime(value.UpdatedAt),
 		payload,
 	)
 	return err
 }
 
 func (s *sqlStore) SaveTask(value domain.Task) error {
+	value = normalizeTaskTimes(value)
 	mode, err := s.workItemMode(value.WorkItemID)
 	if err != nil {
 		return err
@@ -806,14 +930,26 @@ func (s *sqlStore) SaveTask(value domain.Task) error {
 	if err != nil {
 		return err
 	}
+	allowedRoles, err := databaseStrings(s.dialect, value.AllowedRoles)
+	if err != nil {
+		return err
+	}
+	tags, err := databaseStrings(s.dialect, value.Tags)
+	if err != nil {
+		return err
+	}
 	result, err := s.exec(`
 		UPDATE tasks
-		SET status = ?, active_claim_id = ?, position = ?, version = ?, payload = ?
+		SET status = ?, executor = ?, allowed_roles = ?, tags = ?, active_claim_id = ?, position = ?, version = ?, updated_at = ?, payload = ?
 		WHERE id = ? AND version = ?`,
 		value.Status,
+		value.Executor,
+		allowedRoles,
+		tags,
 		nullString(value.ActiveClaimID),
 		value.Position,
 		value.Version,
+		databaseTime(value.UpdatedAt),
 		payload,
 		value.ID,
 		value.Version-1,
@@ -825,6 +961,7 @@ func (s *sqlStore) SaveTask(value domain.Task) error {
 }
 
 func (s *sqlStore) CreateTaskRelation(value domain.TaskRelation) error {
+	value.CreatedAt = normalizeTime(value.CreatedAt)
 	if err := value.Validate(); err != nil {
 		return err
 	}
@@ -833,14 +970,17 @@ func (s *sqlStore) CreateTaskRelation(value domain.TaskRelation) error {
 		return err
 	}
 	_, err = s.exec(`
-		INSERT INTO task_relations (work_item_id, from_task_id, to_task_id, payload)
-		VALUES (?, ?, ?, ?)`,
-		value.WorkItemID, value.FromTaskID, value.ToTaskID, payload,
+		INSERT INTO task_relations (work_item_id, from_task_id, to_task_id, created_at, payload)
+		VALUES (?, ?, ?, ?, ?)`,
+		value.WorkItemID, value.FromTaskID, value.ToTaskID, databaseTime(value.CreatedAt), payload,
 	)
 	return err
 }
 
 func (s *sqlStore) CreateWorkflowTaskActivation(value domain.WorkflowTaskActivation) error {
+	value.CreatedAt = normalizeTime(value.CreatedAt)
+	value.UpdatedAt = normalizeTime(value.UpdatedAt)
+	value.ResolvedAt = normalizeOptionalTime(value.ResolvedAt)
 	if err := value.Validate(); err != nil {
 		return err
 	}
@@ -850,20 +990,24 @@ func (s *sqlStore) CreateWorkflowTaskActivation(value domain.WorkflowTaskActivat
 	}
 	_, err = s.exec(`
 		INSERT INTO workflow_activations
-			(id, work_item_id, workflow_task_id, correlation_id, status, created_at_ns, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			(id, work_item_id, workflow_task_id, correlation_id, status, created_at, updated_at, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID,
 		value.WorkItemID,
 		value.WorkflowTaskID,
 		value.CorrelationID,
 		value.Status,
-		value.CreatedAt.UnixNano(),
+		databaseTime(value.CreatedAt),
+		databaseTime(value.UpdatedAt),
 		payload,
 	)
 	return err
 }
 
 func (s *sqlStore) SaveWorkflowTaskActivation(value domain.WorkflowTaskActivation) error {
+	value.CreatedAt = normalizeTime(value.CreatedAt)
+	value.UpdatedAt = normalizeTime(value.UpdatedAt)
+	value.ResolvedAt = normalizeOptionalTime(value.ResolvedAt)
 	if err := value.Validate(); err != nil {
 		return err
 	}
@@ -873,9 +1017,9 @@ func (s *sqlStore) SaveWorkflowTaskActivation(value domain.WorkflowTaskActivatio
 	}
 	result, err := s.exec(`
 		UPDATE workflow_activations
-		SET status = ?, payload = ?
+		SET status = ?, updated_at = ?, payload = ?
 		WHERE id = ?`,
-		value.Status, payload, value.ID,
+		value.Status, databaseTime(value.UpdatedAt), payload, value.ID,
 	)
 	if err != nil {
 		return err
@@ -884,6 +1028,7 @@ func (s *sqlStore) SaveWorkflowTaskActivation(value domain.WorkflowTaskActivatio
 }
 
 func (s *sqlStore) CreateClaim(value domain.Claim) error {
+	value = normalizeClaimTimes(value)
 	if err := value.Validate(); err != nil {
 		return err
 	}
@@ -893,14 +1038,15 @@ func (s *sqlStore) CreateClaim(value domain.Claim) error {
 	}
 	heartbeat, lease, leaseSeconds := claimLeaseColumns(value)
 	_, err = s.exec(`
-		INSERT INTO claims (id, task_id, executor_kind, executor_id, active, claimed_at_ns, last_heartbeat_at_ns, lease_until_ns, lease_seconds, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		value.ID, value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), value.ClaimedAt.UnixNano(), heartbeat, lease, leaseSeconds, payload,
+		INSERT INTO claims (id, task_id, executor_kind, executor_id, active, claimed_at, last_heartbeat_at, lease_until, lease_seconds, updated_at, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		value.ID, value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), databaseTime(value.ClaimedAt), heartbeat, lease, leaseSeconds, databaseTime(claimUpdatedAt(value)), payload,
 	)
 	return err
 }
 
 func (s *sqlStore) SaveClaim(value domain.Claim) error {
+	value = normalizeClaimTimes(value)
 	if err := value.Validate(); err != nil {
 		return err
 	}
@@ -911,9 +1057,9 @@ func (s *sqlStore) SaveClaim(value domain.Claim) error {
 	heartbeat, lease, leaseSeconds := claimLeaseColumns(value)
 	result, err := s.exec(`
 		UPDATE claims
-		SET task_id = ?, executor_kind = ?, executor_id = ?, active = ?, claimed_at_ns = ?, last_heartbeat_at_ns = ?, lease_until_ns = ?, lease_seconds = ?, payload = ?
+		SET task_id = ?, executor_kind = ?, executor_id = ?, active = ?, claimed_at = ?, last_heartbeat_at = ?, lease_until = ?, lease_seconds = ?, updated_at = ?, payload = ?
 		WHERE id = ?`,
-		value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), value.ClaimedAt.UnixNano(), heartbeat, lease, leaseSeconds, payload, value.ID,
+		value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), databaseTime(value.ClaimedAt), heartbeat, lease, leaseSeconds, databaseTime(claimUpdatedAt(value)), payload, value.ID,
 	)
 	if err != nil {
 		return err
@@ -927,22 +1073,22 @@ func (s *sqlStore) CreateArtifact(value domain.Artifact) error {
 	}
 	_, err := s.exec(`
 		INSERT INTO artifacts
-			(id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at_ns)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID, value.WorkItemID, value.TaskID, value.ClaimID,
-		nullString(value.SubmissionID), value.Name, value.URI, value.CreatedAt.UnixNano(),
+		nullString(value.SubmissionID), value.Name, value.URI, databaseTime(value.CreatedAt), databaseTime(value.CreatedAt),
 	)
 	return err
 }
 
-func (s *sqlStore) SaveArtifact(value domain.Artifact) error {
+func (s *sqlStore) SaveArtifact(value domain.Artifact, updatedAt time.Time) error {
 	if err := value.Validate(); err != nil {
 		return err
 	}
 	result, err := s.exec(`
-		UPDATE artifacts SET submission_id = ?
+		UPDATE artifacts SET submission_id = ?, updated_at = ?
 		WHERE id = ? AND work_item_id = ? AND task_id = ? AND claim_id = ? AND name = ? AND uri = ?`,
-		nullString(value.SubmissionID), value.ID, value.WorkItemID, value.TaskID,
+		nullString(value.SubmissionID), databaseTime(updatedAt), value.ID, value.WorkItemID, value.TaskID,
 		value.ClaimID, value.Name, value.URI,
 	)
 	if err != nil {
@@ -964,10 +1110,10 @@ func (s *sqlStore) CreateArtifactBlob(value domain.ArtifactBlob) error {
 		return err
 	}
 	result, err := s.exec(`
-		INSERT INTO artifact_blobs (uri, digest, size, created_at_ns)
+		INSERT INTO artifact_blobs (uri, digest, size, created_at)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT (uri) DO NOTHING`,
-		value.URI, value.Digest, value.Size, value.CreatedAt.UnixNano(),
+		value.URI, value.Digest, value.Size, databaseTime(value.CreatedAt),
 	)
 	if err != nil {
 		return err
@@ -1003,10 +1149,22 @@ func claimLeaseColumns(value domain.Claim) (any, any, any) {
 	if value.Executor.Kind != domain.ActorAgent {
 		return nil, nil, nil
 	}
-	return value.LastHeartbeatAt.UnixNano(), value.LeaseUntil.UnixNano(), value.LeaseSeconds
+	return databaseTime(value.LastHeartbeatAt), databaseTime(value.LeaseUntil), value.LeaseSeconds
+}
+
+func claimUpdatedAt(value domain.Claim) time.Time {
+	updatedAt := value.ClaimedAt
+	if value.LastHeartbeatAt.After(updatedAt) {
+		updatedAt = value.LastHeartbeatAt
+	}
+	if value.EndedAt != nil && value.EndedAt.After(updatedAt) {
+		updatedAt = *value.EndedAt
+	}
+	return updatedAt
 }
 
 func (s *sqlStore) AppendWorkItemEvent(value domain.WorkItemEvent) error {
+	value.OccurredAt = normalizeTime(value.OccurredAt)
 	if err := value.Validate(); err != nil {
 		return err
 	}
@@ -1015,9 +1173,9 @@ func (s *sqlStore) AppendWorkItemEvent(value domain.WorkItemEvent) error {
 		return err
 	}
 	_, err = s.exec(`
-		INSERT INTO work_item_events (id, work_item_id, sequence, occurred_at_ns, payload)
+		INSERT INTO work_item_events (id, work_item_id, sequence, occurred_at, payload)
 		VALUES (?, ?, ?, ?, ?)`,
-		value.ID, value.WorkItemID, value.Sequence, value.OccurredAt.UnixNano(), payload,
+		value.ID, value.WorkItemID, value.Sequence, databaseTime(value.OccurredAt), payload,
 	)
 	return err
 }
@@ -1032,10 +1190,11 @@ func (s *sqlStore) LockIdempotencyKey(actor domain.ActorRef, operationID string)
 }
 
 func (s *sqlStore) CreateIdempotencyRecord(value application.IdempotencyRecord) error {
+	value.CreatedAt = normalizeTime(value.CreatedAt)
 	_, err := s.exec(`
 		INSERT INTO idempotency_records
-			(actor_kind, actor_id, operation_id, operation, status, request_hash, response, created_at_ns)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			(actor_kind, actor_id, operation_id, operation, status, request_hash, response, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.Actor.Kind,
 		value.Actor.ID,
 		value.OperationID,
@@ -1043,20 +1202,22 @@ func (s *sqlStore) CreateIdempotencyRecord(value application.IdempotencyRecord) 
 		value.Status,
 		value.RequestHash,
 		value.Response,
-		value.CreatedAt.UnixNano(),
+		databaseTime(value.CreatedAt),
+		databaseTime(value.CreatedAt),
 	)
 	return err
 }
 
-func (s *sqlStore) SaveIdempotencyRecord(value application.IdempotencyRecord) error {
+func (s *sqlStore) SaveIdempotencyRecord(value application.IdempotencyRecord, updatedAt time.Time) error {
 	result, err := s.exec(`
 		UPDATE idempotency_records
-		SET operation = ?, status = ?, request_hash = ?, response = ?
+		SET operation = ?, status = ?, request_hash = ?, response = ?, updated_at = ?
 		WHERE actor_kind = ? AND actor_id = ? AND operation_id = ?`,
 		value.Operation,
 		value.Status,
 		value.RequestHash,
 		value.Response,
+		databaseTime(updatedAt),
 		value.Actor.Kind,
 		value.Actor.ID,
 		value.OperationID,

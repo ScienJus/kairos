@@ -35,20 +35,15 @@ func (s *Service) ListWorkItems(ctx context.Context, query ListWorkItemsQuery) (
 
 	var result []domain.WorkItem
 	err := s.repository.View(ctx, func(store ReadStore) error {
-		workItems, err := store.ListWorkItems()
+		workItems, err := store.ListWorkItems(WorkItemFilter{
+			Statuses: query.Statuses,
+			Modes:    query.Modes,
+			Tags:     query.Tags,
+		})
 		if err != nil {
 			return fmt.Errorf("list work items: %w", err)
 		}
 		for _, workItem := range workItems {
-			if len(query.Statuses) > 0 && !slices.Contains(query.Statuses, workItem.Status) {
-				continue
-			}
-			if len(query.Modes) > 0 && !slices.Contains(query.Modes, workItem.CoordinationMode()) {
-				continue
-			}
-			if !containsAllStrings(workItem.Tags, query.Tags) {
-				continue
-			}
 			result = append(result, normalizeWorkItemCollections(workItem))
 		}
 		return nil
@@ -56,12 +51,6 @@ func (s *Service) ListWorkItems(ctx context.Context, query ListWorkItemsQuery) (
 	if err != nil {
 		return nil, err
 	}
-	slices.SortFunc(result, func(a, b domain.WorkItem) int {
-		if compared := b.UpdatedAt.Compare(a.UpdatedAt); compared != 0 {
-			return compared
-		}
-		return strings.Compare(string(a.ID), string(b.ID))
-	})
 	if result == nil {
 		result = []domain.WorkItem{}
 	}

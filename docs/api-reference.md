@@ -28,6 +28,10 @@ go run ./cmd/kairos-server
 
 When `KAIROS_POSTGRES_DSN` is non-empty it takes precedence over `KAIROS_SQLITE_PATH`. Startup verifies the connection and applies the embedded PostgreSQL migrations before serving requests; an invalid or unavailable explicitly configured database causes startup to fail.
 
+Runtime fields used by discovery, authorization narrowing, filtering, or ordering are stored in dedicated columns as well as in the aggregate payload. PostgreSQL uses native `TEXT[]` columns for WorkItem/Task tags and Task allowed roles, with GIN indexes for the current containment queries. SQLite stores the same logical fields as validated JSON-array `TEXT` columns and evaluates containment through `json_each`; SQLite is intended for local and smaller deployments. Empty collections are stored and returned as arrays, never `null`.
+
+Database timestamps are normalized at the application boundary to UTC with microsecond precision, so API values, aggregate payloads, and query columns use the same instant. PostgreSQL uses `TIMESTAMPTZ`; SQLite uses a fixed-width RFC 3339 UTC representation so textual range comparisons preserve chronological order. Definitions, WorkItems, Tasks, Workflow activations, and Identities have `created_at` and `updated_at` matching their domain metadata. Task Relations persist their immutable `created_at`; mutable Claims, staged Artifacts, and idempotency records update `updated_at` when their state changes. Rows with a more specific immutable-event or lifecycle timestamp retain names such as `occurred_at`, `claimed_at`, or `applied_at` instead of adding a meaningless duplicate timestamp.
+
 `GET /healthz` is unauthenticated. HTTP management and execution routes use `/api/v1`; Streamable HTTP MCP uses `/mcp`.
 
 ## Identity Modes
