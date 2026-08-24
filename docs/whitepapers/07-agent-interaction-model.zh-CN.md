@@ -4,7 +4,7 @@
 
 ## 摘要
 
-Kairos 为 Agent 提供统一的 Task 交互过程。Agent 可以主动发现和选择工作，也可以由 Bridge 启动并接收已经分配的 Task。两种方式最终都围绕同一个 Task 建立执行责任、读取工作上下文、记录进展并提交成果。
+Kairos 为 Agent 提供统一的 Task 交互过程。当前 Agent 可以主动发现和选择工作；未来也可以由 Bridge 根据 Role 选择 Task 并启动 Agent。两种方式都围绕同一个 Task 建立执行责任、读取工作上下文、执行并提交持久成果，其生命周期影响共同构成 WorkItem 进展。
 
 Workflow 与 Blackboard 共享执行过程，同时向 Agent 开放不同的规划能力。Workflow 允许 Agent 在预先配置的位置作出判断，Blackboard 允许 Agent 持续调整 Task Graph。
 
@@ -29,12 +29,12 @@ claim
         ↓
 execute
         ↓
-record progress
+heartbeat while executing
         ↓
 submit result
 ```
 
-Agent 在执行前读取必要上下文并确认 Task。Agent 或 Bridge 在执行开始前建立带 lease 的 Claim，形成唯一执行责任。执行期间 Agent 通过 heartbeat 续租，并可以为每一段续租请求不同的时长；进展和最终成果都记录在 Task 中。到达 `lease_until` 只表示 Claim 可以被 reaper 回收，并不会直接撤销执行权；reaper 提交回收前，当前 Agent 仍可续租或提交。回收完成后 Agent 必须停止，不能复活旧 Claim 或继续提交。
+Agent 在执行前读取必要上下文并确认 Task。Agent 在执行开始前建立带 lease 的 Claim，形成唯一执行责任；未来的 Bridge 也会为所选 Agent Identity 建立同样的 Claim。执行期间 Agent 通过 heartbeat 续租，并可以为每一段续租请求不同的时长。Claim 与 Task 状态表示工作正在执行，Submission、Review、Failure、推进决策和 Artifact 则持久描述它对 WorkItem 进展的贡献。到达 `lease_until` 只表示 Claim 可以被 reaper 回收，并不会直接撤销执行权；reaper 提交回收前，当前 Agent 仍可续租或提交。回收完成后 Agent 必须停止，不能复活旧 Claim 或继续提交。
 
 ## 2. 发现工作
 
@@ -68,7 +68,7 @@ WorkItem Context
     目标、背景、约束与验收标准
 
 Task Context
-    Task 描述、交付要求与当前进展
+    Task 描述、交付要求、生命周期与已有记录
 
 Related Results
     相关 Task 的成果与 Artifact
@@ -85,20 +85,15 @@ Workflow Context 提供按距离排列的受控上游运行时 Task 摘要（包
 
 ## 4. 执行与提交
 
-Agent 在执行过程中可以持续记录：
+执行过程中，heartbeat 只续期 Claim，不写入独立的可变进展说明。WorkItem 的进展通过 Claim、拆分、Submission、Review、Failure、Skip 和创建后续 Task 等持久操作发生变化。
 
-- 当前进展；
-- 已完成的工作；
-- 发现的问题；
-- 产生的成果和 Artifact。
-
-提交 Task 时，Agent 提供本次交付的结果摘要和相关成果。Kairos 在 Task 下创建不可变的 Submission，并使其成为 WorkItem 的共享上下文。返工后的再次提交形成新的 Submission，不覆盖此前结果。
+提交 Task 时，Agent 记录已完成工作、与本次交付有关的已发现问题、成果和 Artifact。Kairos 在 Task 下创建不可变的 Submission，并使其成为 WorkItem 的共享上下文。返工后的再次提交形成新的 Submission，不覆盖此前结果。
 
 提交需要人工 Review 时，当前 Claim 随提交结束，Task 在 `InReview` 期间不再要求 Agent 保活。Review 驳回后 Task 回到候选集合，并在新的 Claim 下继续执行。
 
 ```text
 Task
-├── Progress
+├── Claim 与生命周期历史
 ├── Submission 1
 │   ├── Result
 │   └── Artifacts
@@ -131,15 +126,15 @@ Blackboard 中的 Agent 同时参与执行与规划，可以：
 
 - 创建新的 Task；
 - 拆分已有 Task；
-- 添加或调整 tags；
-- 维护建议性的 Task Relation；
+- 创建带有发现 tags 的 Task；
+- 添加建议性的 Task Relation；
 - 将失去价值的 Task 标记为 Skipped；
 - 根据当前成果请求人工 Review；
 - 判断 WorkItem 是否已经满足目标。
 
 这些变化进入共享 Task Graph，后续的人和 Agent 都能看到最新的工作结构与成果。
 
-## 7. Bridge
+## 7. 规划中的 Bridge
 
 Bridge 连接 Kairos 与特定 Agent Harness：
 
@@ -151,7 +146,7 @@ Kairos Candidate Task
 Codex / Claude Code / Other Harness
 ```
 
-Bridge 可以选择 Task、启动 Agent、提供上下文并回传进展与成果。Agent 主动参与和 Bridge 派发使用相同的 Task、Claim 与提交语义。
+未来的 Bridge 可以为符合 Role 的 Agent 选择 Task、启动 Agent、提供上下文并回传生命周期操作与成果。Agent 主动参与和 Bridge 派发使用相同的 Task、Claim 与提交语义。
 
 因此，Kairos 的 Agent 交互模型独立于具体 Harness，也独立于 Agent 如何开始执行。
 

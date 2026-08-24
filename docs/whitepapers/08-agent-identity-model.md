@@ -113,7 +113,7 @@ Task tags: [backend, auth]
 
 Kairos can derive default tags or query scope from the agent role, after which the agent chooses using the Task description and current context.
 
-Blackboard tags describe work categories and discovery hints; they do not automatically become access permissions. A Task that needs restriction should explicitly configure its allowed roles.
+Blackboard tags describe work categories and discovery hints; they do not automatically become access permissions. A Task that needs to restrict Agent execution should explicitly configure its allowed roles. Human execution is governed by the executor type and is not filtered by Agent roles.
 
 Both Workflow Definition and Blackboard Definition can provide Suggested Tags such as `module:*`. Agents add concrete tags to Tasks from the actual work. A Definition supplies only the recommended vocabulary and does not require people to maintain every Task label continuously.
 

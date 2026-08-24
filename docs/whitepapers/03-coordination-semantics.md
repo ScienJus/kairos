@@ -25,7 +25,7 @@ The coordination mode produces a candidate set from the Task Graph and current c
 Candidates = Coordination(mode, G, context)
 ```
 
-The candidate set defines only the current choice space. A person or agent can choose proactively, or a Bridge can dispatch work. A Claim then establishes unique execution responsibility.
+The candidate set defines only the current choice space. A person or agent can choose proactively, and a future Bridge can automate the same role-aware choice. A Claim then establishes unique execution responsibility for one concrete actor.
 
 ## 2. Workflow Candidate Semantics
 

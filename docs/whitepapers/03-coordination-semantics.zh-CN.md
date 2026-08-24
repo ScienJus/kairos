@@ -25,7 +25,7 @@ R = Task Relation 集合
 Candidates = Coordination(mode, G, context)
 ```
 
-候选集合只定义当前的选择空间。人或 Agent 可以主动选择，Bridge 也可以派发；Claim 随后建立唯一的执行责任。
+候选集合只定义当前的选择空间。人或 Agent 可以主动选择，未来的 Bridge 可以自动完成同样基于 Role 的选择；Claim 随后为一个具体 Actor 建立唯一的执行责任。
 
 ## 2. Workflow 候选语义
 

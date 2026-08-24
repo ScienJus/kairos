@@ -10,7 +10,7 @@ Kairos coordinates tasks shared by people and agents.
 
 Agent harnesses such as Codex and Claude Code are good at running an agent. Kairos focuses on the collaboration around those agents: what work exists, who is responsible for it, what has already been delivered, and what can happen next.
 
-It does not start or stop agents, choose models, or manage sandboxes. The integration model lets agents connect proactively through MCP / Skills, while a Bridge can dispatch Tasks to a harness when automated startup is needed.
+It does not start or stop agents, choose models, or manage sandboxes. The current integration model lets agents connect proactively through MCP / Skills; a planned Bridge will dispatch Tasks to a harness when automated startup is needed.
 
 ## Why Kairos
 
@@ -87,12 +87,12 @@ Every submission and Review round is preserved. When an executor retries a faile
 
 ## Human Interaction
 
-The operations console currently provides a WorkItem List, a human-attention queue, and WorkItem detail views. Inside a WorkItem:
+The operations console currently provides a workspace overview, a human-attention view, and WorkItem detail. Inside a WorkItem:
 
 - Workflow is shown as a flow graph with execution history.
-- Blackboard is shown as a dynamic checklist with hierarchy and suggested relations.
+- Blackboard is shown as a hierarchical Task workspace. Relations remain available through the HTTP and MCP surfaces but are not yet rendered or created by the console.
 
-Kanban remains planned as a view of complete WorkItems. It will not implement either coordination mode.
+Task lifecycle changes, responsibility, submissions, Reviews, failures, and Artifacts together show how the owning WorkItem is advancing. A complete WorkItem event timeline is planned; the underlying events are already persisted.
 
 ## Project Status
 
@@ -107,14 +107,14 @@ Available in this repository:
 - concurrency and idempotency protection;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
-- an operations console with WorkItem List, human attention, Workflow graph, Blackboard task map, and Definition editors;
+- an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
 - agent Claim leases with flexible durations, heartbeat, reaper-mediated recovery, and fencing;
 - deterministic unit tests and randomized collaboration simulations.
 
 Still to be built:
 
 - a Bridge for automatic dispatch;
-- the remaining Kanban and operational-console workflows.
+- the remaining operational-console workflows, including a WorkItem event timeline.
 
 For development, use Go 1.26.6 or later and run:
 

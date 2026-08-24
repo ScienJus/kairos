@@ -12,7 +12,7 @@ Kairos 正在积极开发中。本 Roadmap 用于说明方向，不代表交付�
 - SQLite 与 PostgreSQL 持久化；
 - Trusted 与 Authenticated 身份模式；
 - 托管和外部 Artifact；
-- 面向 WorkItem、人工关注、Task Map、流程图和 Definition 编辑的 operations console。
+- 面向 WorkItem、人工关注、Blackboard Task 层级、Workflow 流程图和 Definition 编辑的 operations console。
 
 ## 近期优先级
 
@@ -24,13 +24,13 @@ Kairos 正在积极开发中。本 Roadmap 用于说明方向，不代表交付�
 
 ## 后续探索
 
-- 完整 WorkItem 的 Kanban 视图；
+- 更丰富的 Workspace 组织方式与完整 WorkItem 运营视图；
 - 更丰富的 Artifact Store Adapter；
 - 面向共享团队的部署配置；
 - Definition 和 API 演进的兼容性工具。
 
 ## 非目标
 
-Kairos 不负责选择模型、运行 Agent 沙箱或替代 Agent Harness，也不会把 Kanban 变成第三种协调模式。新工作应保持持久协调与执行器运行时管理之间的边界。
+Kairos 不负责选择模型、运行 Agent 沙箱或替代 Agent Harness，也不会通过运营视图引入第三种协调模式。新工作应保持持久协调与执行器运行时管理之间的边界。
 
 `v1.0.0` 之前，API 和 Schema 可能随着这些边界的验证而变化。破坏性变更必须在 Release Notes 中明确说明；影响持久化数据时，还必须提供 Migration 指南。

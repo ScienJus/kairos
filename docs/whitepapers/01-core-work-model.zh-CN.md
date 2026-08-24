@@ -52,7 +52,7 @@ Task 是单一执行者的执行边界：
 - 可以作为独立的候选工作；
 - 具有明确的执行内容和交付结果；
 - 执行期间只有一个责任执行者；
-- 进展和成果记录在 Task 中，并构成 WorkItem 的共享上下文。
+- 生命周期变化与持久成果通过 Task 记录，共同构成所属 WorkItem 的进展和共享上下文。
 
 Task 的粒度应当支持一个执行者在一次连贯的工作过程中对其负责并产生交付。Task 可以限定由 Agent、人或两者中的任意一方执行。
 
@@ -62,7 +62,7 @@ Blackboard 中的执行者也可以在产生成果前将 Task 拆分为子 Task�
 
 Result 是执行者留下的持久说明，Artifact 是具名、可寻址的实际交付物。执行者持有 Claim 时可以暂存 Artifact，并在创建 Submission 时绑定。绑定后的 Artifact 进入同一份不可变历史，并对整个 WorkItem 可见。
 
-执行者报告失败时，Kairos 在 Task 下创建不可变的 Task Failure。重新打开产生的提示会进入后续执行上下文；全局失败则结束当前 Task 与 WorkItem。Claim、Submission、Review、Failure 和推进决策同时形成按顺序追加的 WorkItem Event 历史。
+执行者报告失败时，Kairos 在 Task 下创建不可变的 Task Failure。重新打开产生的提示会进入后续执行上下文；全局失败则结束当前 Task 与 WorkItem。Claim、Submission、Review、Failure 和推进决策同时形成持久、按顺序追加的 WorkItem Event 历史。面向用户的 WorkItem 事件时间线是独立的展现能力，目前仍在规划中。
 
 > WorkItem 回答“最终要完成什么”，Task 回答“接下来具体做什么”。
 
@@ -95,7 +95,7 @@ Workflow 和 Blackboard 使用相同的运行时 Task Graph。上层组织语义
 
 定义中的关系具有约束力。“设计 → 实现”表示设计完成后，系统才会为当前 WorkItem 产生“实现”Task。
 
-Workflow 执行时按推进需要实例化 Task。定义中的同一个节点被多次经过时，每次产生新的 Task 实例，使每一轮执行都保留独立的 Claim、进展和成果。由这些实例组成的运行时 Task Graph 记录实际执行历史。
+Workflow 执行时按推进需要实例化 Task。定义中的同一个节点被多次经过时，每次产生新的 Task 实例，使每一轮执行都保留独立的 Claim 与成果历史。这些生命周期记录共同构成 WorkItem 的进展，由具体实例组成的运行时 Task Graph 则记录实际执行历史。
 
 Workflow 的主要特征包括：
 
@@ -107,7 +107,7 @@ Workflow 的主要特征包括：
 - 系统根据结构计算当前合法的候选 Task；
 - WorkItem 的完成通常可以从正式结构中推导。
 
-一个 Workflow 可以同时产生多个合法候选 Task。Workflow 限定选择空间，人或 Agent 可以主动选择，Bridge 也可以派发。
+一个 Workflow 可以同时产生多个合法候选 Task。Workflow 限定选择空间，人或 Agent 可以主动选择，未来的 Bridge 可以自动完成同样基于 Role 的选择。
 
 > Workflow 是正式定义且具有约束力的 Task Graph。
 
@@ -203,27 +203,21 @@ Task Relation
 
 ## 6. 展现形式
 
-WorkItem 集合使用 List 和 Kanban 两种视图：
+operations console 分两个层次展示完整工作：
 
 ```text
-WorkItem Collection
-    ├── List
-    └── Kanban
-```
-
-List 适合搜索、筛选和高密度浏览，Kanban 用于观察完整工作的状态与流动。两种视图展示同一组 WorkItem。
-
-进入 WorkItem 后，内部 Task 根据协调模式渲染：
-
-```text
+Workspace
+    ├── 全部工作
+    └── 需要人工关注
+          ↓ 打开 WorkItem
 WorkItem Detail
     ├── Workflow  → Flow Graph
-    └── Blackboard → Checklist
+    └── Blackboard → Task 层级
 ```
 
-Flow Graph 展示 Workflow 的正式依赖和推进状态。Checklist 展示 Blackboard 动态形成的 Task、tags、建议关系和共享成果。
+Workspace 概括 WorkItem 和选定的人工关注信号。WorkItem 详情将 Task 保持在所属目标内部：Flow Graph 展示 Workflow 的正式依赖与运行历史，当前 Blackboard 控制台以层级方式展示动态形成的 Task、tags 和生命周期状态。Blackboard Relation 仍属于持久模型与执行上下文，但控制台尚不能展示或创建 Relation。
 
-Kanban 只展示 WorkItem。Task 始终存在于所属 WorkItem 内，由 Flow Graph 或 Checklist 承载其交互。
+Task 生命周期变化和持久记录共同表达 WorkItem 如何推进，Kairos 不需要独立的可变进度字段。
 
 ## 7. 核心定义
 

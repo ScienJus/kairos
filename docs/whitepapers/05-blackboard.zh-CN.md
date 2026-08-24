@@ -54,7 +54,7 @@ Blackboard 将规划放在整个执行过程中：
       ↓
 选择并执行 Task
       ↓
-记录进展与成果
+通过 Task 生命周期与成果更新 WorkItem 进展
       ↓
 重新观察 WorkItem
       ↺
@@ -112,7 +112,7 @@ executor:
   either
 ```
 
-人或 Agent 可以主动选择候选 Task，Bridge 也可以派发。Claim 为选中的 Task 建立唯一的执行责任。
+人或 Agent 可以主动选择候选 Task，未来的 Bridge 可以自动完成同样基于 Role 的选择。Claim 为选中 Task 上的一个具体 Actor 建立唯一执行责任。
 
 ## 5. 自主性
 

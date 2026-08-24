@@ -1,154 +1,107 @@
 # Kairos Human Interaction Model
 
-> A human work interface centered on WorkItem List and Kanban
+> A human operations console organized around the workspace, attention, and WorkItem detail
 
 ## Abstract
 
-Kairos presents WorkItem collections through List and Kanban. List provides high-density management, while Kanban provides an overview of the state of complete work. Both views operate on the same data, filters, and action results.
+Kairos gives people one operational workspace for observing complete work, handling items that need human attention, and opening a WorkItem to act on its Tasks. The interface follows the work model directly instead of imposing a generic collection-view metaphor on it.
 
-Inside a WorkItem, Tasks are presented according to the coordination mode: Workflow uses a Flow Graph and Blackboard uses a Checklist. People use these interfaces to observe agent work and can also execute Tasks directly.
+Inside a WorkItem, Workflow uses a flow graph and Blackboard uses a hierarchical Task workspace. People can inspect agent activity, Claim eligible human Tasks, submit results, handle Reviews, and participate in planning where the coordination mode allows it.
 
 ## 1. Interaction Structure
 
-The Kairos human interface has two levels:
+The operations console has three connected surfaces:
 
 ```text
-WorkItem Collection
-    ├── List
-    └── Kanban
-          ↓ open WorkItem
+Workspace
+├── All Work
+└── Needs Human
+        ↓ open WorkItem
 WorkItem Detail
-    ├── Workflow   → Flow Graph
-    └── Blackboard → Checklist
+├── Workflow   → Flow Graph
+└── Blackboard → Task Hierarchy
+        ↓ open Task
+Task Detail and Actions
 ```
 
-List and Kanban both operate on WorkItems. Tasks exist inside WorkItem detail and are operated according to Workflow or Blackboard semantics.
+The workspace summarizes complete WorkItems. Coordination and execution remain inside each WorkItem, where Tasks are presented according to Workflow or Blackboard semantics.
 
-WorkItem detail also provides an append-only event history for tracing Task creation, Claims, submissions, Reviews, failures, and Workflow progression decisions.
+## 2. Workspace
 
-## 2. List
+The workspace separates work that is active from work that has reached a terminal state. It provides a direct path from a WorkItem's title, objective, and status into its coordination detail.
 
-List manages large numbers of WorkItems and focuses on:
+The current Needs Human projection aggregates:
 
-- search, filtering, and sorting;
-- high-density field presentation;
-- quickly locating current executors, progress, and update time;
-- bulk management;
-- opening WorkItem detail.
+- pending Reviews;
+- unclaimed Pending Tasks with `executor=human`;
+- WorkItem completion proposals awaiting human acceptance.
 
-List answers:
+This is an action-oriented projection of the same durable work model, not a separate queue with independent lifecycle semantics. It does not currently include `executor=either` Tasks, even though a person may Claim those Tasks through their detail surface.
+
+## 3. WorkItem Progress
+
+Kairos does not maintain a standalone mutable `Task.Progress` field. A WorkItem's progress is expressed by the state and durable records of its Tasks:
 
 ```text
-What work exists?
-Which work matches the current conditions?
-Which specific WorkItem do I need?
+Task creation and decomposition
+        ↓
+Claim and active responsibility
+        ↓
+Submission, Review, Failure, or Skip
+        ↓
+Task Graph and WorkItem state advance
 ```
 
-## 3. Kanban
+Claiming, submitting, reviewing, failing, skipping, decomposing, and creating follow-up Tasks all change the observable progress of the owning WorkItem. Results and Artifacts preserve what each completed execution contributed.
 
-Kanban organizes the same WorkItems by overall state so people can quickly understand how work is flowing.
+WorkItem detail therefore combines the WorkItem objective and status with its Task structure and opens per-Task responsibility, result, Review, failure, Artifact, and action details.
 
-It serves four primary purposes:
+## 4. Workflow Detail
 
-### 3.1 Shared Work State
+A Workflow WorkItem uses a flow graph to present formal structure and runtime history. The graph combines the immutable Definition with concrete Task instances so unreached nodes remain distinguishable from executable work.
 
-Kanban summarizes work that has not started, is progressing, needs attention, or has ended. People can understand overall progress without opening each WorkItem.
+A graph node shows current lifecycle state, executor type, allowed Agent roles, and the number of runtime instances. Selecting a concrete Task opens its responsibility summary, acceptance criteria, latest submitted result, Artifacts, complete Review and Failure histories, and currently available actions.
 
-### 3.2 Backlog and Exception Discovery
+People can Claim eligible human Tasks, inspect agent submissions, handle Reviews, and make configured progression decisions when submitting their own work. Every action remains subject to Workflow prerequisites and Review rules.
 
-Card distribution across columns reveals work that has not advanced for a long time, excessive work in progress, and items awaiting human action.
+## 5. Blackboard Detail
 
-### 3.3 Connecting People and Agents
+A Blackboard WorkItem uses a hierarchical Task workspace to present the plan currently shared by collaborators. It shows parent-child hierarchy, tags, description, and lifecycle state. Selecting a Task opens its detail and available actions.
 
-A WorkItem card can show current Task progress, executors, and pending Review prompts. A person can open detail to inspect agent results, handle Review, or claim a Task intended for human execution.
+The current interaction surface supports:
 
-### 3.4 Unified Entry Point
-
-Workflow and Blackboard share one Kanban. Cards represent complete work; the coordination mode determines how the inside of a WorkItem advances.
-
-> Kanban is the shared operational view of work performed by people and agents.
-
-## 4. WorkItem Card
-
-A Kanban card summarizes one complete work item and can include:
-
-- title and objective summary;
-- Workflow or Blackboard indicator;
-- Task completion progress;
-- current executor summary;
-- pending Review prompt;
-- tags, priority, and update time.
-
-The card contains only enough information to understand work state. Concrete Tasks, dependencies, results, and actions appear in WorkItem detail.
-
-## 5. Workflow Detail
-
-A Workflow WorkItem uses a Flow Graph to present its internal Tasks:
-
-```text
-Design
- ├──→ Frontend implementation ─┐
- ├──→ Backend implementation  ─┼→ Integration test
- └──→ Documentation           ─┘
-```
-
-Each Task node can show:
-
-- current state;
-- executor type and responsible executor;
-- required or optional;
-- Review configuration and current Review state;
-- entry points for progress and results.
-
-In the Flow Graph, people can claim human Tasks, inspect agent submissions, and handle Reviews. When a person executes an upstream Task, they can also decide about downstream optional Tasks.
-
-Flow Graph actions follow Workflow semantics. The system continues enforcing prerequisites, required Tasks, and required Review.
-
-## 6. Blackboard Detail
-
-A Blackboard WorkItem uses a Checklist to present dynamically formed Tasks:
-
-```text
-[x] Design the login approach
-[ ] Implement login
-    [ ] Implement password login      backend, auth
-    [ ] Implement session management  backend, auth
-    [ ] Add brute-force protection    security
-[ ] Test login                        test
-```
-
-Checklist supports:
-
-- creating, decomposing, and adjusting Tasks;
-- viewing tags and suggested relations;
-- claiming Tasks;
-- updating progress and results;
+- creating Tasks and adding child Tasks;
+- decomposing a claimed Task into an aggregate with children;
+- Claiming and submitting Tasks;
 - requesting or handling Review;
-- marking a Task that no longer provides value as Skipped.
+- skipping a Pending Task with a durable reason;
+- submitting or accepting WorkItem completion when current Tasks converge.
 
-Checklist directly reflects Blackboard’s dynamic planning. Collaborators continuously add to and correct their shared understanding of the WorkItem around one list.
+These actions directly update the shared Task Graph and therefore the observable progress of the WorkItem. Suggested Relations remain available in the durable model, HTTP API, MCP tools, and execution context, but the current console neither displays nor creates them.
+
+## 6. History
+
+Kairos durably appends WorkItem events for Task creation, Claims, submissions, Reviews, failures, and Workflow progression decisions. `GET /api/v1/tasks/{id}` already returns normalized Claim, Submission, Review, Failure, and Transition Decision history for the selected Task. The current console renders only the responsibility summary, latest submitted result, complete Review history, and complete Failure history; it does not yet render Claim history, every Submission, or Transition Decisions.
+
+A complete WorkItem-wide event timeline in the operations console is planned. Until that surface exists, the persisted event stream is an internal audit record rather than a user-visible capability.
 
 ## 7. Semantic Consistency
 
-Interface actions ultimately operate on the unified Work Model and follow the current coordination mode:
+Every interface action operates on the unified work model and follows the current coordination mode:
 
-- moving a Kanban card must satisfy WorkItem state rules;
-- Workflow Flow Graph enforces formal dependencies and Review requirements;
-- Blackboard Checklist allows collaborators to adjust Tasks dynamically;
-- Claim always establishes unique Task execution responsibility;
-- people and agents record progress and results in the same way.
-
-The same interface action can therefore have one consistent form while its validity is determined by Workflow or Blackboard semantics.
+- Workflow keeps formal dependencies and Review requirements authoritative;
+- Blackboard lets collaborators expand and reorganize the shared plan through its supported planning operations;
+- executor type determines eligible actor kinds and, for Agents only, allowed roles further narrow eligibility;
+- Claim identifies the one concrete actor responsible during execution;
+- Task lifecycle changes and durable results express progress of the owning WorkItem.
 
 ## 8. Core Definitions
 
-The Kairos human interaction model can be summarized as:
-
 ```text
-List       = management view of WorkItems
-Kanban     = state and flow view of WorkItems
-Flow Graph = execution view of Workflow Tasks
-Checklist  = collaboration view of Blackboard Tasks
+Workspace       = operational overview of complete WorkItems
+Needs Human     = selected human-attention signals from the current projection
+WorkItem Detail = coordination state and progress of one objective
+Task Detail     = responsibility, history, and actions for one execution unit
 ```
 
-> List helps people find work; Kanban helps them understand its flow; WorkItem details let them act.
+> The workspace helps people find what needs attention; WorkItem detail shows how the work is advancing; Task detail lets them act.

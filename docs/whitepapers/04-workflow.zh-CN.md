@@ -6,7 +6,7 @@
 
 Workflow 使用带版本的正式定义组织一个 WorkItem。WorkItem 创建时绑定固定的 Workflow ID 与 Version，系统在执行过程中按需产生 Task，并根据正式关系决定如何继续推进。
 
-Workflow 也可以显式保留执行者的判断空间。每个 Task 可以配置执行者类型与 Role、是否允许跳过，以及是否需要人工 Review。执行者在完成当前 Task 时可以同时作出推进决策；执行者为 Agent 时，无需为判断 optional Task 额外启动一次 Agent。
+Workflow 也可以显式保留执行者的判断空间。每个 Task 可以配置执行者类型、仅用于 Agent 执行的 allowed roles、是否允许跳过，以及是否需要人工 Review。执行者在完成当前 Task 时可以同时作出推进决策；执行者为 Agent 时，无需为判断 optional Task 额外启动一次 Agent。
 
 ## 1. Workflow 结构
 
@@ -28,7 +28,7 @@ Workflow Definition：设计 → 实现 → 测试
 WorkItem Runtime：设计 #1 → 实现 #1 → 测试 #1
 ```
 
-每个 Task 实例具有独立的 Claim、进展和成果。系统在前一批 Task 正式结束后产生后续 Task；运行时的一个 Task 实例具有多个前置 Task 时，默认等待这些具体实例全部结束。
+每个 Task 实例具有独立的 Claim 与成果历史，其生命周期共同构成 WorkItem 进展。系统在前一批 Task 正式结束后产生后续 Task；运行时的一个 Task 实例具有多个前置 Task 时，默认等待这些具体实例全部结束。
 
 每个 Task Definition 还可以声明具名 Artifact 交付指引。运行时 Submission 必须包含 Definition 声明的每个名称。契约用 Description 指导执行者，但不规定文件类型或存储方式，同时允许额外 Artifact。
 
@@ -126,7 +126,7 @@ optional 配置应用于 Exit Group 中的 Task。Task 通过 Continue Group 被
 + 执行者为 Agent 时 Role 匹配
 ```
 
-多个 Task 同时满足条件时，系统返回多个候选。人或 Agent 可以主动选择，Bridge 也可以派发。
+多个 Task 同时满足条件时，系统返回多个候选。人或 Agent 可以主动选择，未来的 Bridge 可以自动完成同样基于 Role 的选择。
 
 ```text
 [前端实现, 后端实现, 编写文档]

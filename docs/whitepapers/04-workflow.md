@@ -6,7 +6,7 @@
 
 Workflow organizes a WorkItem with a versioned formal definition. The WorkItem is bound to a fixed Workflow ID and Version at creation. During execution, the system creates Tasks on demand and advances them according to formal relations.
 
-Workflow can also reserve explicit decision space for executors. Each Task can configure its executor type and roles, whether it may be skipped, and whether human Review is required. An executor makes progression decisions while completing the current Task. When the executor is an agent, deciding about optional Tasks does not require an extra agent invocation.
+Workflow can also reserve explicit decision space for executors. Each Task can configure its executor type and, for Agent execution, allowed roles, whether it may be skipped, and whether human Review is required. An executor makes progression decisions while completing the current Task. When the executor is an agent, deciding about optional Tasks does not require an extra agent invocation.
 
 ## 1. Workflow Structure
 
@@ -26,7 +26,7 @@ Workflow Definition: Design → Implement → Test
 WorkItem Runtime: Design #1 → Implement #1 → Test #1
 ```
 
-Every Task instance has independent Claims, progress, and results. The system creates downstream Tasks after the previous set of Tasks formally ends. When one runtime Task instance has multiple predecessor instances, it waits for all of those concrete instances to end by default.
+Every Task instance has independent Claim and result history. Its lifecycle contributes to WorkItem progress. The system creates downstream Tasks after the previous set of Tasks formally ends. When one runtime Task instance has multiple predecessor instances, it waits for all of those concrete instances to end by default.
 
 Each Task Definition may also declare named Artifact delivery instructions. Every declared name is required in a successful runtime Submission. The contract guides the executor with a description but does not prescribe file types or storage; extra Artifacts remain allowed.
 
@@ -126,7 +126,7 @@ all predecessor Tasks are completed or skipped
 + role matches when the executor is an agent
 ```
 
-When multiple Tasks meet these conditions, the system returns multiple candidates. A person or agent can choose proactively, or a Bridge can dispatch one.
+When multiple Tasks meet these conditions, the system returns multiple candidates. A person or agent can choose proactively, and a future Bridge can automate the same role-aware choice.
 
 ```text
 [Frontend implementation, Backend implementation, Documentation]

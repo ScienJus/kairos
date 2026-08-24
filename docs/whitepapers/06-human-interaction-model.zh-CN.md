@@ -1,154 +1,107 @@
 # Kairos 人类交互模型
 
-> 以 WorkItem List 与 Kanban 为中心的人类工作界面
+> 围绕 workspace、人工关注与 WorkItem 详情组织的 operations console
 
 ## 摘要
 
-Kairos 以 List 和 Kanban 展示 WorkItem 集合。List 提供高密度管理能力，Kanban 提供完整工作的状态总览。两种视图使用相同的数据、筛选条件和操作结果。
+Kairos 为人提供统一的工作空间，用于观察完整工作、处理需要人工关注的事项，以及进入 WorkItem 对其中的 Task 执行操作。界面直接遵循工作模型，不再套用通用的集合视图概念。
 
-进入 WorkItem 后，内部 Task 根据协调模式呈现：Workflow 使用 Flow Graph，Blackboard 使用 Checklist。人通过这些界面观察 Agent 工作，也可以直接成为 Task 的执行者。
+进入 WorkItem 后，Workflow 使用流程图，Blackboard 使用分层 Task 工作区。人可以查看 Agent 活动、Claim 符合条件的人工 Task、提交成果、处理 Review，并在协调模式允许时参与规划。
 
 ## 1. 交互结构
 
-Kairos 的人类界面分为两个层次：
+operations console 包含三个相互连接的界面：
 
 ```text
-WorkItem Collection
-    ├── List
-    └── Kanban
-          ↓ 打开 WorkItem
-WorkItem Detail
-    ├── Workflow  → Flow Graph
-    └── Blackboard → Checklist
+Workspace
+├── 全部工作
+└── 需要人工关注
+        ↓ 打开 WorkItem
+WorkItem 详情
+├── Workflow   → Flow Graph
+└── Blackboard → Task 层级
+        ↓ 打开 Task
+Task 详情与操作
 ```
 
-List 和 Kanban 的对象都是 WorkItem。Task 存在于 WorkItem 详情中，并按照 Workflow 或 Blackboard 的语义进行交互。
+Workspace 概括完整的 WorkItem。协调和执行仍位于每个 WorkItem 内部，其中的 Task 按照 Workflow 或 Blackboard 语义呈现。
 
-WorkItem 详情还提供按顺序追加的事件历史，用于追溯 Task 创建、Claim、提交、Review、失败和 Workflow 推进决策。
+## 2. Workspace
 
-## 2. List
+Workspace 区分仍在推进的工作与已经进入终态的工作，并通过 WorkItem 的标题、目标和状态直接进入其协调详情。
 
-List 用于管理大量 WorkItem，重点提供：
+当前“需要人工关注”投影聚合：
 
-- 搜索、筛选和排序；
-- 高密度字段展示；
-- 快速定位当前执行者、进度和更新时间；
-- 批量管理；
-- 打开 WorkItem 详情。
+- 待处理的 Review；
+- `executor=human`、Pending 且尚未被 Claim 的 Task；
+- 等待人工验收的 WorkItem 完成提案。
 
-List 适合回答：
+它是同一份持久工作模型的行动投影，不是具有独立生命周期语义的另一套队列。当前投影不包含 `executor=either` Task，尽管人仍可通过 Task 详情 Claim 这类 Task。
+
+## 3. WorkItem 进展
+
+Kairos 不维护独立、可变的 `Task.Progress` 字段。WorkItem 的进展由其 Task 状态和持久记录共同表达：
 
 ```text
-有哪些工作？
-哪些工作符合当前条件？
-我需要找到哪一个具体 WorkItem？
+创建或拆分 Task
+      ↓
+Claim 与当前执行责任
+      ↓
+Submission、Review、Failure 或 Skip
+      ↓
+Task Graph 与 WorkItem 状态推进
 ```
 
-## 3. Kanban
+Claim、提交、Review、失败、Skip、拆分以及创建后续 Task，都会改变所属 WorkItem 可观察到的进展。Result 与 Artifact 则持久保留每次完成执行对整体目标的贡献。
 
-Kanban 将同一组 WorkItem 按整体状态组织，使人能够快速理解工作如何流动。
+因此，WorkItem 详情将目标和状态与 Task 结构组合展示，并可进入各 Task 查看责任、成果、Review、Failure、Artifact 和可用操作。
 
-它主要承担四个作用：
+## 4. Workflow 详情
 
-### 3.1 共享工作态势
+Workflow WorkItem 使用流程图展示正式结构和运行历史。流程图将不可变 Definition 与具体 Task 实例合并，使“尚未到达”的节点与真正可执行的工作保持明确区别。
 
-Kanban 汇总当前有哪些工作尚未开始、正在推进、需要关注或已经结束。人无需进入每个 WorkItem，即可了解整体进展。
+流程图节点展示当前生命周期状态、执行者类型、允许的 Agent Role 和运行实例数量。选择具体 Task 后，详情展示责任摘要、验收标准、最新提交结果、Artifact、完整 Review 与 Failure 历史，以及当前可用操作。
 
-### 3.2 发现积压与异常
+人可以 Claim 符合条件的人工 Task、查看 Agent 提交、处理 Review，并在提交自己的工作时作出已配置的推进决策。所有操作继续服从 Workflow 前置关系和 Review 规则。
 
-卡片在列中的分布能够暴露长期未推进的工作、过多的进行中工作以及等待人工处理的事项。
+## 5. Blackboard 详情
 
-### 3.3 连接人和 Agent
+Blackboard WorkItem 使用分层 Task 工作区展示协作者当前共享的计划，其中包含父子层级、tags、描述和生命周期状态。选择 Task 后可以查看详情与可用操作。
 
-WorkItem 卡片可以展示当前 Task 进度、执行者和待 Review 提示。人可以从卡片进入详情，查看 Agent 成果、处理 Review，或者领取适合人工执行的 Task。
+当前交互面支持：
 
-### 3.4 提供统一入口
+- 创建 Task 和添加子 Task；
+- 将已 Claim 的 Task 拆分为包含子 Task 的聚合边界；
+- Claim 和提交 Task；
+- 请求或处理 Review；
+- 使用持久原因 Skip Pending Task；
+- 在当前 Task 收敛后提交或验收 WorkItem 完成结果。
 
-Workflow 和 Blackboard 使用同一个 Kanban。卡片展示完整工作，协调模式决定 WorkItem 内部如何推进。
+这些操作直接更新共享 Task Graph，因此也会更新 WorkItem 可观察到的进展。建议 Relation 已存在于持久模型、HTTP API、MCP 工具和执行上下文中，但当前控制台既不展示也不能创建 Relation。
 
-> Kanban is the shared operational view of work performed by people and agents.
+## 6. 历史
 
-## 4. WorkItem Card
+Kairos 已经为 Task 创建、Claim、Submission、Review、Failure 和 Workflow 推进决策持久追加 WorkItem Event。`GET /api/v1/tasks/{id}` 已返回所选 Task 规范化的 Claim、Submission、Review、Failure 和 Transition Decision 历史。当前控制台只渲染责任摘要、最新提交结果、完整 Review 历史和完整 Failure 历史，尚未渲染 Claim 历史、全部 Submission 或 Transition Decision。
 
-Kanban 卡片用于概括一个完整工作，可以包含：
-
-- 标题与目标摘要；
-- Workflow 或 Blackboard 标识；
-- Task 完成进度；
-- 当前执行者摘要；
-- 待 Review 提示；
-- tags、优先级和更新时间。
-
-卡片只提供足以判断工作态势的信息。具体 Task、依赖、成果和操作进入 WorkItem 详情后呈现。
-
-## 5. Workflow Detail
-
-Workflow WorkItem 使用 Flow Graph 展示内部 Task：
-
-```text
-设计
- ├──→ 前端实现 ─┐
- ├──→ 后端实现 ─┼→ 集成测试
- └──→ 编写文档 ─┘
-```
-
-每个 Task 节点可以展示：
-
-- 当前状态；
-- 执行者类型和责任执行者；
-- required 或 optional；
-- Review 配置与当前 Review 状态；
-- 进展与成果入口。
-
-人可以在 Flow Graph 中领取人工 Task、查看 Agent 提交和处理 Review。人作为前置 Task 的执行者时，也可以对后续 optional Task 作出判断。
-
-Flow Graph 的操作服从 Workflow 语义。前置关系、required Task 和 required Review 继续由系统保证。
-
-## 6. Blackboard Detail
-
-Blackboard WorkItem 使用 Checklist 展示动态形成的 Task：
-
-```text
-[x] 设计登录方案
-[ ] 实现登录功能
-    [ ] 实现密码登录      backend, auth
-    [ ] 实现会话管理      backend, auth
-    [ ] 增加暴力破解防护  security
-[ ] 测试登录功能          test
-```
-
-Checklist 支持：
-
-- 创建、拆分和调整 Task；
-- 查看 tags 和建议关系；
-- 领取 Task；
-- 更新进展与成果；
-- 发起或处理 Review；
-- 将失去价值的 Task 标记为 Skipped。
-
-Checklist 直接体现 Blackboard 的动态规划方式。协作者围绕同一列表持续补充和修正对 WorkItem 的理解。
+operations console 中完整的 WorkItem 级事件时间线仍在规划中。在该界面实现前，持久事件流属于内部审计记录，不描述为用户可见能力。
 
 ## 7. 语义一致性
 
-界面操作最终作用于统一 Work Model，并遵守当前协调模式：
+所有界面操作都作用于统一工作模型，并服从当前协调模式：
 
-- Kanban 卡片移动需要满足 WorkItem 的状态规则；
-- Workflow 的 Flow Graph 保证正式依赖和 Review 要求；
-- Blackboard 的 Checklist 允许协作者动态调整 Task；
-- Claim 始终建立唯一的 Task 执行责任；
-- 人和 Agent 的进展与成果使用相同的记录方式。
-
-因此，同一个操作在界面上可以具有统一形式，其有效性由 Workflow 或 Blackboard 的语义决定。
+- Workflow 继续以正式依赖和 Review 要求作为强约束；
+- Blackboard 通过当前已支持的规划操作扩展和组织共享计划；
+- 执行者类型决定允许参与的 Actor 类型，allowed roles 只进一步限制 Agent；
+- Claim 确定执行期间唯一负责的具体 Actor；
+- Task 生命周期变化与持久成果共同表达所属 WorkItem 的进展。
 
 ## 8. 核心定义
 
-Kairos 的人类交互模型可以归纳为：
-
 ```text
-List      = WorkItem 的管理视图
-Kanban    = WorkItem 的状态与流动视图
-Flow Graph = Workflow Task 的执行视图
-Checklist = Blackboard Task 的协作视图
+Workspace       = 完整 WorkItem 的运营总览
+需要人工关注    = 当前投影选取的人工关注信号
+WorkItem 详情   = 一个完整目标的协调状态与进展
+Task 详情       = 一个执行单元的责任、历史与操作
 ```
 
-> List helps people find work; Kanban helps them understand its flow; WorkItem details let them act.
+> Workspace 帮助人发现需要关注的工作；WorkItem 详情展示工作如何推进；Task 详情让人采取行动。

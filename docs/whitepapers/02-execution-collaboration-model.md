@@ -4,7 +4,7 @@
 
 ## Abstract
 
-People and agents can advance one complete WorkItem together through the Tasks they each own. Tasks can be claimed proactively, assigned to a person, or dispatched through an external Bridge. Every method must establish explicit and unique responsibility before execution and persist progress and results in the shared work model.
+People and agents can advance one complete WorkItem together through the Tasks they each own. A Task's executor kind restricts who is eligible, and `AllowedRoles` further restricts Agent identities only; a matching actor establishes concrete responsibility by Claiming it. A future external Bridge can automate the same Agent role-aware selection and Claim process. Task lifecycle changes and durable results then express progress of the shared WorkItem.
 
 ## 1. Task as the Executor Boundary
 
@@ -24,7 +24,7 @@ Identify Task
     ↓
 Establish responsibility
     ↓
-Execute and record progress
+Execute Task
     ↓
 Submit result
     ↓
@@ -58,7 +58,7 @@ Task A → Executor 1
 Task A → Executor 2    invalid
 ```
 
-Unique execution responsibility prevents duplicated work and conflicting results while giving progress and deliverables a clear source.
+Unique execution responsibility prevents duplicated work and conflicting results while giving lifecycle changes and deliverables a clear source.
 
 > A Claim represents exclusive execution responsibility for a Task, independently of how the Task was distributed.
 
@@ -79,13 +79,13 @@ fail_work_item → Task and WorkItem become Failed
 
 ## 3. Ways to Establish Responsibility
 
-Claim semantics are independent of how work is acquired. A Task executor can be selected in several ways:
+Claim semantics are independent of how work is acquired. `Executor` restricts the eligible actor kind, and `AllowedRoles` further restricts eligible Agent identities. Human identities are never filtered by `AllowedRoles`. These constraints select a class of eligible executors; the Claim records the one concrete actor that takes responsibility.
 
 | Participation method | How responsibility is established |
 | --- | --- |
-| Agent chooses proactively | The agent queries candidate Tasks, chooses one, and creates a Claim |
-| External dispatch | A Bridge chooses an executor, creates the Claim, and starts the agent |
-| Human execution | A person claims the Task or another person assigns it |
+| Agent chooses proactively | A matching Agent queries candidate Tasks, chooses one, and creates a Claim |
+| Human execution | A person Claims a Task whose executor policy allows human participation |
+| External dispatch (planned) | A Bridge chooses a matching Agent identity, establishes its Claim, and starts its harness |
 
 All methods share the same conceptual process:
 
@@ -99,14 +99,14 @@ Create Claim
 Execute Task
 ```
 
-Proactive agent selection fits the current Kairos boundary, which does not control an Agent Harness. A future Bridge can start Codex, Claude Code, or another harness when a Task becomes executable.
+Proactive selection fits the current Kairos boundary, which does not control an Agent Harness. A future Bridge can start Codex, Claude Code, or another harness when a Task becomes executable.
 
 Task organization and executor participation are independent dimensions:
 
 | Task organization | Supported participation methods |
 | --- | --- |
-| Workflow | Proactive claim, external dispatch, or human assignment |
-| Blackboard | Proactive claim, external dispatch, or human assignment |
+| Workflow | Role-aware proactive Claim today; external dispatch in the future |
+| Blackboard | Role-aware proactive Claim today; external dispatch in the future |
 
 ## 4. Shared Work Context
 
@@ -116,17 +116,17 @@ Context inside an Agent Harness is usually temporary and local. Kairos assigns c
 WorkItem
 ├── Objective, background, constraints, acceptance criteria
 ├── Task A
-│   ├── Execution progress
+│   ├── Lifecycle and responsibility
 │   └── Deliverable result
 ├── Task B
-│   ├── Execution progress
+│   ├── Lifecycle and responsibility
 │   └── Deliverable result
 └── Task C
-    ├── Execution progress
+    ├── Lifecycle and responsibility
     └── Deliverable result
 ```
 
-> A Task belongs to a WorkItem, and its progress and results belong in the shared work model.
+> A Task belongs to a WorkItem. Its lifecycle and results express progress of the shared WorkItem.
 
 Every formal submission creates an immutable Task Submission. The Submission links to the Claim that produced it and stores that delivery result. Rework creates a new Submission instead of overwriting an earlier result. A Review links directly to the reviewed Submission, while a Failure links to the failed Claim, making all submissions, feedback, and failure reasons traceable.
 
@@ -155,9 +155,9 @@ Workflow and Blackboard use the same execution collaboration model. Their differ
 | --- | --- | --- |
 | Candidate Tasks | Computed from a formal Task Graph | Formed from the shared Task Graph and current context |
 | Prerequisite relations | Limit legal candidates | Provide progression guidance |
-| Executors | Proactive claim, Bridge dispatch, or human assignment | Proactive claim, Bridge dispatch, or human assignment |
+| Executors | Executor kind constrains all claimants; allowed roles constrain Agents only | Executor kind constrains all claimants; allowed roles constrain Agents only |
 | Execution responsibility | Established through one unique Claim | Established through one unique Claim |
-| Progress and results | Persisted on Task and WorkItem | Persisted on Task and WorkItem |
+| WorkItem progress | Expressed by Task lifecycle and durable results | Expressed by Task lifecycle and durable results |
 
 Workflow limits the legal choice space. Blackboard provides a dynamically evolving work structure and advisory relations. Both modes allow people and agents to choose proactively and both can integrate with external dispatch.
 
@@ -180,14 +180,14 @@ The Kairos collaboration semantics apply to people and agents independently of h
 └──────────────────────────────┘
 ```
 
-Kairos Core represents work, provides candidate Tasks, establishes execution responsibility, and persists shared context. People participate through an interaction layer. An Agent Harness runs the agent, while a Bridge starts a specific harness and returns results.
+Kairos Core represents work, provides candidate Tasks, establishes execution responsibility, and persists shared context. People participate through an interaction layer. An Agent Harness runs the agent; the planned Bridge will start a specific harness and return results.
 
 This collaboration model can be summarized in five principles:
 
 1. One collaborative execution is centered on an explicit Task.
 2. One executor is responsible for a Task while it is being executed.
 3. How a Claim is established does not change its responsibility semantics.
-4. Task progress and results enter the shared work model.
+4. Task lifecycle changes and results express progress of the shared WorkItem.
 5. Task organization and executor participation are independent.
 
 > People and agents share a WorkItem, while each Task has one responsible executor.

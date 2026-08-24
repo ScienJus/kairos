@@ -113,7 +113,7 @@ Task tags: [backend, auth]
 
 Kairos 可以根据 Agent Role 提供默认 tags 或查询范围，Agent 再结合 Task 描述和当前上下文作出选择。
 
-Blackboard 的 tags 表达工作分类和发现线索，不自动成为访问权限。需要限制某个 Task 时，应显式配置允许的 Role。
+Blackboard 的 tags 表达工作分类和发现线索，不自动成为访问权限。需要限制 Agent 执行某个 Task 时，应显式配置 allowed roles；Human 执行只受执行者类型控制，不按 Agent Role 筛选。
 
 Workflow Definition 和 Blackboard Definition 都可以提供 Suggested Tags，例如 `module:*`。Agent 根据实际工作为 Task 添加具体 tags；Definition 只提供推荐词汇，不要求人持续维护每个 Task 的标签。
 

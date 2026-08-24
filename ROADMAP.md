@@ -12,7 +12,7 @@ Kairos is under active development. This roadmap communicates direction rather t
 - SQLite and PostgreSQL persistence;
 - Trusted and Authenticated identity modes;
 - managed and external Artifacts;
-- an operations console for WorkItems, attention, task maps, graphs, and Definition editing.
+- an operations console for WorkItems, attention, Blackboard Task hierarchies, Workflow graphs, and Definition editing.
 
 ## Near-term priorities
 
@@ -24,13 +24,13 @@ Kairos is under active development. This roadmap communicates direction rather t
 
 ## Later exploration
 
-- a Kanban view of complete WorkItems;
+- richer workspace organization and operational views for complete WorkItems;
 - richer Artifact Store adapters;
 - deployment profiles for shared teams;
 - compatibility tooling for Definition and API evolution.
 
 ## Non-goals
 
-Kairos does not aim to choose models, run agent sandboxes, replace an agent harness, or turn Kanban into a third coordination mode. New work should preserve the boundary between durable coordination and executor runtime management.
+Kairos does not aim to choose models, run agent sandboxes, replace an agent harness, or introduce a third coordination mode through an operational view. New work should preserve the boundary between durable coordination and executor runtime management.
 
 Before `v1.0.0`, APIs and schemas may change as these boundaries are validated. Breaking changes must be called out in release notes and accompanied by migration guidance where persisted data is affected.

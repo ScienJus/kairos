@@ -52,7 +52,7 @@ A Task is the execution boundary of one executor:
 - it can appear as an independent work candidate;
 - it has explicit execution content and a deliverable result;
 - it has only one responsible executor while being executed;
-- its progress and results are recorded on the Task and become shared WorkItem context.
+- its lifecycle changes and durable results contribute to the owning WorkItem's progress and shared context.
 
 A Task should be small enough for one executor to own through one coherent work session and produce a deliverable. It can be restricted to an agent, a person, or either.
 
@@ -62,7 +62,7 @@ Whenever an executor formally submits a result, Kairos creates an immutable Task
 
 A Result is the executor's durable narrative; an Artifact is a named, addressable deliverable. Executors may stage Artifacts while holding a Claim and bind them when creating the Submission. Bound Artifacts inherit the Submission's immutable history and are visible across the WorkItem.
 
-When an executor reports failure, Kairos creates an immutable Task Failure under the Task. A prompt supplied when reopening becomes part of the next execution context; a global failure ends both the Task and WorkItem. Claims, Submissions, Reviews, Failures, and progression decisions also form an append-only WorkItem Event history.
+When an executor reports failure, Kairos creates an immutable Task Failure under the Task. A prompt supplied when reopening becomes part of the next execution context; a global failure ends both the Task and WorkItem. Claims, Submissions, Reviews, Failures, and progression decisions also form a persisted append-only WorkItem Event history. A user-facing WorkItem event timeline is a separate presentation capability and remains planned.
 
 > A WorkItem answers “What final outcome is required?” A Task answers “What concrete work comes next?”
 
@@ -95,7 +95,7 @@ Design ──→ Implement ──→ Test
 
 Relations in the definition are authoritative constraints. “Design → Implement” means that the system creates the “Implement” Task for this WorkItem only after “Design” has completed.
 
-Workflow instantiates Tasks as progression requires. When execution reaches the same definition node more than once, it creates a new Task instance each time, preserving an independent Claim, progress, and result for every pass. The resulting runtime Task Graph records the actual execution history.
+Workflow instantiates Tasks as progression requires. When execution reaches the same definition node more than once, it creates a new Task instance each time, preserving independent Claim and result history for every pass. Those lifecycle records contribute to the WorkItem's progress, while the resulting runtime Task Graph records the actual execution history.
 
 Key characteristics of Workflow include:
 
@@ -107,7 +107,7 @@ Key characteristics of Workflow include:
 - the system computes the currently legal candidate Tasks from the structure;
 - WorkItem completion can usually be derived from the formal structure.
 
-A Workflow can expose multiple legal candidate Tasks at once. Workflow limits the choice space; a person or agent can choose proactively, or a Bridge can dispatch a Task.
+A Workflow can expose multiple legal candidate Tasks at once. Workflow limits the choice space; a person or agent can choose proactively, and a future Bridge can automate the same role-aware selection.
 
 > Workflow is a formally defined and authoritative Task Graph.
 
@@ -203,27 +203,21 @@ Workflow and Blackboard therefore share data structures while applying different
 
 ## 6. Presentation
 
-The WorkItem collection has List and Kanban views:
+The operations console presents complete work at two levels:
 
 ```text
-WorkItem Collection
-    ├── List
-    └── Kanban
-```
-
-List supports search, filtering, and high-density browsing. Kanban shows the state and flow of complete work. Both views present the same WorkItems.
-
-Inside a WorkItem, Tasks are rendered according to the coordination mode:
-
-```text
+Workspace
+    ├── All Work
+    └── Needs Human
+          ↓ open WorkItem
 WorkItem Detail
     ├── Workflow   → Flow Graph
-    └── Blackboard → Checklist
+    └── Blackboard → Task Hierarchy
 ```
 
-Flow Graph presents formal Workflow dependencies and progression state. Checklist presents the dynamically formed Blackboard Tasks, tags, suggested relations, and shared results.
+The workspace summarizes WorkItems and selected human-attention signals. WorkItem detail keeps Tasks inside their owning objective: the Flow Graph presents formal Workflow dependencies and runtime history, while the current Blackboard console presents dynamically formed Tasks as a hierarchy with tags and lifecycle state. Blackboard Relations remain part of the durable model and execution context but are not yet displayed or created by the console.
 
-Kanban displays WorkItems only. Tasks remain inside their owning WorkItem and are operated through Flow Graph or Checklist.
+Task lifecycle changes and durable records express how the WorkItem is advancing; Kairos does not require a separate mutable progress field.
 
 ## 7. Core Definitions
 

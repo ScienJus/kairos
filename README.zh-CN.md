@@ -10,7 +10,7 @@ Kairos 协调人类与 Agent 共同参与的工作。
 
 Codex、Claude Code 等 Agent Harness 擅长运行 Agent。Kairos 关注这些 Agent 周围的协作：有哪些工作、当前由谁负责、已经交付了什么，以及接下来可以做什么。
 
-Kairos 不启动或停止 Agent，不选择模型，也不管理沙箱。它的集成模型允许 Agent 通过 MCP / Skill 主动接入；需要自动拉起 Agent 时，也可以由 Bridge 将 Task 派发给外部 Harness。
+Kairos 不启动或停止 Agent，不选择模型，也不管理沙箱。当前集成模型允许 Agent 通过 MCP / Skill 主动接入；规划中的 Bridge 将在需要自动拉起 Agent 时把 Task 派发给外部 Harness。
 
 ## 为什么需要 Kairos
 
@@ -87,12 +87,12 @@ Working
 
 ## 人类交互
 
-当前 operations console 已提供 WorkItem List、人工关注队列和 WorkItem 详情。进入 WorkItem 后：
+当前 operations console 已提供 workspace 总览、人工关注视图和 WorkItem 详情。进入 WorkItem 后：
 
 - Workflow 显示为带执行历史的流程图。
-- Blackboard 显示为包含层级和建议关系的动态 Checklist。
+- Blackboard 显示为分层 Task 工作区。Relation 已通过 HTTP 和 MCP 接口提供，但控制台尚不能展示或创建 Relation。
 
-Kanban 仍在规划中，将用于展示完整 WorkItem，不承担两种模式的协调语义。
+Task 生命周期变化、执行责任、Submission、Review、Failure 和 Artifact 共同展示所属 WorkItem 如何推进。完整的 WorkItem 事件时间线仍在规划中，底层 Event 已经持久化。
 
 ## 项目状态
 
@@ -107,14 +107,14 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 并发与幂等保护；
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
-- 包含 WorkItem List、人工关注、Workflow 图、Blackboard Task Map 和 Definition 编辑器的 operations console；
+- 包含 workspace 总览、人工关注、Workflow 图、Blackboard Task 层级和 Definition 编辑器的 operations console；
 - 支持灵活时长、heartbeat、reaper 回收和 fencing 的 Agent Claim lease；
 - 确定性单元测试和随机协作模拟测试。
 
 仍需实现：
 
 - 用于自动派发的 Bridge；
-- 剩余的 Kanban 与控制台运营流程。
+- 剩余的控制台运营流程，包括 WorkItem 事件时间线。
 
 开发需要 Go 1.26.6 或更高版本：
 

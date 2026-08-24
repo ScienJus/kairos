@@ -54,7 +54,7 @@ Create or adjust Tasks
         ↓
 Choose and execute a Task
         ↓
-Record progress and results
+Update WorkItem progress through Task lifecycle and results
         ↓
 Observe WorkItem again
         ↺
@@ -112,7 +112,7 @@ executor:
   either
 ```
 
-A person or agent can choose a candidate proactively, or a Bridge can dispatch it. A Claim establishes unique execution responsibility for the selected Task.
+A person or agent can choose a candidate proactively, and a future Bridge can automate the same role-aware choice. A Claim establishes unique execution responsibility for one concrete actor on the selected Task.
 
 ## 5. Autonomy
 
