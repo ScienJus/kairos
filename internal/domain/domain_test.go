@@ -100,6 +100,37 @@ func TestDefinitionsShareSuggestedTagGuidance(t *testing.T) {
 	}
 }
 
+func TestDefinitionIDValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, id := range []DefinitionID{"workflow-1", "a", "123", "a--b"} {
+		id := id
+		t.Run("valid_"+string(id), func(t *testing.T) {
+			binding := DefinitionBinding{ID: id, Version: 1, Mode: CoordinationModeBlackboard}
+			if err := binding.Validate(); err != nil {
+				t.Fatalf("DefinitionBinding.Validate() error = %v", err)
+			}
+		})
+	}
+
+	for _, id := range []DefinitionID{"foo|bar", "Foo", "foo_bar", "foo bar", "工作流"} {
+		id := id
+		t.Run("invalid_"+string(id), func(t *testing.T) {
+			binding := DefinitionBinding{ID: id, Version: 1, Mode: CoordinationModeBlackboard}
+			if err := binding.Validate(); !errors.Is(err, ErrInvalidModel) {
+				t.Fatalf("DefinitionBinding.Validate() error = %v, want ErrInvalidModel", err)
+			}
+
+			metadata := DefinitionMetadata{
+				ID: id, Version: 1, Name: "Definition", CreatedAt: testTime, UpdatedAt: testTime,
+			}
+			if err := metadata.Validate(); !errors.Is(err, ErrInvalidModel) {
+				t.Fatalf("DefinitionMetadata.Validate() error = %v, want ErrInvalidModel", err)
+			}
+		})
+	}
+}
+
 func TestTaskValidateModeSpecificConfiguration(t *testing.T) {
 	t.Parallel()
 

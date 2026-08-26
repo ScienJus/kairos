@@ -109,11 +109,15 @@ Operations console 使用两套按状态过滤的 cursor 分别加载进行中�
 
 每个 Definition 目录对每个 ID 返回最大的已存储版本。`GET /definitions/{mode}/{id}` 返回该最新版本，`GET /definitions/{mode}/{id}/versions` 分页返回该 ID 的不可变版本历史。控制台会直接解析未知 ID 或版本，不扫描无关目录页。
 
+Definition ID 只能包含小写 ASCII 字母、数字和连字符（`^[a-z0-9-]+$`）。
+
 创建新的 Definition ID 时省略 `base_version`，服务端分配版本 1。追加版本时必须通过 `base_version` 提交编辑所基于的最新版本；服务端在 Definition 锁内比较后分配 `max(version) + 1`。已有 ID 缺少基线或基线过期时返回 `409 conflict`。
 
 创建 WorkItem 时有意只提交 Definition ID 和 mode，不提交版本。服务端会在创建时解析并绑定该 ID 最大的已存储版本。
 
-Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。Blackboard Task 收敛后，`find_work` 返回 `blackboard_completion`；协作者可以继续创建 Task，也可以提交持久完成结果。提交后才应用 `acceptance_mode`：`none`（默认）立即完成，`agent` 返回 `work_item_acceptance`，`human` 进入人工验收；验收通过独立的 `POST /acceptance` 动作完成。Agent 验收候选仅对 Agent identity 可见。生命周期决策候选优先于可执行或待规划候选返回，`limit` 对所有候选类型全局生效。
+Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。Blackboard Task 收敛后，`find_work` 返回 `blackboard_completion`；协作者可以继续创建 Task，也可以提交持久完成结果。提交后才应用 `acceptance_mode`：`none`（默认）立即完成，`agent` 返回 `work_item_acceptance`，`human` 进入人工验收；验收通过独立的 `POST /acceptance` 动作完成。Agent 验收候选仅对 Agent identity 可见。
+
+`find_work` 按 `work_item_acceptance`、`blackboard_completion`、`task`、`empty_blackboard` 分组顺序返回候选。`limit` 独立作用于每个组；省略或传 0 时默认为 5，最大允许 50。因此 Agent 最多收到四倍于 limit 的候选；Human 不会收到 Agent 验收候选。每个组都在数据库查询阶段限制结果，不会先加载完整候选集合再截断。
 
 Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `agent_guidance` 字符串。空字符串表示没有额外 Guidance。两者不改变图编译或推进语义。HTTP Workflow Task context 的每个 Choice Group 在 `relations` 中返回完整 Guidance；MCP `get_task_context` 则在对应的 `targets[]` 项上提供合并后的 `relation_guidance`（优先使用 `agent_guidance`，否则使用 `label`），避免重复目标结构。
 

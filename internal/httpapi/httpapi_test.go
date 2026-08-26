@@ -115,6 +115,9 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if blackboardDefinition.ID != "engineering" {
 		t.Fatalf("blackboard definition ID = %q", blackboardDefinition.ID)
 	}
+	requestErrorAs(t, client, http.MethodPost, server.URL+"/api/v1/definitions/blackboards/foo%7Cbar/versions", map[string]any{
+		"name": "Invalid ID",
+	}, "invalid-blackboard-definition-id", http.StatusBadRequest, "invalid_request", trustedTestIdentity{ID: "codex-storage", Role: "database"})
 
 	workflowDefinition := requestData[domain.WorkflowDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/workflows/delivery/versions", map[string]any{
 		"name":           "Delivery",
@@ -270,6 +273,8 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if len(candidates) != 1 || candidates[0].Kind != application.WorkCandidateEmptyBlackboard {
 		t.Fatalf("new Blackboard candidates = %+v, want one empty Blackboard", candidates)
 	}
+	requestErrorAs(t, client, http.MethodGet, server.URL+"/api/v1/work?limit=51", nil, "", http.StatusBadRequest, "invalid_request",
+		trustedTestIdentity{ID: "codex-storage", Role: "database"})
 
 	task := requestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
 		"title": "Implement migration", "executor": "agent",

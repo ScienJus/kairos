@@ -533,12 +533,25 @@ func (s *sqlStore) ListOpenTasks(filter application.OpenTaskFilter) ([]applicati
 		}
 		args = append(args, domain.CoordinationModeWorkflow, tag)
 	}
+	conditions = append(conditions, `(w.mode != ? OR NOT EXISTS (
+		SELECT 1
+		FROM task_relations relation
+		JOIN tasks predecessor
+		  ON predecessor.work_item_id = relation.work_item_id
+		 AND predecessor.id = relation.from_task_id
+		WHERE relation.work_item_id = t.work_item_id
+		  AND relation.to_task_id = t.id
+		  AND predecessor.status NOT IN (?, ?)
+	))`)
+	args = append(args, domain.CoordinationModeWorkflow, domain.TaskStatusCompleted, domain.TaskStatusSkipped)
+	args = append(args, filter.Limit)
 	rows, err := s.query(`
 		SELECT w.payload, t.payload
 		FROM tasks t
 		JOIN work_items w ON w.id = t.work_item_id
 		WHERE `+strings.Join(conditions, " AND ")+`
-		ORDER BY w.id, t.position, t.id`, args...)
+		ORDER BY t.id
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -564,15 +577,17 @@ func (s *sqlStore) ListOpenTasks(filter application.OpenTaskFilter) ([]applicati
 	return result, normalizeError(rows.Err())
 }
 
-func (s *sqlStore) ListEmptyBlackboards(tags []string) ([]domain.WorkItem, error) {
+func (s *sqlStore) ListEmptyBlackboards(tags []string, limit int) ([]domain.WorkItem, error) {
 	conditions := []string{"w.status = ?", "w.mode = ?", "NOT EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)"}
 	args := []any{domain.WorkItemStatusOpen, domain.CoordinationModeBlackboard}
 	conditions, args = s.appendWorkItemTagConditions(conditions, args, "w", tags)
+	args = append(args, limit)
 	rows, err := s.query(`
 		SELECT w.payload
 		FROM work_items w
 		WHERE `+strings.Join(conditions, " AND ")+`
-		ORDER BY w.id`, args...)
+		ORDER BY w.updated_at, w.id
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -592,31 +607,43 @@ func (s *sqlStore) ListEmptyBlackboards(tags []string) ([]domain.WorkItem, error
 	return result, normalizeError(rows.Err())
 }
 
-func (s *sqlStore) ListBlackboardsAwaitingLifecycleDecision(tags []string) ([]domain.WorkItem, error) {
-	conditions := []string{`w.mode = ?`, `(
-			w.status = ?
-			OR (
-			  w.status = ?
-			  AND EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)
-			  AND NOT EXISTS (
-				SELECT 1 FROM tasks t
-				WHERE t.work_item_id = w.id AND t.status NOT IN (?, ?)
-			  )
-			)
-		  )`}
-	args := []any{
-		domain.CoordinationModeBlackboard,
-		domain.WorkItemStatusAwaitingAgentAcceptance,
-		domain.WorkItemStatusOpen,
-		domain.TaskStatusCompleted,
-		domain.TaskStatusSkipped,
-	}
+func (s *sqlStore) ListBlackboardsAwaitingAgentAcceptance(tags []string, limit int) ([]domain.WorkItem, error) {
+	return s.listBlackboardsForWork(
+		[]string{"w.mode = ?", "w.status = ?"},
+		[]any{domain.CoordinationModeBlackboard, domain.WorkItemStatusAwaitingAgentAcceptance},
+		tags,
+		limit,
+	)
+}
+
+func (s *sqlStore) ListBlackboardsAwaitingCompletion(tags []string, limit int) ([]domain.WorkItem, error) {
+	return s.listBlackboardsForWork(
+		[]string{
+			"w.mode = ?",
+			"w.status = ?",
+			"EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)",
+			"NOT EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id AND t.status NOT IN (?, ?))",
+		},
+		[]any{
+			domain.CoordinationModeBlackboard,
+			domain.WorkItemStatusOpen,
+			domain.TaskStatusCompleted,
+			domain.TaskStatusSkipped,
+		},
+		tags,
+		limit,
+	)
+}
+
+func (s *sqlStore) listBlackboardsForWork(conditions []string, args []any, tags []string, limit int) ([]domain.WorkItem, error) {
 	conditions, args = s.appendWorkItemTagConditions(conditions, args, "w", tags)
+	args = append(args, limit)
 	rows, err := s.query(`
 		SELECT w.payload
 		FROM work_items w
 		WHERE `+strings.Join(conditions, " AND ")+`
-		ORDER BY w.id`, args...)
+		ORDER BY w.updated_at, w.id
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}

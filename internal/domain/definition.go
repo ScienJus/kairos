@@ -14,8 +14,8 @@ type DefinitionBinding struct {
 
 // Validate checks the DefinitionBinding invariants.
 func (b DefinitionBinding) Validate() error {
-	if strings.TrimSpace(string(b.ID)) == "" {
-		return invalid("definition.id", "is required")
+	if err := validateDefinitionID(b.ID); err != nil {
+		return err
 	}
 	if b.Version <= 0 {
 		return invalid("definition.version", "must be greater than zero")
@@ -48,8 +48,8 @@ type DefinitionMetadata struct {
 
 // Validate checks the shared DefinitionMetadata invariants.
 func (m DefinitionMetadata) Validate() error {
-	if strings.TrimSpace(string(m.ID)) == "" {
-		return invalid("definition.id", "is required")
+	if err := validateDefinitionID(m.ID); err != nil {
+		return err
 	}
 	if m.Version <= 0 {
 		return invalid("definition.version", "must be greater than zero")
@@ -61,6 +61,18 @@ func (m DefinitionMetadata) Validate() error {
 		return err
 	}
 	return validateTimestamps(m.CreatedAt, m.UpdatedAt)
+}
+
+func validateDefinitionID(id DefinitionID) error {
+	if id == "" {
+		return invalid("definition.id", "is required")
+	}
+	for _, character := range id {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+			return invalid("definition.id", "must contain only lowercase ASCII letters, digits, and hyphens")
+		}
+	}
+	return nil
 }
 
 // Binding returns a reference to this metadata for the given coordination mode.
