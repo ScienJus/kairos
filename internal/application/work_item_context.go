@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/ScienJus/kairos/internal/domain"
@@ -75,15 +74,6 @@ func boundedPage[T any](items []T, limit int) Page[T] {
 		items = []T{}
 	}
 	return Page[T]{Items: items, HasMore: hasMore}
-}
-
-func containsAllStrings(values, required []string) bool {
-	for _, value := range required {
-		if !slices.Contains(values, value) {
-			return false
-		}
-	}
-	return true
 }
 
 // WorkItemExecutionContext contains a durable WorkItem view that remains

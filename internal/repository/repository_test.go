@@ -1165,6 +1165,28 @@ func forEachSQLRepository(
 	})
 }
 
+func TestSQLiteRestrictsExistingFilesystemPermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kairos.db")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("create sqlite file: %v", err)
+	}
+	repository, err := OpenSQLite(context.Background(), path)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer repository.Close()
+
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		info, err := os.Stat(candidate)
+		if err != nil {
+			t.Fatalf("stat %q: %v", candidate, err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("permissions for %q = %04o, want 0600", candidate, got)
+		}
+	}
+}
+
 func testWorkflowRoundTrip(
 	t *testing.T,
 	repository *SQLRepository,

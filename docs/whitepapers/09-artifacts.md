@@ -31,7 +31,7 @@ Pending managed-upload records and completed replay records for both external re
 
 ## Storage
 
-The Artifact row contains provenance, name, and URI. Managed Blob metadata contains URI, digest, and size. The built-in Store writes to a stable upload URI registered before the write and flushes the file and its directory chain before the database marks the upload completed. The digest is retained as integrity metadata and is not used to choose the URI. Duplicate content may occupy separate managed locations.
+The Artifact row contains provenance, name, and URI. Managed Blob metadata contains URI, digest, and size. The built-in Store writes to a stable upload URI registered before the write and flushes the file and its directory chain before the database marks the upload completed. Its root and hash directories use mode `0700`, and managed files use `0600`, including existing paths tightened during a retry. The digest is retained as integrity metadata and is not used to choose the URI. Duplicate content may occupy separate managed locations.
 
 Agents cannot select a Store. The server uses one configured managed Store for this deployment. The bundled implementation supports `kairos://`; large external deliverables should use `create_artifact` with their durable URI.
 

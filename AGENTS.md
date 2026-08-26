@@ -27,6 +27,6 @@ These instructions apply to the entire repository.
 
 - When adding a feature or changing behavior, add corresponding unit tests in the same change. Tests must cover the new contract and its important edge cases.
 - Run `gofmt` on changed Go files.
-- Run `go test ./...` for backend or shared-contract changes.
+- Run `make go-test` for backend or shared-contract changes.
 - Run `npm run build` and `npm run lint` in `web/` for frontend changes.
 - Run `git diff --check` before handing off changes.

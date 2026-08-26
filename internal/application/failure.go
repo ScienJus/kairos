@@ -83,6 +83,9 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 		if err := failure.Validate(); err != nil {
 			return err
 		}
+		if len(task.Failures) >= MaxTaskHistoryEntries {
+			return conflict("task %q has reached the maximum of %d failure records", task.ID, MaxTaskHistoryEntries)
+		}
 
 		claim.EndedAt = &now
 		claim.EndReason = domain.ClaimEndTaskFailed

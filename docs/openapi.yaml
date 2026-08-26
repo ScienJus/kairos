@@ -1182,10 +1182,13 @@ components:
       type: object
       required: [start_task_ids, tasks, relations, max_task_executions]
       properties:
-        start_task_ids: { $ref: '#/components/schemas/StringArray' }
-        tasks: { type: array, items: { $ref: '#/components/schemas/WorkflowTaskDefinition' } }
-        relations: { type: array, items: { $ref: '#/components/schemas/WorkflowRelationDefinition' } }
-        max_task_executions: { type: integer, minimum: 0 }
+        start_task_ids:
+          allOf:
+            - $ref: '#/components/schemas/StringArray'
+          uniqueItems: true
+        tasks: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/WorkflowTaskDefinition' } }
+        relations: { type: array, maxItems: 1000, items: { $ref: '#/components/schemas/WorkflowRelationDefinition' } }
+        max_task_executions: { type: integer, minimum: 0, maximum: 500, description: Zero uses the server default of 100. }
     WorkflowDefinition:
       allOf:
         - $ref: '#/components/schemas/DefinitionMetadata'
@@ -1213,10 +1216,13 @@ components:
       additionalProperties: false
       required: [start_task_ids, tasks]
       properties:
-        start_task_ids: { $ref: '#/components/schemas/StringArray' }
-        tasks: { type: array, items: { $ref: '#/components/schemas/WorkflowTaskDefinitionRequest' } }
-        relations: { type: array, items: { $ref: '#/components/schemas/WorkflowRelationDefinitionRequest' } }
-        max_task_executions: { type: integer, minimum: 0, default: 0 }
+        start_task_ids:
+          allOf:
+            - $ref: '#/components/schemas/StringArray'
+          uniqueItems: true
+        tasks: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/WorkflowTaskDefinitionRequest' } }
+        relations: { type: array, maxItems: 1000, items: { $ref: '#/components/schemas/WorkflowRelationDefinitionRequest' } }
+        max_task_executions: { type: integer, minimum: 0, maximum: 500, default: 0, description: Zero uses the server default of 100. }
     WorkflowTaskDefinitionRequest:
       type: object
       additionalProperties: false
@@ -1358,6 +1364,7 @@ components:
         applied_at: { $ref: '#/components/schemas/NullableDateTime' }
     Task:
       type: object
+      description: Task histories are complete. To keep context responses bounded, each Task accepts at most 1,000 Claims, Submissions, Reviews, Failures, Transition Decisions, and Artifacts; attempts beyond a per-task ceiling return 409 conflict.
       required: [id, work_item_id, workflow_task_id, workflow_activation_id, status, active_claim_id, parent_task_id, decomposed_at, title, description, acceptance_criteria, executor, skipped_by, skip_reason, allowed_roles, tags, execution, review_policy, reviews, submissions, failures, transition_decisions, position, version, created_at, updated_at, completed_at]
       properties:
         id: { type: string }
@@ -1390,6 +1397,7 @@ components:
         completed_at: { $ref: '#/components/schemas/NullableDateTime' }
     TaskDraftRequest:
       type: object
+      description: The Blackboard WorkItem has hard ceilings of 1,000 Task instances and 10,000 suggested Relations, including completed history and decomposition children. Requests that would exceed a ceiling return 409 conflict.
       additionalProperties: false
       required: [title, executor]
       properties:
@@ -1401,6 +1409,7 @@ components:
         tags: { $ref: '#/components/schemas/StringArray' }
     AddRelationRequest:
       type: object
+      description: A Blackboard WorkItem accepts at most 10,000 suggested Relations. Requests beyond that hard ceiling return 409 conflict.
       additionalProperties: false
       required: [from_task_id, to_task_id]
       properties:

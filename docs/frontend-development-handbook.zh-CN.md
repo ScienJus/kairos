@@ -138,7 +138,7 @@ Blackboard 至少覆盖：pending 的认领/跳过、working 的完成/释放/�
 完成后运行：
 
 ```bash
-go test ./...
+make go-test
 cd web && npm test && npm run build && npm run lint
 git diff --check
 ```

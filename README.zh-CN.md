@@ -126,7 +126,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 开发需要 Go 1.26.6 或更高版本：
 
 ```bash
-go test ./...
+make go-test
 ```
 
 ## 快速体验

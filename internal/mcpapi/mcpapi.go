@@ -428,10 +428,6 @@ type createBlackboardTaskInput struct {
 	Tags               []string `json:"tags,omitempty" jsonschema:"Searchable task tags."`
 }
 
-func (input createBlackboardTaskInput) spec() application.BlackboardTaskSpec {
-	return application.BlackboardTaskSpec{Title: input.Title, Description: input.Description, AcceptanceCriteria: input.AcceptanceCriteria, Executor: domain.ExecutorRequirement(input.Executor), AllowedRoles: input.AllowedRoles, Tags: input.Tags}
-}
-
 type addBlackboardRelationInput struct {
 	WorkItemID string `json:"work_item_id"`
 	FromTaskID string `json:"from_task_id"`

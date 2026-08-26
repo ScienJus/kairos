@@ -16,6 +16,7 @@ func Handler() http.Handler {
 	}
 	files := http.FileServer(http.FS(dist))
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		setSecurityHeaders(writer)
 		requested := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
 		if requested == "." {
 			requested = "index.html"
@@ -27,4 +28,12 @@ func Handler() http.Handler {
 		request.URL.Path = "/"
 		files.ServeHTTP(writer, request)
 	})
+}
+
+func setSecurityHeaders(writer http.ResponseWriter) {
+	header := writer.Header()
+	header.Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'")
+	header.Set("X-Content-Type-Options", "nosniff")
+	header.Set("X-Frame-Options", "DENY")
+	header.Set("Referrer-Policy", "no-referrer")
 }

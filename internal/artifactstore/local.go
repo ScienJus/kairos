@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -32,6 +33,49 @@ func NewLocal(root string) (*Local, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve artifact directory: %w", err)
 	}
+	if info, statErr := os.Lstat(abs); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("artifact directory must not be a symbolic link")
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect artifact directory: %w", statErr)
+	}
+	abs, err = canonicalizeParent(abs)
+	if err != nil {
+		return nil, err
+	}
+	if filepath.Dir(abs) == abs {
+		return nil, fmt.Errorf("artifact directory must not be a filesystem root")
+	}
+	if err := validatePathComponents(abs); err != nil {
+		return nil, err
+	}
+	_, statErr := os.Lstat(abs)
+	existing := statErr == nil
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("inspect artifact directory: %w", statErr)
+	}
+	if err := os.MkdirAll(abs, 0o700); err != nil {
+		return nil, fmt.Errorf("create artifact directory: %w", err)
+	}
+	if err := validatePathComponents(abs); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("inspect artifact directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("artifact directory must not be a symbolic link")
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("artifact directory must be a directory")
+	}
+	if existing {
+		if info.Mode().Perm() != 0o700 {
+			return nil, fmt.Errorf("existing artifact directory permissions are %o; set them to 700 before starting Kairos", info.Mode().Perm())
+		}
+	} else if err := os.Chmod(abs, 0o700); err != nil {
+		return nil, fmt.Errorf("secure artifact directory: %w", err)
+	}
 	return &Local{root: abs}, nil
 }
 
@@ -53,12 +97,19 @@ func (s *Local) Put(ctx context.Context, storeURI string, source io.Reader) (dom
 		if err != nil {
 			return domain.ArtifactBlob{}, err
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return domain.ArtifactBlob{}, fmt.Errorf("create artifact blob directory: %w", err)
 		}
-		file, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+		if err := secureDirectoryChain(s.root, filepath.Dir(target)); err != nil {
+			return domain.ArtifactBlob{}, err
+		}
+		file, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 		if err != nil {
 			return domain.ArtifactBlob{}, fmt.Errorf("create artifact blob: %w", err)
+		}
+		if err := file.Chmod(0o600); err != nil {
+			_ = file.Close()
+			return domain.ArtifactBlob{}, fmt.Errorf("secure artifact blob: %w", err)
 		}
 		hash := sha256.New()
 		written, copyErr := io.Copy(io.MultiWriter(file, hash), &contextReader{ctx: ctx, source: source})
@@ -83,6 +134,68 @@ func (s *Local) Put(ctx context.Context, storeURI string, source io.Reader) (dom
 		return domain.ArtifactBlob{URI: storeURI, Digest: "sha256:" + digest, Size: written}, nil
 	}
 	return domain.ArtifactBlob{}, fmt.Errorf("artifact upload URI must be registered before writing")
+}
+
+func secureDirectoryChain(root, leaf string) error {
+	relative, err := filepath.Rel(root, leaf)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("artifact directory %q is outside root %q", leaf, root)
+	}
+	for directory := leaf; ; directory = filepath.Dir(directory) {
+		info, err := os.Lstat(directory)
+		if err != nil {
+			return fmt.Errorf("inspect artifact directory: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("artifact directory chain contains a non-directory or symbolic link: %q", directory)
+		}
+		if err := os.Chmod(directory, 0o700); err != nil {
+			return fmt.Errorf("secure artifact directory: %w", err)
+		}
+		if directory == root {
+			return nil
+		}
+	}
+}
+
+// validatePathComponents rejects a symlink at the configured path itself.
+// Existing parent aliases are canonicalized before this check.
+func validatePathComponents(path string) error {
+	info, err := os.Lstat(path)
+	if err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("artifact directory must not be a symbolic link: %q", path)
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect artifact path %q: %w", path, err)
+	}
+	return nil
+}
+
+// canonicalizeParent resolves existing parent aliases such as macOS /var
+// without accepting a symlink as the configured directory itself.
+func canonicalizeParent(path string) (string, error) {
+	missing := make([]string, 0)
+	current := path
+	for {
+		if _, err := os.Lstat(current); err == nil {
+			resolved, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return "", fmt.Errorf("resolve artifact parent: %w", err)
+			}
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return resolved, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("inspect artifact parent: %w", err)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("resolve artifact parent: no existing ancestor")
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
 }
 
 func syncDirectoryChain(root, leaf string) error {

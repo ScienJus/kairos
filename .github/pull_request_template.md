@@ -10,7 +10,7 @@ List the commands and manual checks that were run.
 
 - [ ] Tests cover new behavior and important edge cases.
 - [ ] Changed Go files were formatted with `gofmt`.
-- [ ] `go test ./...` passes for backend or shared-contract changes.
+- [ ] `make go-test` passes for backend or shared-contract changes.
 - [ ] Frontend tests, lint, and build pass for frontend changes.
 - [ ] API collection fields preserve the `[]` rather than `null` contract.
 - [ ] Schema and migration effects are documented and tested.

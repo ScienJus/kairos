@@ -47,8 +47,8 @@ Before submitting a pull request, run the checks relevant to the change. Backend
 
 ```bash
 gofmt -w path/to/changed.go
-go test ./...
-go vet ./...
+make go-test
+make go-vet
 
 cd web
 npm test
@@ -59,7 +59,9 @@ cd ..
 git diff --check
 ```
 
-Repository changes should also run the SQL contract against a disposable PostgreSQL database. Set `KAIROS_TEST_POSTGRES_DSN` before `go test ./...`; CI provides PostgreSQL 17 and always runs this path.
+The Go targets explicitly cover `./cmd/...`, `./internal/...`, and `./web`, so installing frontend dependencies cannot add packages from `web/node_modules` to the Go test or vet scope.
+
+Repository changes should also run the SQL contract against a disposable PostgreSQL database. Set `KAIROS_TEST_POSTGRES_DSN` before `make go-test`; CI provides PostgreSQL 17 and always runs this path.
 
 The pull request should explain the behavior change, identify documentation or migration effects, and list the checks that were run. Maintainers may ask for a smaller change when a pull request combines unrelated work.
 

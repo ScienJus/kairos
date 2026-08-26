@@ -78,6 +78,8 @@ Cblackboard = {
 
 Blackboard 通过共享信息帮助执行者理解选择空间，Task Graph 也会随着这些判断持续演化。
 
+为保证单个协作空间始终可运行，一个 Blackboard WorkItem 最多接受 1,000 个 Task 实例和 10,000 条建议 Relation。该硬上限包含已完成历史和拆分产生的子 Task；超过任一上限时，写入会被拒绝。
+
 ## 4. 图的权威性与演化
 
 | 维度 | Workflow | Blackboard |

@@ -111,6 +111,16 @@ type WorkflowGraph struct {
 	MaxTaskExecutions int `json:"max_task_executions"`
 }
 
+// Workflow resource limits bound the immutable graph shape and runtime
+// expansion budget. Graph-size limits are Definition invariants; runtime
+// expansion is limited by MaxTaskExecutions rather than a second graph budget.
+const (
+	DefaultWorkflowMaxTaskExecutions = 100
+	MaxWorkflowTaskExecutions        = 500
+	MaxWorkflowTasks                 = 100
+	MaxWorkflowRelations             = 1000
+)
+
 // WorkflowChoiceGroupKind describes a derived continuation or exit choice.
 type WorkflowChoiceGroupKind string
 
@@ -295,11 +305,20 @@ func (g WorkflowGraph) analyze() (workflowGraphAnalysis, error) {
 	if len(g.Tasks) == 0 {
 		return workflowGraphAnalysis{}, invalid("workflow.tasks", "must not be empty")
 	}
+	if len(g.Tasks) > MaxWorkflowTasks {
+		return workflowGraphAnalysis{}, invalid("workflow.tasks", "must contain at most %d tasks", MaxWorkflowTasks)
+	}
 	if len(g.StartTaskIDs) == 0 {
 		return workflowGraphAnalysis{}, invalid("workflow.start_task_ids", "must not be empty")
 	}
+	if len(g.Relations) > MaxWorkflowRelations {
+		return workflowGraphAnalysis{}, invalid("workflow.relations", "must contain at most %d relations", MaxWorkflowRelations)
+	}
 	if g.MaxTaskExecutions < 0 {
 		return workflowGraphAnalysis{}, invalid("workflow.max_task_executions", "must not be negative")
+	}
+	if g.MaxTaskExecutions > MaxWorkflowTaskExecutions {
+		return workflowGraphAnalysis{}, invalid("workflow.max_task_executions", "must not exceed %d", MaxWorkflowTaskExecutions)
 	}
 	if g.MaxTaskExecutions > 0 && g.MaxTaskExecutions < len(g.StartTaskIDs) {
 		return workflowGraphAnalysis{}, invalid("workflow.max_task_executions", "must cover all start tasks")

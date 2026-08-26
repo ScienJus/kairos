@@ -47,8 +47,8 @@ make quickstart
 
 ```bash
 gofmt -w path/to/changed.go
-go test ./...
-go vet ./...
+make go-test
+make go-vet
 
 cd web
 npm test
@@ -59,7 +59,9 @@ cd ..
 git diff --check
 ```
 
-Repository 变更还应使用一次性 PostgreSQL 数据库执行 SQL 契约测试。在运行 `go test ./...` 前设置 `KAIROS_TEST_POSTGRES_DSN`；CI 会提供 PostgreSQL 17 并始终执行这条路径。
+Go target 明确覆盖 `./cmd/...`、`./internal/...` 和 `./web`，因此安装前端依赖不会把 `web/node_modules` 中的包加入 Go 测试或 vet 范围。
+
+Repository 变更还应使用一次性 PostgreSQL 数据库执行 SQL 契约测试。在运行 `make go-test` 前设置 `KAIROS_TEST_POSTGRES_DSN`；CI 会提供 PostgreSQL 17 并始终执行这条路径。
 
 Pull Request 应说明行为变化、文档或 Migration 影响，以及已经执行的检查。一个 Pull Request 包含不相关修改时，维护者可能要求拆分。
 

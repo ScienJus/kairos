@@ -8,7 +8,7 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-const defaultMaxWorkflowTaskExecutions = 1000
+const defaultMaxWorkflowTaskExecutions = domain.DefaultWorkflowMaxTaskExecutions
 
 func (s *Service) applyWorkflowDecision(
 	store WriteStore,

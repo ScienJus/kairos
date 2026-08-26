@@ -1,7 +1,8 @@
 WEB_DIR := web
 BIN_DIR := bin
+GO_PACKAGES := ./cmd/... ./internal/... ./web
 
-.PHONY: build test quickstart web-build web-test go-test
+.PHONY: build test quickstart web-build web-test go-test go-vet release-notices
 
 build: web-build
 	mkdir -p $(BIN_DIR)
@@ -22,7 +23,13 @@ web-test: $(WEB_DIR)/node_modules/.package-lock.json
 	go test -tags webdist ./web
 
 go-test:
-	go test ./...
+	go test $(GO_PACKAGES)
+
+go-vet:
+	go vet $(GO_PACKAGES)
+
+release-notices: $(WEB_DIR)/node_modules/.package-lock.json
+	node scripts/generate-third-party-notices.mjs
 
 $(WEB_DIR)/node_modules/.package-lock.json: $(WEB_DIR)/package.json $(WEB_DIR)/package-lock.json
-	cd $(WEB_DIR) && npm ci
+	cd $(WEB_DIR) && npm ci --ignore-scripts

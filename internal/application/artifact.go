@@ -169,6 +169,9 @@ func (s *Service) createArtifact(ctx context.Context, command CreateArtifactComm
 		if err != nil {
 			return err
 		}
+		if err := ensureTaskArtifactCapacity(store, task); err != nil {
+			return err
+		}
 		created = domain.Artifact{
 			ID: domain.ArtifactID(id), WorkItemID: task.WorkItemID, TaskID: task.ID,
 			ClaimID: claim.ID, Name: command.Name, URI: command.URI, CreatedAt: s.clock.Now(),
@@ -211,7 +214,11 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 		record, err := store.GetIdempotencyRecord(command.Identity.Actor, command.OperationID)
 		switch {
 		case errors.Is(err, ErrNotFound):
-			if _, _, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity); err != nil {
+			task, _, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
+			if err != nil {
+				return err
+			}
+			if err := ensureTaskArtifactCapacity(store, task); err != nil {
 				return err
 			}
 			return store.CreateIdempotencyRecord(IdempotencyRecord{
@@ -228,8 +235,11 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 			if err := json.Unmarshal([]byte(record.Response), &state); err != nil || state.BlobURI == "" {
 				return fmt.Errorf("decode pending Artifact upload %q: %w", command.OperationID, err)
 			}
-			_, _, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
-			return err
+			task, _, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
+			if err != nil {
+				return err
+			}
+			return ensureTaskArtifactCapacity(store, task)
 		case record.Status == IdempotencyCompleted && record.Operation == ArtifactUploadOperation:
 			if record.RequestHash != requestHash {
 				return conflict("operation id %q was already used for another request", command.OperationID)
@@ -251,6 +261,17 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 		return nil, artifactUploadState{}, err
 	}
 	return completed, state, nil
+}
+
+func ensureTaskArtifactCapacity(store ReadStore, task domain.Task) error {
+	artifacts, err := store.ListArtifacts(ArtifactFilter{WorkItemID: task.WorkItemID, TaskID: task.ID})
+	if err != nil {
+		return fmt.Errorf("count artifacts for task %q: %w", task.ID, err)
+	}
+	if len(artifacts) >= MaxArtifactsPerTask {
+		return conflict("task %q has reached the maximum of %d artifacts", task.ID, MaxArtifactsPerTask)
+	}
+	return nil
 }
 
 func mustArtifactUploadState(state artifactUploadState) string {
@@ -307,6 +328,12 @@ func (s *Service) finalizeArtifactUpload(ctx context.Context, command UploadArti
 		}
 		task, claim, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
 		if err != nil {
+			return err
+		}
+		// Recheck while the final transaction holds the WorkItem lock. The
+		// reservation transaction has already committed, so another instance
+		// may have added an Artifact in the meantime.
+		if err := ensureTaskArtifactCapacity(store, task); err != nil {
 			return err
 		}
 		if err := store.CreateArtifactBlob(blob); err != nil {

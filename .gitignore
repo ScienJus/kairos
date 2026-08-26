@@ -6,4 +6,6 @@ web/vite.config.d.ts
 web/dist/
 bin/
 /dist/
+/.release/
 artifacts/
+/kairos.db*

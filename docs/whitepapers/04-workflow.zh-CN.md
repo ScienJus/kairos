@@ -52,7 +52,7 @@ Workflow 版本创建时，系统根据图结构为每个 Task 推导推进选�
 
 选择 Continue Group 即表示保留并产生其目标 Task，该次激活不再应用目标 Task 的 optional 配置。未选择的 Continue Group 不产生 Task。
 
-选择 Exit Group 后，其中的 required Task 自动产生，optional Task 仍由执行者判断是否保留。循环必须存在出口；`MaxTaskExecutions` 限制一个 WorkItem 最多产生的 Task 实例总数，只作为失控保护。配置为零时使用系统默认值，不表示无限。运行时 Task Graph 只连接具体实例，因此始终记录为无环的执行历史。
+选择 Exit Group 后，其中的 required Task 自动产生，optional Task 仍由执行者判断是否保留。循环必须存在出口；一个 Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation Definition。起始 Task ID 必须唯一、存在于图中且对应 required Task，因此其数量由 Task Definition 上限自然约束。`MaxTaskExecutions` 限制一个 WorkItem 最多产生的 Task 实例总数，配置为零时使用 100 的系统默认值，显式值不能超过 500。这些值只作为失控保护，零不表示无限。运行时 Task Graph 只连接具体实例，因此始终记录为无环的执行历史。
 
 执行者提交 Task 时，Kairos 保存一条 Transition Decision，记录选择的 Group、触发或跳过的 Relation、执行者和理由。需要 Review 时，Decision 暂不应用；Review 通过后再应用并产生下游 Task。被驳回的 Decision 作为未应用历史保留，同一个运行时 Task 最多应用一条 Decision。Decision、Activation、下游 Task 与 Task Relation 在同一事务中更新。
 

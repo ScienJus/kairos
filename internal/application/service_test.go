@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -191,7 +193,7 @@ func TestManagedArtifactUploadRetryAfterClaimEnds(t *testing.T) {
 	definition := blackboardDefinition()
 	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
 	service := newTestService(t, repository)
-	local, err := artifactstore.NewLocal(t.TempDir())
+	local, err := artifactstore.NewLocal(privateArtifactDir(t))
 	if err != nil {
 		t.Fatalf("new local Artifact Store: %v", err)
 	}
@@ -243,6 +245,10 @@ func TestManagedArtifactUploadRetryAfterClaimEnds(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("release Claim: %v", err)
 	}
+	for index := len(repository.artifacts); index < MaxArtifactsPerTask; index++ {
+		id := domain.ArtifactID(fmt.Sprintf("capacity-fill-%d", index))
+		repository.artifacts[id] = domain.Artifact{ID: id, WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID}
+	}
 
 	retried, err := service.UploadArtifact(context.Background(), command, strings.NewReader("report content"))
 	if err != nil {
@@ -267,7 +273,7 @@ func TestManagedArtifactUploadSerializesConcurrentRetry(t *testing.T) {
 	definition := blackboardDefinition()
 	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
 	service := newTestService(t, repository)
-	local, err := artifactstore.NewLocal(t.TempDir())
+	local, err := artifactstore.NewLocal(privateArtifactDir(t))
 	if err != nil {
 		t.Fatalf("new local Artifact Store: %v", err)
 	}
@@ -345,7 +351,7 @@ func TestManagedArtifactUploadRewritesFileAfterPendingGCDeleteFailure(t *testing
 	definition := blackboardDefinition()
 	repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
 	service := newTestService(t, repository)
-	local, err := artifactstore.NewLocal(t.TempDir())
+	local, err := artifactstore.NewLocal(privateArtifactDir(t))
 	if err != nil {
 		t.Fatalf("new local Artifact Store: %v", err)
 	}
@@ -438,7 +444,7 @@ func TestArtifactDownloadDoesNotBlockManagedUpload(t *testing.T) {
 
 	repository := newTestRepository()
 	service := newTestService(t, repository)
-	local, err := artifactstore.NewLocal(t.TempDir())
+	local, err := artifactstore.NewLocal(privateArtifactDir(t))
 	if err != nil {
 		t.Fatalf("new local Artifact Store: %v", err)
 	}
@@ -551,7 +557,7 @@ func TestArtifactGarbageCollectionRemovesOnlyAbandonedContent(t *testing.T) {
 
 	repository := newTestRepository()
 	service := newTestService(t, repository)
-	local, err := artifactstore.NewLocal(t.TempDir())
+	local, err := artifactstore.NewLocal(privateArtifactDir(t))
 	if err != nil {
 		t.Fatalf("new local Artifact Store: %v", err)
 	}
@@ -1445,6 +1451,249 @@ func TestBlackboardPlanningRequiresExplicitCompletion(t *testing.T) {
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("append after submitted completion: got %v", err)
 	}
+}
+
+func TestBlackboardPlanningEnforcesResourceLimits(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+	service := newTestService(t, repository)
+	identity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: domain.DefinitionBinding{ID: "blackboard", Version: 1, Mode: domain.CoordinationModeBlackboard},
+		Identity:   identity, Title: "Bounded planning", Goal: "Keep planning bounded",
+	})
+	if err != nil {
+		t.Fatalf("create blackboard: %v", err)
+	}
+	for index := 0; index < MaxBlackboardTasks; index++ {
+		repository.tasks[domain.TaskID(fmt.Sprintf("existing-%d", index))] = domain.Task{
+			ID: domain.TaskID(fmt.Sprintf("existing-%d", index)), WorkItemID: workItem.ID, Position: int64(index),
+		}
+	}
+	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: identity, Title: "one too many", Executor: domain.ExecutorAgent,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("task limit error = %v, want ErrConflict", err)
+	}
+
+	relationWorkItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: domain.DefinitionBinding{ID: "blackboard", Version: 1, Mode: domain.CoordinationModeBlackboard},
+		Identity:   identity, Title: "Bounded relations", Goal: "Keep relations bounded",
+	})
+	if err != nil {
+		t.Fatalf("create relation blackboard: %v", err)
+	}
+	from, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: relationWorkItem.ID, Identity: identity, Title: "from", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create relation source: %v", err)
+	}
+	to, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		WorkItemID: relationWorkItem.ID, Identity: identity, Title: "to", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create relation target: %v", err)
+	}
+	for index := 0; index < MaxBlackboardRelations; index++ {
+		repository.relations = append(repository.relations, domain.TaskRelation{
+			WorkItemID: relationWorkItem.ID, FromTaskID: from.ID, ToTaskID: to.ID, CreatedAt: applicationTestTime,
+		})
+	}
+	if _, err := service.AddBlackboardRelation(context.Background(), AddBlackboardRelationCommand{
+		WorkItemID: relationWorkItem.ID, FromTaskID: from.ID, ToTaskID: to.ID, Identity: identity,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("relation limit error = %v, want ErrConflict", err)
+	}
+}
+
+func TestWorkflowDefinitionLimitsRejectBeforeWorkItemCreation(t *testing.T) {
+	t.Parallel()
+	repository := newTestRepository()
+	definition := workflowDefinition()
+	definition.Graph.Tasks = make([]domain.WorkflowTaskDefinition, domain.MaxWorkflowTasks+1)
+	for index := range definition.Graph.Tasks {
+		id := domain.WorkflowTaskID(fmt.Sprintf("task-%d", index))
+		definition.Graph.Tasks[index] = domain.WorkflowTaskDefinition{
+			ID: id, Title: string(id), Executor: domain.ExecutorAgent,
+			Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone,
+		}
+	}
+	definition.Graph.StartTaskIDs = []domain.WorkflowTaskID{"task-0"}
+	repository.workflows[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	identity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "workflow-limit-agent"}, Role: "backend"}
+	if _, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: identity, Title: "Too many tasks", Goal: "Reject oversized graph",
+	}); !errors.Is(err, domain.ErrInvalidModel) || !strings.Contains(err.Error(), "workflow.tasks: must contain at most") {
+		t.Fatalf("task limit error = %v, want invalid model", err)
+	}
+	if len(repository.workItems) != 0 || len(repository.tasks) != 0 || len(repository.activations) != 0 {
+		t.Fatalf("workflow limit partially created state: work items=%d tasks=%d activations=%d", len(repository.workItems), len(repository.tasks), len(repository.activations))
+	}
+}
+
+func TestTaskHistoryLimitsRejectWrites(t *testing.T) {
+	t.Parallel()
+	identity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "history-limit-agent"}, Role: "generalist"}
+
+	newClaimedTask := func(t *testing.T) (*testRepository, *Service, domain.Task, domain.Claim) {
+		t.Helper()
+		repository := newTestRepository()
+		definition := blackboardDefinition()
+		repository.blackboards[definitionKey(definition.ID, definition.Version)] = definition
+		service := newTestService(t, repository)
+		workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+			Definition: definition.Binding(), Identity: identity, Title: "History limits", Goal: "Bound task history",
+		})
+		if err != nil {
+			t.Fatalf("create work item: %v", err)
+		}
+		task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+			WorkItemID: workItem.ID, Identity: identity, Title: "Bounded task", Executor: domain.ExecutorAgent,
+		})
+		if err != nil {
+			t.Fatalf("create task: %v", err)
+		}
+		claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: identity})
+		if err != nil {
+			t.Fatalf("claim task: %v", err)
+		}
+		return repository, service, task, claim
+	}
+
+	t.Run("claims", func(t *testing.T) {
+		repository, service, task, initialClaim := newClaimedTask(t)
+		stored := repository.tasks[task.ID]
+		stored.Status = domain.TaskStatusPending
+		stored.ActiveClaimID = nil
+		repository.tasks[task.ID] = stored
+		delete(repository.claims, initialClaim.ID)
+		for index := 0; index < MaxClaimsPerTask; index++ {
+			repository.claims[domain.ClaimID(fmt.Sprintf("old-claim-%d", index))] = domain.Claim{
+				ID: domain.ClaimID(fmt.Sprintf("old-claim-%d", index)), TaskID: task.ID, Executor: identity.Actor,
+				ClaimedAt: applicationTestTime,
+			}
+		}
+		before := repository.tasks[task.ID]
+		if _, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: identity}); !errors.Is(err, ErrConflict) {
+			t.Fatalf("claim limit error = %v, want ErrConflict", err)
+		}
+		if len(repository.claims) != MaxClaimsPerTask || !slices.Equal(repository.tasks[task.ID].AllowedRoles, before.AllowedRoles) || repository.tasks[task.ID].Version != before.Version {
+			t.Fatalf("claim limit partially changed state: claims=%d task=%#v", len(repository.claims), repository.tasks[task.ID])
+		}
+	})
+
+	t.Run("submissions", func(t *testing.T) {
+		repository, service, task, claim := newClaimedTask(t)
+		stored := repository.tasks[task.ID]
+		stored.Submissions = make([]domain.TaskSubmission, MaxTaskHistoryEntries)
+		repository.tasks[task.ID] = stored
+		if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Result: "done"}); !errors.Is(err, ErrConflict) {
+			t.Fatalf("submission limit error = %v, want ErrConflict", err)
+		}
+		if repository.tasks[task.ID].ActiveClaimID == nil || len(repository.tasks[task.ID].Submissions) != MaxTaskHistoryEntries {
+			t.Fatalf("submission limit partially changed task: %#v", repository.tasks[task.ID])
+		}
+	})
+
+	t.Run("reviews", func(t *testing.T) {
+		repository, service, task, claim := newClaimedTask(t)
+		stored := repository.tasks[task.ID]
+		stored.Reviews = make([]domain.Review, MaxTaskHistoryEntries)
+		repository.tasks[task.ID] = stored
+		if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Result: "done", RequestReview: true}); !errors.Is(err, ErrConflict) {
+			t.Fatalf("review limit error = %v, want ErrConflict", err)
+		}
+		if repository.tasks[task.ID].ActiveClaimID == nil || len(repository.tasks[task.ID].Reviews) != MaxTaskHistoryEntries {
+			t.Fatalf("review limit partially changed task: %#v", repository.tasks[task.ID])
+		}
+	})
+
+	t.Run("failures", func(t *testing.T) {
+		repository, service, task, claim := newClaimedTask(t)
+		stored := repository.tasks[task.ID]
+		stored.Failures = make([]domain.TaskFailure, MaxTaskHistoryEntries)
+		repository.tasks[task.ID] = stored
+		if _, err := service.FailTask(context.Background(), FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Action: domain.TaskFailureReopen, Reason: "retry"}); !errors.Is(err, ErrConflict) {
+			t.Fatalf("failure limit error = %v, want ErrConflict", err)
+		}
+		if repository.tasks[task.ID].ActiveClaimID == nil || len(repository.tasks[task.ID].Failures) != MaxTaskHistoryEntries {
+			t.Fatalf("failure limit partially changed task: %#v", repository.tasks[task.ID])
+		}
+	})
+
+	t.Run("transition decisions", func(t *testing.T) {
+		workflowIdentity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "history-limit-workflow-agent"}, Role: "backend"}
+		repository := newTestRepository()
+		definition := consecutiveOptionalWorkflowDefinition()
+		repository.workflows[definitionKey(definition.ID, definition.Version)] = definition
+		service := newTestService(t, repository)
+		workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+			Definition: definition.Binding(), Identity: workflowIdentity, Title: "Transition limits", Goal: "Bound decisions",
+		})
+		if err != nil {
+			t.Fatalf("create workflow: %v", err)
+		}
+		task := repository.tasksFor(workItem.ID)[0]
+		claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: workflowIdentity})
+		if err != nil {
+			t.Fatalf("claim workflow task: %v", err)
+		}
+		stored := repository.tasks[task.ID]
+		stored.TransitionDecisions = make([]domain.TransitionDecision, MaxTaskHistoryEntries)
+		repository.tasks[task.ID] = stored
+		contextView, err := service.GetTaskExecutionContext(context.Background(), GetTaskExecutionContextQuery{TaskID: task.ID, Identity: workflowIdentity})
+		if err != nil || contextView.Workflow == nil || len(contextView.Workflow.ChoiceGroups) == 0 {
+			t.Fatalf("workflow context: %v %#v", err, contextView)
+		}
+		if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+			TaskID: task.ID, ClaimID: claim.ID, Identity: workflowIdentity, Result: "done",
+			Transition: &WorkflowTransitionCommand{ChoiceGroupID: contextView.Workflow.ChoiceGroups[0].ID},
+		}); !errors.Is(err, ErrConflict) {
+			t.Fatalf("transition decision limit error = %v, want ErrConflict", err)
+		}
+		if repository.tasks[task.ID].ActiveClaimID == nil || len(repository.tasks[task.ID].TransitionDecisions) != MaxTaskHistoryEntries {
+			t.Fatalf("transition limit partially changed task: %#v", repository.tasks[task.ID])
+		}
+	})
+
+	t.Run("artifacts", func(t *testing.T) {
+		repository, service, task, claim := newClaimedTask(t)
+		for index := 0; index < MaxArtifactsPerTask; index++ {
+			id := domain.ArtifactID(fmt.Sprintf("old-artifact-%d", index))
+			repository.artifacts[id] = domain.Artifact{ID: id, WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID}
+		}
+		if _, err := service.CreateArtifact(context.Background(), CreateArtifactCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Name: "extra", URI: "https://example.test/extra"}); !errors.Is(err, ErrConflict) {
+			t.Fatalf("external artifact limit error = %v, want ErrConflict", err)
+		}
+		if len(repository.artifacts) != MaxArtifactsPerTask {
+			t.Fatalf("external artifact limit partially changed state: %d", len(repository.artifacts))
+		}
+
+		repository, service, task, claim = newClaimedTask(t)
+		local, err := artifactstore.NewLocal(privateArtifactDir(t))
+		if err != nil {
+			t.Fatalf("new local Artifact Store: %v", err)
+		}
+		if err := service.ConfigureArtifactStore(local); err != nil {
+			t.Fatalf("configure Artifact Store: %v", err)
+		}
+		for index := 0; index < MaxArtifactsPerTask; index++ {
+			id := domain.ArtifactID(fmt.Sprintf("old-upload-artifact-%d", index))
+			repository.artifacts[id] = domain.Artifact{ID: id, WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID}
+		}
+		if _, err := service.UploadArtifact(context.Background(), UploadArtifactCommand{
+			TaskID: task.ID, ClaimID: claim.ID, Identity: identity, OperationID: "over-cap-upload", Name: "extra",
+		}, strings.NewReader("content")); !errors.Is(err, ErrConflict) {
+			t.Fatalf("managed artifact limit error = %v, want ErrConflict", err)
+		}
+		if len(repository.artifacts) != MaxArtifactsPerTask || len(repository.blobs) != 0 || len(repository.idempotency) != 0 {
+			t.Fatalf("managed artifact limit partially changed state: artifacts=%d blobs=%d idempotency=%d", len(repository.artifacts), len(repository.blobs), len(repository.idempotency))
+		}
+	})
 }
 
 func TestListHumanAttentionAggregatesHumanTasksAndReviews(t *testing.T) {
@@ -3438,4 +3687,13 @@ func (r *testRepository) DeleteCompletedArtifactOperationRecords(before time.Tim
 
 func idempotencyTestKey(actor domain.ActorRef, operationID string) string {
 	return string(actor.Kind) + ":" + string(actor.ID) + ":" + operationID
+}
+
+func privateArtifactDir(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "artifacts")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create private artifact root: %v", err)
+	}
+	return root
 }
