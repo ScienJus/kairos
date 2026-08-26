@@ -27,7 +27,7 @@ Workflow Task Definition 可以声明具名 Artifact：
 
 Active Claim 会保护其全部暂存 Artifact，不受创建时间影响。Claim 结束后，未提交 Artifact 在自身创建时间超过配置的保留期时进入后台 GC；如果结束 Claim 时 Artifact 已超过保留期，它可能在下一轮立即被回收。已提交 Artifact 不参与这种生命周期回收。托管 Blob 只有在其 URI 不再被任何 Artifact 引用时才会删除；过期 pending 上传按登记的 URI 清理。
 
-Pending 托管上传记录使用同一保留时间；completed 幂等记录会继续保留，以支持重试恢复。
+Pending 托管上传记录，以及外部登记与托管上传的 completed 重放记录，都使用同一保留时间。窗口内 completed 记录可以在响应丢失后重放暂存 Artifact 结果；窗口过期后，后续请求以当前 Artifact 与 Claim 状态为准。
 
 ## 存储
 

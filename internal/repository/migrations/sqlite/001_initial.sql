@@ -129,6 +129,9 @@ CREATE TABLE idempotency_records (
 CREATE INDEX idempotency_records_pending_gc_idx
     ON idempotency_records (status, created_at, actor_kind, actor_id, operation_id);
 -- +kairos StatementBreak
+CREATE INDEX idempotency_records_artifact_gc_idx
+    ON idempotency_records (operation, status, updated_at);
+-- +kairos StatementBreak
 CREATE TABLE identities (
     actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human', 'agent')),
     actor_id TEXT NOT NULL,

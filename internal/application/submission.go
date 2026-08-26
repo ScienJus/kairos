@@ -28,10 +28,9 @@ type WorkflowTransitionCommand struct {
 
 // SubmitTaskCommand submits one immutable result from an active Claim.
 type SubmitTaskCommand struct {
-	TaskID      domain.TaskID
-	ClaimID     domain.ClaimID
-	Identity    Identity
-	OperationID string
+	TaskID   domain.TaskID
+	ClaimID  domain.ClaimID
+	Identity Identity
 
 	Result        string
 	ArtifactIDs   []domain.ArtifactID
@@ -52,7 +51,7 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 	}
 
 	var created domain.TaskSubmission
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "submit_task", command, &created, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)

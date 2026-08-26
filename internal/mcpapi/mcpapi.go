@@ -22,7 +22,7 @@ const (
 	workItemCancelledErrorCode          = "work_item_cancelled"
 )
 
-const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. End every claim with submit_task, fail_task, or release_claim unless a tool returns work_item_cancelled; that terminal Human decision ends the claim, so stop immediately without another mutation. Reuse operation_id only for an identical retry. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
+const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. End every claim with submit_task, fail_task, or release_claim unless a tool returns work_item_cancelled; that terminal Human decision ends the claim, so stop immediately without another mutation. Resource-creating tools that accept operation_id replay an identical retry; use a new ID when their arguments change. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
 
 // Options configures MCP transport limits.
 type Options struct {
@@ -199,12 +199,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "heartbeat_claim", Title: "Heartbeat claim", Description: "Extend an active claim before reaping. Reuse operation_id only for an identical retry.", Annotations: mutationAnnotations(false),
+		Name: "heartbeat_claim", Title: "Heartbeat claim", Description: "Extend an active claim before reaping.", Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input heartbeatClaimInput) (*mcp.CallToolResult, claimOutput, error) {
-		if err := requireOperationID(input.OperationID); err != nil {
-			return nil, claimOutput{}, err
-		}
-		claim, err := service.HeartbeatClaim(ctx, application.HeartbeatClaimCommand{TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor, OperationID: input.OperationID, LeaseSeconds: input.LeaseSeconds})
+		claim, err := service.HeartbeatClaim(ctx, application.HeartbeatClaimCommand{TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor, LeaseSeconds: input.LeaseSeconds})
 		return successResult(fmt.Sprintf("Heartbeated Claim %s.", input.ClaimID)), claimOutput{Claim: claimViewFrom(claim)}, toolError(err)
 	})
 
@@ -230,9 +227,6 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Description: "Submit a Claim's result, Artifacts, Review request, and Workflow transition.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitTaskInput) (*mcp.CallToolResult, submissionOutput, error) {
-		if err := requireOperationID(input.OperationID); err != nil {
-			return nil, submissionOutput{}, err
-		}
 		var transition *application.WorkflowTransitionCommand
 		if input.Transition != nil {
 			transition = &application.WorkflowTransitionCommand{
@@ -246,7 +240,6 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			TaskID:        domain.TaskID(input.TaskID),
 			ClaimID:       domain.ClaimID(input.ClaimID),
 			Identity:      actor,
-			OperationID:   input.OperationID,
 			Result:        input.Result,
 			ArtifactIDs:   artifactIDs(input.ArtifactIDs),
 			RequestReview: input.RequestReview,
@@ -261,14 +254,10 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Description: "End an active claim by reopening the task for retry or failing the whole work item.",
 		Annotations: mutationAnnotations(true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input failTaskInput) (*mcp.CallToolResult, failureOutput, error) {
-		if err := requireOperationID(input.OperationID); err != nil {
-			return nil, failureOutput{}, err
-		}
 		failure, err := service.FailTask(ctx, application.FailTaskCommand{
 			TaskID:      domain.TaskID(input.TaskID),
 			ClaimID:     domain.ClaimID(input.ClaimID),
 			Identity:    actor,
-			OperationID: input.OperationID,
 			Action:      domain.TaskFailureAction(input.Action),
 			Reason:      input.Reason,
 			RetryPrompt: input.RetryPrompt,
@@ -282,15 +271,11 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		Description: "Release an active claim and return the task to the pending candidate set.",
 		Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input releaseClaimInput) (*mcp.CallToolResult, releasedOutput, error) {
-		if err := requireOperationID(input.OperationID); err != nil {
-			return nil, releasedOutput{}, err
-		}
 		err := service.ReleaseClaim(ctx, application.ReleaseClaimCommand{
-			TaskID:      domain.TaskID(input.TaskID),
-			ClaimID:     domain.ClaimID(input.ClaimID),
-			Identity:    actor,
-			OperationID: input.OperationID,
-			Reason:      input.Reason,
+			TaskID:   domain.TaskID(input.TaskID),
+			ClaimID:  domain.ClaimID(input.ClaimID),
+			Identity: actor,
+			Reason:   input.Reason,
 		})
 		return successResult(fmt.Sprintf("Released Claim %s for Task %s.", input.ClaimID, input.TaskID)), releasedOutput{Released: err == nil}, toolError(err)
 	})
@@ -319,10 +304,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "add_blackboard_relation", Title: "Add blackboard relation", Description: "Add a suggested dependency relation between two tasks in an open Blackboard.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input addBlackboardRelationInput) (*mcp.CallToolResult, relationOutput, error) {
-		if err := requireOperationID(input.OperationID); err != nil {
-			return nil, relationOutput{}, err
-		}
-		relation, err := service.AddBlackboardRelation(ctx, application.AddBlackboardRelationCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), FromTaskID: domain.TaskID(input.FromTaskID), ToTaskID: domain.TaskID(input.ToTaskID), Identity: actor, OperationID: input.OperationID})
+		relation, err := service.AddBlackboardRelation(ctx, application.AddBlackboardRelationCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), FromTaskID: domain.TaskID(input.FromTaskID), ToTaskID: domain.TaskID(input.ToTaskID), Identity: actor})
 		return successResult(fmt.Sprintf("Added relation from Task %s to Task %s.", input.FromTaskID, input.ToTaskID)), relationOutput{Relation: relationViewFrom(relation)}, toolError(err)
 	})
 
@@ -347,26 +329,17 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "skip_blackboard_task", Title: "Skip blackboard task", Description: "Skip an obsolete unclaimed pending Blackboard task with a durable reason.", Annotations: mutationAnnotations(true)}, func(ctx context.Context, _ *mcp.CallToolRequest, input skipBlackboardTaskInput) (*mcp.CallToolResult, taskOutput, error) {
-		if err := requireOperationID(input.OperationID); err != nil {
-			return nil, taskOutput{}, err
-		}
-		task, err := service.SkipBlackboardTask(ctx, application.SkipBlackboardTaskCommand{TaskID: domain.TaskID(input.TaskID), Identity: actor, OperationID: input.OperationID, Reason: input.Reason})
+		task, err := service.SkipBlackboardTask(ctx, application.SkipBlackboardTaskCommand{TaskID: domain.TaskID(input.TaskID), Identity: actor, Reason: input.Reason})
 		return successResult(fmt.Sprintf("Skipped Task %s.", input.TaskID)), taskOutput{Task: taskSummaryViewFrom(task)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "submit_blackboard_completion", Title: "Submit blackboard completion", Description: "Submit a converged Blackboard's durable result for acceptance.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
-		if err := requireOperationID(input.OperationID); err != nil {
-			return nil, workItemOutput{}, err
-		}
-		workItem, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID, Result: input.Result})
+		workItem, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, Result: input.Result})
 		return successResult(fmt.Sprintf("Submitted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "accept_blackboard_completion", Title: "Accept blackboard completion", Description: "Accept a pending Blackboard completion proposal.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input acceptBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
-		if err := requireOperationID(input.OperationID); err != nil {
-			return nil, workItemOutput{}, err
-		}
-		workItem, err := service.AcceptBlackboardCompletion(ctx, application.AcceptBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, OperationID: input.OperationID})
+		workItem, err := service.AcceptBlackboardCompletion(ctx, application.AcceptBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor})
 		return successResult(fmt.Sprintf("Accepted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, toolError(err)
 	})
 
@@ -395,7 +368,6 @@ type claimTaskInput struct {
 type heartbeatClaimInput struct {
 	TaskID       string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
 	ClaimID      string `json:"claim_id" jsonschema:"Active claim owned by the current actor."`
-	OperationID  string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
 	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
 }
 
@@ -409,7 +381,6 @@ type workflowTransitionInput struct {
 type submitTaskInput struct {
 	TaskID        string                   `json:"task_id"`
 	ClaimID       string                   `json:"claim_id"`
-	OperationID   string                   `json:"operation_id"`
 	Result        string                   `json:"result"`
 	ArtifactIDs   []string                 `json:"artifact_ids,omitempty"`
 	RequestReview bool                     `json:"request_review,omitempty"`
@@ -435,17 +406,15 @@ type uploadArtifactInput struct {
 type failTaskInput struct {
 	TaskID      string `json:"task_id"`
 	ClaimID     string `json:"claim_id"`
-	OperationID string `json:"operation_id"`
 	Action      string `json:"action" jsonschema:"Failure action: reopen or fail_work_item."`
 	Reason      string `json:"reason"`
 	RetryPrompt string `json:"retry_prompt,omitempty"`
 }
 
 type releaseClaimInput struct {
-	TaskID      string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
-	ClaimID     string `json:"claim_id" jsonschema:"Active claim owned by the current actor."`
-	OperationID string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
-	Reason      string `json:"reason,omitempty" jsonschema:"Why the claim is being released, when useful for the next executor or an automated release."`
+	TaskID  string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
+	ClaimID string `json:"claim_id" jsonschema:"Active claim owned by the current actor."`
+	Reason  string `json:"reason,omitempty" jsonschema:"Why the claim is being released, when useful for the next executor or an automated release."`
 }
 
 type createBlackboardTaskInput struct {
@@ -464,16 +433,15 @@ func (input createBlackboardTaskInput) spec() application.BlackboardTaskSpec {
 }
 
 type addBlackboardRelationInput struct {
-	WorkItemID  string `json:"work_item_id"`
-	FromTaskID  string `json:"from_task_id"`
-	ToTaskID    string `json:"to_task_id"`
-	OperationID string `json:"operation_id"`
+	WorkItemID string `json:"work_item_id"`
+	FromTaskID string `json:"from_task_id"`
+	ToTaskID   string `json:"to_task_id"`
 }
 type decomposeBlackboardTaskInput struct {
-	TaskID      string                      `json:"task_id"`
-	ClaimID     string                      `json:"claim_id"`
-	OperationID string                      `json:"operation_id"`
-	Children    []createBlackboardTaskInput `json:"children"`
+	TaskID      string                   `json:"task_id"`
+	ClaimID     string                   `json:"claim_id"`
+	OperationID string                   `json:"operation_id"`
+	Children    []addBlackboardChildSpec `json:"children"`
 }
 type addBlackboardChildTaskInput struct {
 	ParentTaskID string                 `json:"parent_task_id"`
@@ -494,19 +462,16 @@ func (input addBlackboardChildSpec) spec() application.BlackboardTaskSpec {
 }
 
 type skipBlackboardTaskInput struct {
-	TaskID      string `json:"task_id"`
-	OperationID string `json:"operation_id"`
-	Reason      string `json:"reason"`
+	TaskID string `json:"task_id"`
+	Reason string `json:"reason"`
 }
 type submitBlackboardCompletionInput struct {
-	WorkItemID  string `json:"work_item_id"`
-	OperationID string `json:"operation_id"`
-	Result      string `json:"result"`
+	WorkItemID string `json:"work_item_id"`
+	Result     string `json:"result"`
 }
 
 type acceptBlackboardCompletionInput struct {
-	WorkItemID  string `json:"work_item_id"`
-	OperationID string `json:"operation_id"`
+	WorkItemID string `json:"work_item_id"`
 }
 
 func workflowTaskIDs(values []string) []domain.WorkflowTaskID {

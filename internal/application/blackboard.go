@@ -33,7 +33,7 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 	}
 
 	var created domain.Task
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_blackboard_task", command, &created, func(store WriteStore) error {
+	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "create_blackboard_task", command, &created, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
@@ -146,11 +146,10 @@ func nextTaskPosition(tasks []domain.Task) int64 {
 
 // AddBlackboardRelationCommand records one suggested ordering relation.
 type AddBlackboardRelationCommand struct {
-	WorkItemID  domain.WorkItemID
-	FromTaskID  domain.TaskID
-	ToTaskID    domain.TaskID
-	Identity    Identity
-	OperationID string
+	WorkItemID domain.WorkItemID
+	FromTaskID domain.TaskID
+	ToTaskID   domain.TaskID
+	Identity   Identity
 }
 
 // AddBlackboardRelation adds one relation while preserving the runtime DAG.
@@ -165,7 +164,7 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 	}
 
 	var created domain.TaskRelation
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "add_blackboard_relation", command, &created, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
@@ -222,10 +221,9 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 
 // SkipBlackboardTaskCommand removes a no-longer-useful Task from the active plan.
 type SkipBlackboardTaskCommand struct {
-	TaskID      domain.TaskID
-	Identity    Identity
-	OperationID string
-	Reason      string
+	TaskID   domain.TaskID
+	Identity Identity
+	Reason   string
 }
 
 // SkipBlackboardTask ends an unclaimed pending Task without a Submission.
@@ -241,7 +239,7 @@ func (s *Service) SkipBlackboardTask(ctx context.Context, command SkipBlackboard
 	}
 
 	var skipped domain.Task
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "skip_blackboard_task", command, &skipped, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)

@@ -18,9 +18,10 @@ const DefaultArtifactGCInterval = 15 * time.Minute
 
 // ArtifactGCResult summarizes one Artifact garbage collection pass.
 type ArtifactGCResult struct {
-	ArtifactsDeleted int
-	BlobsDeleted     int
-	PendingDeleted   int
+	ArtifactsDeleted           int
+	BlobsDeleted               int
+	PendingDeleted             int
+	CompletedOperationsDeleted int
 }
 
 // GarbageCollectArtifacts removes old staged Artifacts whose Claims have
@@ -51,6 +52,10 @@ func (s *Service) GarbageCollectArtifacts(ctx context.Context, retention time.Du
 		if err != nil {
 			return fmt.Errorf("list pending Artifact uploads: %w", err)
 		}
+		result.CompletedOperationsDeleted, err = store.DeleteCompletedArtifactOperationRecords(cutoff)
+		if err != nil {
+			return fmt.Errorf("delete completed Artifact operation records: %w", err)
+		}
 		return nil
 	}); err != nil {
 		return ArtifactGCResult{}, err
@@ -67,7 +72,7 @@ func (s *Service) GarbageCollectArtifacts(ctx context.Context, retention time.Du
 
 	var collectionErrors []error
 	for _, record := range pending {
-		if record.Operation != artifactUploadOperation {
+		if record.Operation != ArtifactUploadOperation {
 			continue
 		}
 		if err := s.collectPendingArtifactUpload(ctx, record); err != nil {
@@ -164,8 +169,8 @@ func (s *Service) StartArtifactGarbageCollector(ctx context.Context, retention, 
 				log.Printf("kairos: Artifact GC: %v", err)
 				return
 			}
-			if result.ArtifactsDeleted > 0 || result.BlobsDeleted > 0 || result.PendingDeleted > 0 {
-				log.Printf("kairos: Artifact GC deleted %d Artifacts, %d Blobs, and %d pending uploads", result.ArtifactsDeleted, result.BlobsDeleted, result.PendingDeleted)
+			if result.ArtifactsDeleted > 0 || result.BlobsDeleted > 0 || result.PendingDeleted > 0 || result.CompletedOperationsDeleted > 0 {
+				log.Printf("kairos: Artifact GC deleted %d Artifacts, %d Blobs, %d pending uploads, and %d completed Artifact operation records", result.ArtifactsDeleted, result.BlobsDeleted, result.PendingDeleted, result.CompletedOperationsDeleted)
 			}
 		}
 		collect()

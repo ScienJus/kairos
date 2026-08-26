@@ -218,6 +218,13 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		"definition_id": "engineering", "mode": "blackboard",
 		"title": "Ship storage change", "goal": "Deliver a tested storage change", "tags": []string{"backend"},
 	}, "create-work-item", http.StatusCreated)
+	retriedWorkItem := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
+		"definition_id": "engineering", "mode": "blackboard",
+		"title": "Ship storage change", "goal": "Deliver a tested storage change", "tags": []string{"backend"},
+	}, "create-work-item", http.StatusCreated)
+	if retriedWorkItem.ID != workItem.ID {
+		t.Fatalf("retried WorkItem ID = %q, want %q", retriedWorkItem.ID, workItem.ID)
+	}
 	listedWorkItems := requestData[[]domain.WorkItem](t, client, http.MethodGet,
 		server.URL+"/api/v1/work-items?status=open&mode=blackboard&tag=backend", nil, "", http.StatusOK)
 	if len(listedWorkItems) != 1 || listedWorkItems[0].ID != workItem.ID {
@@ -268,6 +275,13 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		"title": "Implement migration", "executor": "agent",
 		"allowed_roles": []string{"database"}, "tags": []string{"backend", "database"},
 	}, "create-task", http.StatusCreated)
+	retriedTask := requestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
+		"title": "Implement migration", "executor": "agent",
+		"allowed_roles": []string{"database"}, "tags": []string{"backend", "database"},
+	}, "create-task", http.StatusCreated)
+	if retriedTask.ID != task.ID {
+		t.Fatalf("retried Task ID = %q, want %q", retriedTask.ID, task.ID)
+	}
 
 	candidates = requestData[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work?tag=backend", nil, "", http.StatusOK)
 	if len(candidates) != 1 || candidates[0].Task.ID != task.ID {
@@ -282,7 +296,7 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	claim := requestData[domain.Claim](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/claims", nil, "claim-task", http.StatusCreated)
 	retriedClaim := requestData[domain.Claim](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/claims", nil, "claim-task", http.StatusCreated)
 	if retriedClaim.ID != claim.ID {
-		t.Fatalf("idempotent claim ID = %q, want %q", retriedClaim.ID, claim.ID)
+		t.Fatalf("retried Claim ID = %q, want %q", retriedClaim.ID, claim.ID)
 	}
 
 	executionContext := requestData[application.TaskExecutionContext](t, client, http.MethodGet, server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, "", http.StatusOK)
@@ -298,6 +312,12 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	artifact := requestData[domain.Artifact](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/artifacts", map[string]any{
 		"claim_id": claim.ID, "name": "commit", "uri": "https://example.test/repo/commit/abc123",
 	}, "create-artifact", http.StatusCreated)
+	retriedArtifact := requestData[domain.Artifact](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/artifacts", map[string]any{
+		"claim_id": claim.ID, "name": "commit", "uri": "https://example.test/repo/commit/abc123",
+	}, "create-artifact", http.StatusCreated)
+	if retriedArtifact.ID != artifact.ID {
+		t.Fatalf("retried Artifact ID = %q, want %q", retriedArtifact.ID, artifact.ID)
+	}
 	if artifact.SubmissionID != nil || artifact.Name != "commit" {
 		t.Fatalf("staged Artifact = %#v", artifact)
 	}

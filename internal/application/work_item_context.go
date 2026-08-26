@@ -141,6 +141,10 @@ func (s *Service) GetWorkItemExecutionContext(
 		if relations == nil {
 			relations = []domain.TaskRelation{}
 		}
+		claims, err := store.ListClaimsByWorkItem(workItem.ID)
+		if err != nil {
+			return fmt.Errorf("list claims for work item %q: %w", workItem.ID, err)
+		}
 		artifacts, err := store.ListArtifacts(ArtifactFilter{WorkItemID: workItem.ID})
 		if err != nil {
 			return fmt.Errorf("list artifacts for work item %q: %w", workItem.ID, err)
@@ -151,22 +155,19 @@ func (s *Service) GetWorkItemExecutionContext(
 				committedArtifacts = append(committedArtifacts, artifact)
 			}
 		}
-		claims := []domain.Claim{}
+		if claims == nil {
+			claims = []domain.Claim{}
+		}
 		activeClaims := []domain.Claim{}
+		activeClaimIDs := make(map[domain.ClaimID]struct{})
 		for _, task := range tasks {
-			taskClaims, err := store.ListClaims(task.ID)
-			if err != nil {
-				return fmt.Errorf("list claims for task %q: %w", task.ID, err)
+			if task.ActiveClaimID != nil {
+				activeClaimIDs[*task.ActiveClaimID] = struct{}{}
 			}
-			claims = append(claims, taskClaims...)
-			if task.ActiveClaimID == nil {
-				continue
-			}
-			for _, claim := range taskClaims {
-				if claim.ID == *task.ActiveClaimID && claim.Active() {
-					activeClaims = append(activeClaims, claim)
-					break
-				}
+		}
+		for _, claim := range claims {
+			if _, active := activeClaimIDs[claim.ID]; active && claim.Active() {
+				activeClaims = append(activeClaims, claim)
 			}
 		}
 		result = WorkItemExecutionContext{

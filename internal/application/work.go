@@ -194,7 +194,7 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 	}
 
 	var created domain.Claim
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "claim_task", command, &created, func(store WriteStore) error {
+	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "claim_task", command, &created, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)

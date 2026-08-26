@@ -10,7 +10,10 @@ import (
 	"strings"
 )
 
-func (s *Service) idempotentUpdate(
+// replayableCreate persists the first result of a resource-creating API call.
+// It is intentionally not used for lifecycle transitions, whose current state
+// is the source of truth when a caller retries after losing a response.
+func (s *Service) replayableCreate(
 	ctx context.Context,
 	identity Identity,
 	operationID string,

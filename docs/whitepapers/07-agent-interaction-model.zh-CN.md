@@ -104,7 +104,7 @@ Task
 
 提交还可以携带当前协调模式允许的推进决策。Kairos 根据这些决策和模式规则更新 Task Graph。
 
-每个变更请求可以携带由调用方生成的 Operation ID。相同身份重试同一请求时，Kairos 返回首次提交的结果；同一 Operation ID 被用于不同请求时返回冲突。
+Operation ID 只用于创建 WorkItem、Claim、Artifact 或 Blackboard Task 的 HTTP 或 MCP 调用。完全相同的重试会返回原资源，避免响应丢失后无法找回服务端生成的 ID；同一 Operation ID 被用于不同参数时返回冲突。Definition 追加使用 base version，生命周期变更不保存旧响应：重试会依据当前 Task 和 WorkItem 状态重新判断，因此首次成功后可能返回冲突。托管 Artifact 上传还会通过 Operation ID 跨数据库与文件 Store 写入恢复。
 
 Agent 无法完成 Task 时，可以提交失败原因并选择重新打开 Task 或使整个 WorkItem 失败。重新打开时可以附加 Retry Prompt；失败记录和提示会进入后续执行者读取的完整 Task 上下文。
 
@@ -156,6 +156,6 @@ Codex / Claude Code / Other Harness
 
 Kairos 通过无状态 Streamable HTTP MCP 端点暴露主动执行闭环。每个 HTTP 请求都独立通过 Trusted 或 Authenticated Mode 解析 Actor，因此身份不依赖 MCP Session，也不会作为工具参数被接受。
 
-MCP 接入面包含工作发现、Task 上下文、可读取终态的 WorkItem 上下文、Claim 创建与 heartbeat、外部 Artifact 登记、Base64 托管 Artifact 上传、提交、失败、Claim 释放与 Blackboard Task 创建。`claim_task` 与 `heartbeat_claim` 接受可选的 `lease_seconds`，服务端返回实际批准的时长与 `lease_until`。Blackboard Task 上下文中的顶层 `task` 是当前任务；`blackboard.tasks` 会有意排除当前任务，并通过 `blackboard.current_task_id` 提供关联。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行与 heartbeat 循环及幂等调用纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
+MCP 接入面包含工作发现、Task 上下文、可读取终态的 WorkItem 上下文、Claim 创建与 heartbeat、外部 Artifact 登记、Base64 托管 Artifact 上传、提交、失败、Claim 释放与 Blackboard Task 创建。`claim_task` 与 `heartbeat_claim` 接受可选的 `lease_seconds`，服务端返回实际批准的时长与 `lease_until`。Blackboard Task 上下文中的顶层 `task` 是当前任务；`blackboard.tasks` 会有意排除当前任务，并通过 `blackboard.current_task_id` 提供关联。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行与 heartbeat 循环及资源创建重试纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
 
 > One execution protocol, two coordination modes.

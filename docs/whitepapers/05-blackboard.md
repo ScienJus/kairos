@@ -37,7 +37,7 @@ New information continues changing the structure during execution:
 
 The Task Graph in Blackboard is a shared representation of the current understanding of the work.
 
-Blackboard structural appends are committed against the latest server state. When multiple collaborators concurrently create different Tasks or Relations, their operations are serialized and can all succeed. WorkItem Version is a server-maintained structural revision. Operation ID identifies request retries, while Task Version protects state changes to one Task.
+Blackboard structural appends are committed against the latest server state. When multiple collaborators concurrently create different Tasks or Relations, their operations are serialized and can all succeed. WorkItem Version is a server-maintained structural revision. Operation ID identifies retries that create Tasks, Relation identity prevents duplicate edges, and Task Version protects state changes to one Task.
 
 When the Task Graph is empty, the WorkItem itself is exposed as candidate work. A collaborator reads the overall objective and Blackboard Instructions, then creates the first Task. WorkItem Tags support this initial discovery.
 

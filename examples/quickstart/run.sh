@@ -65,6 +65,17 @@ if ! server_is_running; then
 fi
 
 request() {
+	endpoint=$1
+	payload=$2
+	curl --fail-with-body --silent --show-error \
+		-X POST "$base_url$endpoint" \
+		-H 'Content-Type: application/json' \
+		-H 'X-Kairos-Actor-Id: quickstart-operator' \
+		-H 'X-Kairos-Actor-Kind: human' \
+		--data-binary "@$payload" >/dev/null
+}
+
+create_resource() {
 	operation_id=$1
 	endpoint=$2
 	payload=$3
@@ -77,8 +88,8 @@ request() {
 		--data-binary "@$payload" >/dev/null
 }
 
-request quickstart-create-definition /api/v1/definitions/workflows/open-source-readiness/versions "$script_dir/workflow.json"
-request quickstart-create-work-item /api/v1/work-items "$script_dir/work-item.json"
+request /api/v1/definitions/workflows/open-source-readiness/versions "$script_dir/workflow.json"
+create_resource quickstart-create-work-item /api/v1/work-items "$script_dir/work-item.json"
 
 if [ "${KAIROS_QUICKSTART_SMOKE_TEST:-}" = "1" ]; then
 	curl --fail --silent --show-error "$base_url/api/v1/work" \

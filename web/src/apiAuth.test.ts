@@ -61,6 +61,7 @@ describe('API authentication transport', () => {
     })
 
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/definitions/blackboards/release%2Fboard/versions')
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('Idempotency-Key')).toBe(false)
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
       name: 'Release', description: '', agent_instructions: '', suggested_tags: [],
     })
@@ -71,6 +72,31 @@ describe('API authentication transport', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
       base_version: 2, name: 'Release v3', description: '', agent_instructions: '', suggested_tags: [],
     })
+  })
+
+  it('reuses a creation key after a lost response and clears it after success', async () => {
+    configureAuthenticationMode('trusted')
+    const response = () => new Response(JSON.stringify({ data: { id: 'work-item' } }), {
+      status: 201, headers: { 'Content-Type': 'application/json' },
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new TypeError('network response lost'))
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(response())
+    const input = {
+      definition_id: 'engineering', mode: 'blackboard' as const, title: 'Retry creation',
+      goal: 'Verify stable key reuse', context: '', constraints: '', acceptance_criteria: '',
+      acceptance_mode: 'none' as const, tags: [],
+    }
+
+    await expect(api.createWorkItem(trustedIdentity, input)).rejects.toThrow('network response lost')
+    await api.createWorkItem(trustedIdentity, input)
+    await api.createWorkItem(trustedIdentity, input)
+
+    const keys = fetchMock.mock.calls.map(call => new Headers(call[1]?.headers).get('Idempotency-Key'))
+    expect(keys[0]).toBeTruthy()
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[1])
   })
 
   it('encodes repeated WorkItem status filters with its cursor', async () => {

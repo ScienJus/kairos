@@ -14,7 +14,6 @@ type FailTaskCommand struct {
 	TaskID      domain.TaskID
 	ClaimID     domain.ClaimID
 	Identity    Identity
-	OperationID string
 	Action      domain.TaskFailureAction
 	Reason      string
 	RetryPrompt string
@@ -30,7 +29,7 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 	}
 
 	var created domain.TaskFailure
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "fail_task", command, &created, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)

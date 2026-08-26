@@ -227,7 +227,7 @@ func TestManagedArtifactUploadRetryAfterClaimEnds(t *testing.T) {
 		t.Fatal("expected interrupted upload to fail")
 	}
 	pending := repository.idempotency[idempotencyTestKey(agent.Actor, command.OperationID)]
-	if pending.Operation != artifactUploadOperation || pending.Status != IdempotencyPending || len(repository.artifacts) != 0 || len(repository.blobs) != 0 {
+	if pending.Operation != ArtifactUploadOperation || pending.Status != IdempotencyPending || len(repository.artifacts) != 0 || len(repository.blobs) != 0 {
 		t.Fatalf("pending upload state = %#v, Artifacts = %#v, Blobs = %#v", pending, repository.artifacts, repository.blobs)
 	}
 	created, err := service.UploadArtifact(context.Background(), command, strings.NewReader("report content"))
@@ -235,11 +235,11 @@ func TestManagedArtifactUploadRetryAfterClaimEnds(t *testing.T) {
 		t.Fatalf("resume pending Artifact upload: %v", err)
 	}
 	completed := repository.idempotency[idempotencyTestKey(agent.Actor, command.OperationID)]
-	if completed.Operation != artifactUploadOperation || completed.Status != IdempotencyCompleted || len(repository.artifacts) != 1 || len(repository.blobs) != 1 {
+	if completed.Operation != ArtifactUploadOperation || completed.Status != IdempotencyCompleted || len(repository.artifacts) != 1 || len(repository.blobs) != 1 {
 		t.Fatalf("completed upload state = %#v, Artifacts = %#v, Blobs = %#v", completed, repository.artifacts, repository.blobs)
 	}
 	if err := service.ReleaseClaim(context.Background(), ReleaseClaimCommand{
-		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, OperationID: "release-upload-claim",
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent,
 	}); err != nil {
 		t.Fatalf("release Claim: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestManagedArtifactUploadRewritesFileAfterPendingGCDeleteFailure(t *testing
 		t.Fatalf("hash reservation: %v", err)
 	}
 	repository.idempotency[idempotencyTestKey(agent.Actor, command.OperationID)] = IdempotencyRecord{
-		Actor: agent.Actor, OperationID: command.OperationID, Operation: artifactUploadOperation,
+		Actor: agent.Actor, OperationID: command.OperationID, Operation: ArtifactUploadOperation,
 		Status: IdempotencyPending, RequestHash: requestHash,
 		Response:  mustArtifactUploadState(artifactUploadState{BlobURI: blob.URI, Digest: blob.Digest, Size: blob.Size}),
 		CreatedAt: applicationTestTime.Add(-2 * time.Hour),
@@ -588,7 +588,7 @@ func TestArtifactGarbageCollectionRemovesOnlyAbandonedContent(t *testing.T) {
 	repository.artifacts["active-staged"] = domain.Artifact{ID: "active-staged", ClaimID: "active", URI: active.URI, CreatedAt: old}
 	repository.artifacts["young-abandoned"] = domain.Artifact{ID: "young-abandoned", ClaimID: "ended", URI: young.URI, CreatedAt: recent}
 	repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload"}, "upload-old")] = IdempotencyRecord{
-		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload"}, OperationID: "upload-old", Operation: artifactUploadOperation,
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload"}, OperationID: "upload-old", Operation: ArtifactUploadOperation,
 		Status: IdempotencyPending, CreatedAt: old,
 	}
 	registeredURI, err := local.UploadURI("stale-upload-with-file")
@@ -604,17 +604,27 @@ func TestArtifactGarbageCollectionRemovesOnlyAbandonedContent(t *testing.T) {
 		t.Fatalf("encode pending upload state: %v", err)
 	}
 	repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload-file"}, "upload-old-file")] = IdempotencyRecord{
-		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload-file"}, OperationID: "upload-old-file", Operation: artifactUploadOperation,
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "stale-upload-file"}, OperationID: "upload-old-file", Operation: ArtifactUploadOperation,
 		Status: IdempotencyPending, Response: string(state), CreatedAt: old,
 	}
 	repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "kept-upload"}, "upload-recent")] = IdempotencyRecord{
-		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "kept-upload"}, OperationID: "upload-recent", Operation: artifactUploadOperation,
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "kept-upload"}, OperationID: "upload-recent", Operation: ArtifactUploadOperation,
 		Status: IdempotencyPending, CreatedAt: recent,
 	}
 	completedUploadKey := idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "completed-upload"}, "upload-completed")
 	repository.idempotency[completedUploadKey] = IdempotencyRecord{
-		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "completed-upload"}, OperationID: "upload-completed", Operation: artifactUploadOperation,
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "completed-upload"}, OperationID: "upload-completed", Operation: ArtifactUploadOperation,
 		Status: IdempotencyCompleted, CreatedAt: old,
+	}
+	completedExternalKey := idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "completed-external"}, "external-completed")
+	repository.idempotency[completedExternalKey] = IdempotencyRecord{
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "completed-external"}, OperationID: "external-completed", Operation: CreateArtifactOperation,
+		Status: IdempotencyCompleted, CreatedAt: old,
+	}
+	recentCompletedUploadKey := idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "recent-completed-upload"}, "upload-completed-recent")
+	repository.idempotency[recentCompletedUploadKey] = IdempotencyRecord{
+		Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "recent-completed-upload"}, OperationID: "upload-completed-recent", Operation: ArtifactUploadOperation,
+		Status: IdempotencyCompleted, CreatedAt: recent,
 	}
 	otherPendingKey := idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "other-pending"}, "other-operation")
 	repository.idempotency[otherPendingKey] = IdempotencyRecord{
@@ -626,7 +636,7 @@ func TestArtifactGarbageCollectionRemovesOnlyAbandonedContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("garbage collect Artifacts: %v", err)
 	}
-	if result.ArtifactsDeleted != 2 || result.BlobsDeleted != 1 || result.PendingDeleted != 2 {
+	if result.ArtifactsDeleted != 2 || result.BlobsDeleted != 1 || result.PendingDeleted != 2 || result.CompletedOperationsDeleted != 2 {
 		t.Fatalf("GC result = %#v", result)
 	}
 	if _, exists := repository.artifacts["abandoned-shared"]; exists {
@@ -655,8 +665,14 @@ func TestArtifactGarbageCollectionRemovesOnlyAbandonedContent(t *testing.T) {
 	if _, exists := repository.idempotency[idempotencyTestKey(domain.ActorRef{Kind: domain.ActorAgent, ID: "kept-upload"}, "upload-recent")]; !exists {
 		t.Fatal("recent pending upload was collected")
 	}
-	if _, exists := repository.idempotency[completedUploadKey]; !exists {
-		t.Fatal("completed upload idempotency record was collected")
+	if _, exists := repository.idempotency[completedUploadKey]; exists {
+		t.Fatal("expired completed upload record was not collected")
+	}
+	if _, exists := repository.idempotency[completedExternalKey]; exists {
+		t.Fatal("expired external Artifact record was not collected")
+	}
+	if _, exists := repository.idempotency[recentCompletedUploadKey]; !exists {
+		t.Fatal("recent completed upload record was collected")
 	}
 	if _, exists := repository.idempotency[otherPendingKey]; !exists {
 		t.Fatal("non-upload pending operation was collected")
@@ -820,7 +836,7 @@ func TestCancelWorkItemEndsActiveClaimsAndRejectsFurtherMutations(t *testing.T) 
 	pendingVersion := repository.tasks[pendingTask.ID].Version
 
 	command := CancelWorkItemCommand{
-		WorkItemID: workItem.ID, Identity: human, OperationID: "cancel-work", Reason: "  Work is no longer required.  ",
+		WorkItemID: workItem.ID, Identity: human, Reason: "  Work is no longer required.  ",
 	}
 	cancelled, err := service.CancelWorkItem(context.Background(), command)
 	if err != nil {
@@ -857,12 +873,11 @@ func TestCancelWorkItemEndsActiveClaimsAndRejectsFurtherMutations(t *testing.T) 
 		t.Fatalf("cancellation events = %#v", repository.events)
 	}
 
-	replayed, err := service.CancelWorkItem(context.Background(), command)
-	if err != nil || replayed.Status != domain.WorkItemStatusCancelled || replayed.CancellationReason != cancelled.CancellationReason {
-		t.Fatalf("idempotent cancellation = %#v, %v", replayed, err)
+	if _, err := service.CancelWorkItem(context.Background(), command); !errors.Is(err, ErrWorkItemCancelled) {
+		t.Fatalf("retried cancellation error = %v, want ErrWorkItemCancelled", err)
 	}
 	if _, err := service.CancelWorkItem(context.Background(), CancelWorkItemCommand{
-		WorkItemID: workItem.ID, Identity: human, OperationID: "cancel-again", Reason: "again",
+		WorkItemID: workItem.ID, Identity: human, Reason: "again",
 	}); !errors.Is(err, ErrWorkItemCancelled) {
 		t.Fatalf("second cancellation error = %v, want ErrWorkItemCancelled", err)
 	}
@@ -1548,6 +1563,8 @@ func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T
 		!strings.Contains(completed.Result, "Apply discovered fix\nApplied the fix") {
 		t.Fatalf("aggregated WorkItem result = %q", completed.Result)
 	}
+	individualClaimReads := repository.listClaimsCalls
+	workItemClaimReads := repository.listWorkItemClaimsCalls
 	contextView, err := service.GetWorkItemExecutionContext(context.Background(), GetWorkItemExecutionContextQuery{
 		WorkItemID: workItem.ID,
 		Identity:   agent,
@@ -1557,6 +1574,12 @@ func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T
 	}
 	if contextView.WorkItem.Status != domain.WorkItemStatusCompleted || len(contextView.Tasks) != 2 || contextView.Relations == nil {
 		t.Fatalf("completed WorkItem context: %#v", contextView)
+	}
+	if len(contextView.Claims) != 2 || len(contextView.ActiveClaims) != 0 {
+		t.Fatalf("completed WorkItem claims: all=%#v active=%#v", contextView.Claims, contextView.ActiveClaims)
+	}
+	if repository.listClaimsCalls != individualClaimReads || repository.listWorkItemClaimsCalls != workItemClaimReads+1 {
+		t.Fatalf("WorkItem context claim reads: individual=%d, aggregate=%d", repository.listClaimsCalls-individualClaimReads, repository.listWorkItemClaimsCalls-workItemClaimReads)
 	}
 }
 
@@ -1736,7 +1759,7 @@ func TestBlackboardTaskHierarchySupportsOpenAppendAndRecursiveCompletion(t *test
 	}
 }
 
-func TestOperationIDReturnsOriginalResultAndRejectsReuse(t *testing.T) {
+func TestReplayableCreateReturnsOriginalResultAndRejectsReuse(t *testing.T) {
 	t.Parallel()
 
 	repository := newTestRepository()
@@ -2582,18 +2605,20 @@ func definitionKey(id domain.DefinitionID, version int64) string {
 }
 
 type testRepository struct {
-	workItems              map[domain.WorkItemID]domain.WorkItem
-	tasks                  map[domain.TaskID]domain.Task
-	relations              []domain.TaskRelation
-	claims                 map[domain.ClaimID]domain.Claim
-	artifacts              map[domain.ArtifactID]domain.Artifact
-	blobs                  map[string]domain.ArtifactBlob
-	activations            map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation
-	events                 []domain.WorkItemEvent
-	workflows              map[string]domain.WorkflowDefinition
-	blackboards            map[string]domain.BlackboardDefinition
-	idempotency            map[string]IdempotencyRecord
-	deleteIdempotencyError error
+	workItems               map[domain.WorkItemID]domain.WorkItem
+	tasks                   map[domain.TaskID]domain.Task
+	relations               []domain.TaskRelation
+	claims                  map[domain.ClaimID]domain.Claim
+	artifacts               map[domain.ArtifactID]domain.Artifact
+	blobs                   map[string]domain.ArtifactBlob
+	activations             map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation
+	events                  []domain.WorkItemEvent
+	workflows               map[string]domain.WorkflowDefinition
+	blackboards             map[string]domain.BlackboardDefinition
+	idempotency             map[string]IdempotencyRecord
+	deleteIdempotencyError  error
+	listClaimsCalls         int
+	listWorkItemClaimsCalls int
 }
 
 func newTestRepository() *testRepository {
@@ -2742,6 +2767,7 @@ func (r *testRepository) ListTaskRelations(workItemID domain.WorkItemID) ([]doma
 }
 
 func (r *testRepository) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
+	r.listClaimsCalls++
 	var result []domain.Claim
 	for _, claim := range r.claims {
 		if claim.TaskID == taskID {
@@ -2749,6 +2775,34 @@ func (r *testRepository) ListClaims(taskID domain.TaskID) ([]domain.Claim, error
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ClaimedAt.Before(result[j].ClaimedAt) })
+	return result, nil
+}
+
+func (r *testRepository) ListClaimsByWorkItem(workItemID domain.WorkItemID) ([]domain.Claim, error) {
+	r.listWorkItemClaimsCalls++
+	taskIDs := make(map[domain.TaskID]struct{})
+	for _, task := range r.tasksFor(workItemID) {
+		taskIDs[task.ID] = struct{}{}
+	}
+	result := make([]domain.Claim, 0)
+	for _, claim := range r.claims {
+		if _, exists := taskIDs[claim.TaskID]; exists {
+			result = append(result, claim)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		leftTask, rightTask := r.tasks[result[i].TaskID], r.tasks[result[j].TaskID]
+		if leftTask.Position != rightTask.Position {
+			return leftTask.Position < rightTask.Position
+		}
+		if leftTask.ID != rightTask.ID {
+			return leftTask.ID < rightTask.ID
+		}
+		if !result[i].ClaimedAt.Equal(result[j].ClaimedAt) {
+			return result[i].ClaimedAt.Before(result[j].ClaimedAt)
+		}
+		return result[i].ID < result[j].ID
+	})
 	return result, nil
 }
 
@@ -3282,6 +3336,18 @@ func (r *testRepository) DeleteIdempotencyRecord(actor domain.ActorRef, operatio
 	}
 	delete(r.idempotency, key)
 	return nil
+}
+
+func (r *testRepository) DeleteCompletedArtifactOperationRecords(before time.Time) (int, error) {
+	deleted := 0
+	for key, record := range r.idempotency {
+		artifactOperation := record.Operation == CreateArtifactOperation || record.Operation == ArtifactUploadOperation
+		if artifactOperation && record.Status == IdempotencyCompleted && !record.CreatedAt.After(before) {
+			delete(r.idempotency, key)
+			deleted++
+		}
+	}
+	return deleted, nil
 }
 
 func idempotencyTestKey(actor domain.ActorRef, operationID string) string {

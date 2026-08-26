@@ -21,8 +21,7 @@ type DefinitionMetadataCommand struct {
 
 // CreateWorkflowDefinitionCommand creates one immutable Workflow Definition version.
 type CreateWorkflowDefinitionCommand struct {
-	Identity    Identity
-	OperationID string
+	Identity Identity
 	// BaseVersion is nil only when creating version 1. Appends must name the
 	// latest stored version so concurrent edits cannot overwrite each other.
 	BaseVersion *int64
@@ -45,7 +44,7 @@ func (s *Service) CreateWorkflowDefinition(
 		return domain.WorkflowDefinition{}, err
 	}
 	var created domain.WorkflowDefinition
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_workflow_definition", command, &created, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		if err := store.LockDefinitionVersion(domain.CoordinationModeWorkflow, command.Metadata.ID); err != nil {
 			return fmt.Errorf("lock workflow definition version: %w", err)
 		}
@@ -75,8 +74,7 @@ func (s *Service) CreateWorkflowDefinition(
 
 // CreateBlackboardDefinitionCommand creates one immutable Blackboard Definition version.
 type CreateBlackboardDefinitionCommand struct {
-	Identity    Identity
-	OperationID string
+	Identity Identity
 	// BaseVersion is nil only when creating version 1. Appends must name the
 	// latest stored version so concurrent edits cannot overwrite each other.
 	BaseVersion *int64
@@ -98,7 +96,7 @@ func (s *Service) CreateBlackboardDefinition(
 		return domain.BlackboardDefinition{}, err
 	}
 	var created domain.BlackboardDefinition
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_blackboard_definition", command, &created, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		if err := store.LockDefinitionVersion(domain.CoordinationModeBlackboard, command.Metadata.ID); err != nil {
 			return fmt.Errorf("lock blackboard definition version: %w", err)
 		}

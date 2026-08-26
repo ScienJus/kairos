@@ -72,7 +72,7 @@ type WorkCandidate struct {
 	Definition DefinitionExecutionContext `json:"definition"`
 }
 
-// IdempotencyRecord stores the durable progress or result of one actor mutation.
+// IdempotencyStatus tracks a replay record; only managed upload uses pending.
 type IdempotencyStatus string
 
 const (
@@ -80,6 +80,7 @@ const (
 	IdempotencyCompleted IdempotencyStatus = "completed"
 )
 
+// IdempotencyRecord stores upload recovery state or a replayable creation result.
 type IdempotencyRecord struct {
 	Actor       domain.ActorRef
 	OperationID string
@@ -168,6 +169,7 @@ type ReadStore interface {
 	ListTasks(domain.WorkItemID) ([]domain.Task, error)
 	ListTaskRelations(domain.WorkItemID) ([]domain.TaskRelation, error)
 	ListClaims(domain.TaskID) ([]domain.Claim, error)
+	ListClaimsByWorkItem(domain.WorkItemID) ([]domain.Claim, error)
 	ListHumanAttention(PageRequest[HumanAttentionCursor]) ([]HumanAttentionItem, error)
 	GetArtifact(domain.ArtifactID) (domain.Artifact, error)
 	ListArtifacts(ArtifactFilter) ([]domain.Artifact, error)
@@ -226,6 +228,7 @@ type WriteStore interface {
 	CreateIdempotencyRecord(IdempotencyRecord) error
 	SaveIdempotencyRecord(IdempotencyRecord, time.Time) error
 	DeleteIdempotencyRecord(domain.ActorRef, string) error
+	DeleteCompletedArtifactOperationRecords(time.Time) (int, error)
 }
 
 // Repository provides consistent reads and atomic updates. Update implementations

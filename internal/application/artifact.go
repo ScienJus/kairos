@@ -15,8 +15,11 @@ import (
 )
 
 const (
-	createArtifactOperation = "create_artifact"
-	artifactUploadOperation = "upload_artifact"
+	// CreateArtifactOperation identifies replay records for external Artifacts.
+	CreateArtifactOperation = "create_artifact"
+	// ArtifactUploadOperation identifies the specialized pending/completed
+	// recovery records used by managed Artifact uploads.
+	ArtifactUploadOperation = "upload_artifact"
 )
 
 // CreateArtifactCommand registers one external deliverable under an active Claim.
@@ -157,7 +160,7 @@ func (s *Service) createArtifact(ctx context.Context, command CreateArtifactComm
 	}
 
 	var created domain.Artifact
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, createArtifactOperation, command, &created, func(store WriteStore) error {
+	err := s.replayableCreate(ctx, command.Identity, command.OperationID, CreateArtifactOperation, command, &created, func(store WriteStore) error {
 		task, claim, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
 		if err != nil {
 			return err
@@ -213,12 +216,12 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 			}
 			return store.CreateIdempotencyRecord(IdempotencyRecord{
 				Actor: command.Identity.Actor, OperationID: command.OperationID,
-				Operation: artifactUploadOperation, Status: IdempotencyPending,
+				Operation: ArtifactUploadOperation, Status: IdempotencyPending,
 				RequestHash: requestHash, Response: mustArtifactUploadState(state), CreatedAt: s.clock.Now(),
 			})
 		case err != nil:
 			return fmt.Errorf("get operation %q: %w", command.OperationID, err)
-		case record.Operation == artifactUploadOperation && record.Status == IdempotencyPending:
+		case record.Operation == ArtifactUploadOperation && record.Status == IdempotencyPending:
 			if record.RequestHash != requestHash {
 				return conflict("operation id %q was already used for another request", command.OperationID)
 			}
@@ -227,7 +230,7 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 			}
 			_, _, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
 			return err
-		case record.Status == IdempotencyCompleted && record.Operation == artifactUploadOperation:
+		case record.Status == IdempotencyCompleted && record.Operation == ArtifactUploadOperation:
 			if record.RequestHash != requestHash {
 				return conflict("operation id %q was already used for another request", command.OperationID)
 			}
@@ -264,7 +267,7 @@ func (s *Service) saveArtifactUploadState(ctx context.Context, command UploadArt
 		if err != nil {
 			return err
 		}
-		if record.Operation != artifactUploadOperation || record.Status != IdempotencyPending {
+		if record.Operation != ArtifactUploadOperation || record.Status != IdempotencyPending {
 			return conflict("operation id %q was already completed", command.OperationID)
 		}
 		record.Response = mustArtifactUploadState(state)
@@ -288,7 +291,7 @@ func (s *Service) finalizeArtifactUpload(ctx context.Context, command UploadArti
 		if err != nil {
 			return fmt.Errorf("get operation %q: %w", command.OperationID, err)
 		}
-		if record.Status == IdempotencyCompleted && record.Operation == artifactUploadOperation {
+		if record.Status == IdempotencyCompleted && record.Operation == ArtifactUploadOperation {
 			if record.RequestHash != reservationHash {
 				return conflict("operation id %q was already used for another request", command.OperationID)
 			}
@@ -299,7 +302,7 @@ func (s *Service) finalizeArtifactUpload(ctx context.Context, command UploadArti
 			result = artifact
 			return nil
 		}
-		if record.Operation != artifactUploadOperation || record.Status != IdempotencyPending || record.RequestHash != reservationHash {
+		if record.Operation != ArtifactUploadOperation || record.Status != IdempotencyPending || record.RequestHash != reservationHash {
 			return conflict("operation id %q was already used for another request", command.OperationID)
 		}
 		task, claim, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)

@@ -37,7 +37,7 @@ Tasks：[]
 
 Blackboard 中的 Task Graph 是当前工作认知的共享表达。
 
-Blackboard 的结构追加基于服务端最新状态提交。多个协作者同时创建不同 Task 或 Relation 时，操作依次写入并可以全部成功；WorkItem Version 作为服务端维护的结构修订号。Operation ID 负责识别请求重试，Task Version 负责保护单个 Task 的状态变化。
+Blackboard 的结构追加基于服务端最新状态提交。多个协作者同时创建不同 Task 或 Relation 时，操作依次写入并可以全部成功；WorkItem Version 作为服务端维护的结构修订号。Operation ID 负责识别创建 Task 的请求重试，Relation 自身标识防止重复边，Task Version 负责保护单个 Task 的状态变化。
 
 Task Graph 为空时，WorkItem 本身作为候选工作被发现。协作者读取整体目标和 Blackboard Instructions 后创建首个 Task；WorkItem Tags 用于这种初始发现。
 

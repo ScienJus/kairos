@@ -10,10 +10,9 @@ import (
 
 // CancelWorkItemCommand terminally cancels an active WorkItem.
 type CancelWorkItemCommand struct {
-	WorkItemID  domain.WorkItemID
-	Identity    Identity
-	OperationID string
-	Reason      string
+	WorkItemID domain.WorkItemID
+	Identity   Identity
+	Reason     string
 }
 
 // CancelWorkItem cancels a WorkItem and ends its active Claims without changing
@@ -34,7 +33,7 @@ func (s *Service) CancelWorkItem(ctx context.Context, command CancelWorkItemComm
 	}
 
 	var cancelled domain.WorkItem
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "cancel_work_item", command, &cancelled, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)

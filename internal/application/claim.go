@@ -10,11 +10,10 @@ import (
 
 // ReleaseClaimCommand gives up active execution responsibility.
 type ReleaseClaimCommand struct {
-	TaskID      domain.TaskID
-	ClaimID     domain.ClaimID
-	Identity    Identity
-	OperationID string
-	Reason      string
+	TaskID   domain.TaskID
+	ClaimID  domain.ClaimID
+	Identity Identity
+	Reason   string
 }
 
 // ReleaseClaim returns a working Task to the candidate set.
@@ -26,8 +25,7 @@ func (s *Service) ReleaseClaim(ctx context.Context, command ReleaseClaimCommand)
 		return err
 	}
 
-	var result struct{}
-	return s.idempotentUpdate(ctx, command.Identity, command.OperationID, "release_claim", command, &result, func(store WriteStore) error {
+	return s.repository.Update(ctx, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)

@@ -14,7 +14,7 @@ func TestCreateDefinitionsKeepsWorkflowGraphSeparateFromBlackboard(t *testing.T)
 	actor := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "architect"}
 
 	blackboard, err := service.CreateBlackboardDefinition(context.Background(), CreateBlackboardDefinitionCommand{
-		Identity: actor, OperationID: "blackboard-v1",
+		Identity: actor,
 		Metadata: DefinitionMetadataCommand{
 			ID: "engineering", Name: "Engineering",
 		},
@@ -27,21 +27,21 @@ func TestCreateDefinitionsKeepsWorkflowGraphSeparateFromBlackboard(t *testing.T)
 	}
 	blackboardBase := blackboard.Version
 	blackboardV2, err := service.CreateBlackboardDefinition(context.Background(), CreateBlackboardDefinitionCommand{
-		Identity: actor, OperationID: "blackboard-v2", BaseVersion: &blackboardBase,
+		Identity: actor, BaseVersion: &blackboardBase,
 		Metadata: DefinitionMetadataCommand{ID: blackboard.ID, Name: "Engineering v2"},
 	})
 	if err != nil || blackboardV2.Version != 2 {
 		t.Fatalf("create next Blackboard version: %#v, err=%v", blackboardV2, err)
 	}
 	if _, err := service.CreateBlackboardDefinition(context.Background(), CreateBlackboardDefinitionCommand{
-		Identity: actor, OperationID: "blackboard-stale", BaseVersion: &blackboardBase,
+		Identity: actor, BaseVersion: &blackboardBase,
 		Metadata: DefinitionMetadataCommand{ID: blackboard.ID, Name: "Stale Engineering edit"},
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale Blackboard base error = %v, want conflict", err)
 	}
 
 	workflowCommand := CreateWorkflowDefinitionCommand{
-		Identity: actor, OperationID: "workflow-v1",
+		Identity: actor,
 		Metadata: DefinitionMetadataCommand{
 			ID: "delivery", Name: "Delivery",
 		},
@@ -61,15 +61,10 @@ func TestCreateDefinitionsKeepsWorkflowGraphSeparateFromBlackboard(t *testing.T)
 		t.Fatalf("Workflow graph = %+v", workflow.Graph)
 	}
 
-	retried, err := service.CreateWorkflowDefinition(context.Background(), workflowCommand)
-	if err != nil {
-		t.Fatalf("retry Workflow definition creation: %v", err)
-	}
-	if retried.ID != workflow.ID || retried.Version != workflow.Version {
-		t.Fatalf("retried Workflow = %+v, want %+v", retried, workflow)
+	if _, err := service.CreateWorkflowDefinition(context.Background(), workflowCommand); !errors.Is(err, ErrConflict) {
+		t.Fatalf("retry Workflow definition creation = %v, want conflict", err)
 	}
 	workflowV2Command := workflowCommand
-	workflowV2Command.OperationID = "workflow-v2"
 	workflowV2Command.BaseVersion = &workflow.Version
 	workflowV2Command.Metadata.Name = "Delivery v2"
 	workflowV2, err := service.CreateWorkflowDefinition(context.Background(), workflowV2Command)
@@ -80,12 +75,10 @@ func TestCreateDefinitionsKeepsWorkflowGraphSeparateFromBlackboard(t *testing.T)
 		t.Fatalf("next Workflow version = %d, want 2", workflowV2.Version)
 	}
 	missingBaseCommand := workflowCommand
-	missingBaseCommand.OperationID = "workflow-missing-base"
 	if _, err := service.CreateWorkflowDefinition(context.Background(), missingBaseCommand); !errors.Is(err, ErrConflict) {
 		t.Fatalf("missing Workflow base error = %v, want conflict", err)
 	}
 	staleBaseCommand := workflowCommand
-	staleBaseCommand.OperationID = "workflow-stale-base"
 	staleBaseCommand.BaseVersion = &workflow.Version
 	if _, err := service.CreateWorkflowDefinition(context.Background(), staleBaseCommand); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale Workflow base error = %v, want conflict", err)

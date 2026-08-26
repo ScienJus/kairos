@@ -365,7 +365,7 @@ func (h *Handler) createWorkflowDefinition(writer http.ResponseWriter, request *
 	metadata := body.definitionMetadataRequest.command()
 	metadata.ID = domain.DefinitionID(request.PathValue("definition_id"))
 	definition, err := h.service.CreateWorkflowDefinition(request.Context(), application.CreateWorkflowDefinitionCommand{
-		Identity: actor, OperationID: operationID(request), BaseVersion: body.BaseVersion, Metadata: metadata,
+		Identity: actor, BaseVersion: body.BaseVersion, Metadata: metadata,
 		Graph: body.Graph.domainGraph(),
 	})
 	if err != nil {
@@ -387,7 +387,7 @@ func (h *Handler) createBlackboardDefinition(writer http.ResponseWriter, request
 	metadata := body.command()
 	metadata.ID = domain.DefinitionID(request.PathValue("definition_id"))
 	definition, err := h.service.CreateBlackboardDefinition(request.Context(), application.CreateBlackboardDefinitionCommand{
-		Identity: actor, OperationID: operationID(request), BaseVersion: body.BaseVersion, Metadata: metadata,
+		Identity: actor, BaseVersion: body.BaseVersion, Metadata: metadata,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -718,7 +718,7 @@ func (h *Handler) addBlackboardRelation(writer http.ResponseWriter, request *htt
 	}
 	relation, err := h.service.AddBlackboardRelation(request.Context(), application.AddBlackboardRelationCommand{
 		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), FromTaskID: body.FromTaskID,
-		ToTaskID: body.ToTaskID, Identity: actor, OperationID: operationID(request),
+		ToTaskID: body.ToTaskID, Identity: actor,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -742,7 +742,7 @@ func (h *Handler) submitBlackboardCompletion(writer http.ResponseWriter, request
 	}
 	workItem, err := h.service.SubmitBlackboardCompletion(request.Context(), application.SubmitBlackboardCompletionCommand{
 		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor,
-		OperationID: operationID(request), Result: body.Result,
+		Result: body.Result,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -758,7 +758,6 @@ func (h *Handler) acceptBlackboardCompletion(writer http.ResponseWriter, request
 	}
 	workItem, err := h.service.AcceptBlackboardCompletion(request.Context(), application.AcceptBlackboardCompletionCommand{
 		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor,
-		OperationID: operationID(request),
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -782,7 +781,7 @@ func (h *Handler) cancelWorkItem(writer http.ResponseWriter, request *http.Reque
 	}
 	workItem, err := h.service.CancelWorkItem(request.Context(), application.CancelWorkItemCommand{
 		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor,
-		OperationID: operationID(request), Reason: body.Reason,
+		Reason: body.Reason,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -840,7 +839,7 @@ func (h *Handler) releaseClaim(writer http.ResponseWriter, request *http.Request
 	}
 	err := h.service.ReleaseClaim(request.Context(), application.ReleaseClaimCommand{
 		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: domain.ClaimID(request.PathValue("claim_id")),
-		Identity: actor, OperationID: operationID(request), Reason: body.Reason,
+		Identity: actor, Reason: body.Reason,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -861,7 +860,7 @@ func (h *Handler) heartbeatClaim(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	claim, err := h.service.HeartbeatClaim(request.Context(), application.HeartbeatClaimCommand{
-		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: domain.ClaimID(request.PathValue("claim_id")), Identity: actor, OperationID: operationID(request), LeaseSeconds: body.LeaseSeconds,
+		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: domain.ClaimID(request.PathValue("claim_id")), Identity: actor, LeaseSeconds: body.LeaseSeconds,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -906,7 +905,7 @@ func (h *Handler) submitTask(writer http.ResponseWriter, request *http.Request) 
 	}
 	submission, err := h.service.SubmitTask(request.Context(), application.SubmitTaskCommand{
 		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: body.ClaimID,
-		Identity: actor, OperationID: operationID(request), Result: body.Result,
+		Identity: actor, Result: body.Result,
 		ArtifactIDs:   body.ArtifactIDs,
 		RequestReview: body.RequestReview, Transition: body.Transition.command(),
 	})
@@ -1047,7 +1046,7 @@ func (h *Handler) failTask(writer http.ResponseWriter, request *http.Request) {
 	}
 	failure, err := h.service.FailTask(request.Context(), application.FailTaskCommand{
 		TaskID: domain.TaskID(request.PathValue("task_id")), ClaimID: body.ClaimID,
-		Identity: actor, OperationID: operationID(request), Action: body.Action,
+		Identity: actor, Action: body.Action,
 		Reason: body.Reason, RetryPrompt: body.RetryPrompt,
 	})
 	if err != nil {
@@ -1072,7 +1071,7 @@ func (h *Handler) skipBlackboardTask(writer http.ResponseWriter, request *http.R
 	}
 	task, err := h.service.SkipBlackboardTask(request.Context(), application.SkipBlackboardTaskCommand{
 		TaskID: domain.TaskID(request.PathValue("task_id")), Identity: actor,
-		OperationID: operationID(request), Reason: body.Reason,
+		Reason: body.Reason,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -1146,7 +1145,7 @@ func (h *Handler) decideReview(writer http.ResponseWriter, request *http.Request
 	}
 	review, err := h.service.DecideReview(request.Context(), application.DecideReviewCommand{
 		TaskID: domain.TaskID(request.PathValue("task_id")), ReviewID: domain.ReviewID(request.PathValue("review_id")),
-		Identity: actor, OperationID: operationID(request), Decision: body.Decision, Feedback: body.Feedback,
+		Identity: actor, Decision: body.Decision, Feedback: body.Feedback,
 	})
 	if err != nil {
 		writeError(writer, err)

@@ -44,7 +44,7 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 	}
 
 	var created domain.WorkItem
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_work_item", command, &created, func(store WriteStore) error {
+	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "create_work_item", command, &created, func(store WriteStore) error {
 		var workflow *domain.WorkflowDefinition
 		var binding domain.DefinitionBinding
 		switch command.Definition.Mode {
@@ -299,10 +299,9 @@ func (s *Service) completeWorkItem(
 
 // SubmitBlackboardCompletionCommand declares that an open Blackboard has achieved its goal.
 type SubmitBlackboardCompletionCommand struct {
-	WorkItemID  domain.WorkItemID
-	Identity    Identity
-	OperationID string
-	Result      string
+	WorkItemID domain.WorkItemID
+	Identity   Identity
+	Result     string
 }
 
 // SubmitBlackboardCompletion records a durable completion proposal after all current Tasks converge.
@@ -318,7 +317,7 @@ func (s *Service) SubmitBlackboardCompletion(ctx context.Context, command Submit
 	}
 
 	var submitted domain.WorkItem
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "submit_blackboard_completion", command, &submitted, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
@@ -378,9 +377,8 @@ func (s *Service) SubmitBlackboardCompletion(ctx context.Context, command Submit
 
 // AcceptBlackboardCompletionCommand accepts a previously submitted completion proposal.
 type AcceptBlackboardCompletionCommand struct {
-	WorkItemID  domain.WorkItemID
-	Identity    Identity
-	OperationID string
+	WorkItemID domain.WorkItemID
+	Identity   Identity
 }
 
 // AcceptBlackboardCompletion completes a Blackboard whose configured acceptance is pending.
@@ -393,7 +391,7 @@ func (s *Service) AcceptBlackboardCompletion(ctx context.Context, command Accept
 	}
 
 	var accepted domain.WorkItem
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "accept_blackboard_completion", command, &accepted, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)

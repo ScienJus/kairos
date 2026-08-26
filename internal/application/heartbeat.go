@@ -55,7 +55,6 @@ type HeartbeatClaimCommand struct {
 	TaskID       domain.TaskID
 	ClaimID      domain.ClaimID
 	Identity     Identity
-	OperationID  string
 	LeaseSeconds int64
 }
 
@@ -69,7 +68,7 @@ func (s *Service) HeartbeatClaim(ctx context.Context, command HeartbeatClaimComm
 		return domain.Claim{}, err
 	}
 	var result domain.Claim
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "heartbeat_claim", command, &result, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task: %w", err)

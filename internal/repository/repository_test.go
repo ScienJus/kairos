@@ -50,6 +50,9 @@ func TestSQLRepositoryContract(t *testing.T) {
 		t.Run("mutable record timestamps", func(t *testing.T) {
 			testMutableRecordTimestamps(t, repository, blackboard)
 		})
+		t.Run("completed Artifact operation retention", func(t *testing.T) {
+			testCompletedArtifactOperationRetention(t, repository)
+		})
 		t.Run("blackboard lifecycle candidates", func(t *testing.T) {
 			testBlackboardLifecycleCandidates(t, repository, blackboard)
 		})
@@ -97,6 +100,55 @@ func TestSQLRepositoryContract(t *testing.T) {
 	})
 }
 
+func testCompletedArtifactOperationRetention(t *testing.T, repository *SQLRepository) {
+	t.Helper()
+	ctx := context.Background()
+	actor := domain.ActorRef{Kind: domain.ActorAgent, ID: "upload-retention-agent"}
+	cutoff := repositoryTestTime.Add(-time.Hour)
+	records := []application.IdempotencyRecord{
+		{Actor: actor, OperationID: "expired-upload", Operation: application.ArtifactUploadOperation, Status: application.IdempotencyCompleted, RequestHash: "expired", Response: `{}`, CreatedAt: cutoff.Add(-time.Minute)},
+		{Actor: actor, OperationID: "expired-external", Operation: application.CreateArtifactOperation, Status: application.IdempotencyCompleted, RequestHash: "external", Response: `{}`, CreatedAt: cutoff.Add(-time.Minute)},
+		{Actor: actor, OperationID: "recently-completed-upload", Operation: application.ArtifactUploadOperation, Status: application.IdempotencyCompleted, RequestHash: "recent", Response: `{}`, CreatedAt: cutoff.Add(-time.Minute)},
+		{Actor: actor, OperationID: "durable-task", Operation: "create_blackboard_task", Status: application.IdempotencyCompleted, RequestHash: "task", Response: `{}`, CreatedAt: cutoff.Add(-time.Minute)},
+	}
+	if err := repository.Update(ctx, func(store application.WriteStore) error {
+		for _, record := range records {
+			if err := store.CreateIdempotencyRecord(record); err != nil {
+				return err
+			}
+		}
+		if err := store.SaveIdempotencyRecord(records[2], cutoff.Add(time.Minute)); err != nil {
+			return err
+		}
+		deleted, err := store.DeleteCompletedArtifactOperationRecords(cutoff)
+		if err != nil {
+			return err
+		}
+		if deleted != 2 {
+			return fmt.Errorf("deleted %d completed Artifact operation records, want 2", deleted)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("apply completed upload retention: %v", err)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		if _, err := store.GetIdempotencyRecord(actor, "expired-upload"); !errors.Is(err, application.ErrNotFound) {
+			return fmt.Errorf("expired upload lookup = %v, want not found", err)
+		}
+		if _, err := store.GetIdempotencyRecord(actor, "expired-external"); !errors.Is(err, application.ErrNotFound) {
+			return fmt.Errorf("expired external Artifact lookup = %v, want not found", err)
+		}
+		for _, operationID := range []string{"recently-completed-upload", "durable-task"} {
+			if _, err := store.GetIdempotencyRecord(actor, operationID); err != nil {
+				return fmt.Errorf("retained operation %q: %w", operationID, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testConcurrentDefinitionVersions(
 	t *testing.T,
 	repository *SQLRepository,
@@ -115,7 +167,7 @@ func testConcurrentDefinitionVersions(
 	}
 	definitionID := domain.DefinitionID("concurrent-definition-versions")
 	base, err := services[0].CreateWorkflowDefinition(ctx, application.CreateWorkflowDefinitionCommand{
-		Identity: actors[0], OperationID: "concurrent-definition-v1",
+		Identity: actors[0],
 		Metadata: application.DefinitionMetadataCommand{ID: definitionID, Name: "Concurrent Definition v1"},
 		Graph:    definition.Graph,
 	})
@@ -134,7 +186,7 @@ func testConcurrentDefinitionVersions(
 			defer wait.Done()
 			<-start
 			created, err := service.CreateWorkflowDefinition(ctx, application.CreateWorkflowDefinitionCommand{
-				Identity: actors[index], OperationID: fmt.Sprintf("concurrent-definition-author-%d", index+1), BaseVersion: &baseVersion,
+				Identity: actors[index], BaseVersion: &baseVersion,
 				Metadata: application.DefinitionMetadataCommand{
 					ID: definitionID, Name: fmt.Sprintf("Concurrent Definition by author %d", index+1),
 				},
@@ -163,7 +215,7 @@ func testConcurrentDefinitionVersions(
 	}
 	retryBase := int64(2)
 	retried, err := services[staleAuthor].CreateWorkflowDefinition(ctx, application.CreateWorkflowDefinitionCommand{
-		Identity: actors[staleAuthor], OperationID: "concurrent-definition-retry", BaseVersion: &retryBase,
+		Identity: actors[staleAuthor], BaseVersion: &retryBase,
 		Metadata: application.DefinitionMetadataCommand{ID: definitionID, Name: "Rebased concurrent Definition"},
 		Graph:    definition.Graph,
 	})
@@ -357,6 +409,31 @@ func testCursorPagination(
 		TaskID: otherTask.ID, ClaimID: otherClaim.ID, Identity: agent, Result: "done", ArtifactIDs: []domain.ArtifactID{otherArtifact.ID},
 	}); err != nil {
 		t.Fatalf("submit other Task Artifact: %v", err)
+	}
+	separateTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItems[1].ID, Identity: agent, Title: "Separate WorkItem Claim", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create separate WorkItem Task: %v", err)
+	}
+	separateClaim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: separateTask.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim separate WorkItem Task: %v", err)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		claims, err := store.ListClaimsByWorkItem(workItems[0].ID)
+		if err != nil {
+			return err
+		}
+		if len(claims) != 2 || claims[0].ID != claim.ID || claims[1].ID != otherClaim.ID {
+			return fmt.Errorf("WorkItem Claims = %#v, want %q then %q", claims, claim.ID, otherClaim.ID)
+		}
+		if slices.ContainsFunc(claims, func(item domain.Claim) bool { return item.ID == separateClaim.ID }) {
+			return fmt.Errorf("WorkItem Claims contain Claim %q from another WorkItem", separateClaim.ID)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("list Claims by WorkItem: %v", err)
 	}
 	if err := repository.View(ctx, func(store application.ReadStore) error {
 		artifacts, err := store.ListArtifacts(application.ArtifactFilter{

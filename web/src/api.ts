@@ -92,7 +92,6 @@ async function requestJSON<T>(path: string, identity?: Identity, init?: RequestI
   headers.set('Accept', 'application/json')
   authentication.headers.forEach((value, name) => headers.set(name, value))
   if (init?.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
-  if (init?.method && init.method !== 'GET' && !headers.has('Idempotency-Key')) headers.set('Idempotency-Key', crypto.randomUUID())
   const response = await fetch(path, { ...init, headers })
   if (!response.ok) {
     handleUnauthorized(response.status, authentication.token)
@@ -106,6 +105,26 @@ async function requestJSON<T>(path: string, identity?: Identity, init?: RequestI
 async function request<T>(path: string, identity?: Identity, init?: RequestInit): Promise<T> {
   const body = await requestJSON<{ data: T }>(path, identity, init)
   return body.data
+}
+
+const pendingCreationKeys = new Map<string, string>()
+
+async function createResource<T>(path: string, identity: Identity, body?: string): Promise<T> {
+  const requestKey = JSON.stringify([identity.kind, identity.id, identity.role, path, body ?? ''])
+  const operationID = pendingCreationKeys.get(requestKey) ?? crypto.randomUUID()
+  pendingCreationKeys.set(requestKey, operationID)
+  try {
+    const result = await request<T>(path, identity, {
+      method: 'POST', body, headers: { 'Idempotency-Key': operationID },
+    })
+    pendingCreationKeys.delete(requestKey)
+    return result
+  } catch (error) {
+    // A 4xx is a definitive rejection. Network failures and 5xx responses may
+    // still hide an upstream commit, so the next identical call reuses the key.
+    if (error instanceof APIError && error.status < 500) pendingCreationKeys.delete(requestKey)
+    throw error
+  }
 }
 
 function pagePath(path: string, cursor?: string, parameters?: Record<string, string | number | string[] | undefined>) {
@@ -152,12 +171,8 @@ export const api = {
     const { id, ...version } = input
     return request<WorkflowDefinition>(`/api/v1/definitions/workflows/${encodeURIComponent(id)}/versions`, identity, { method: 'POST', body: JSON.stringify(version) })
   },
-  createWorkItem: (identity: Identity, input: CreateWorkItemInput) => request<WorkItem>('/api/v1/work-items', identity, {
-    method: 'POST', body: JSON.stringify(input),
-  }),
-  createTask: (identity: Identity, workItemID: string, input: TaskDraftInput) => request<Task>(`/api/v1/work-items/${workItemID}/tasks`, identity, {
-    method: 'POST', body: JSON.stringify(input),
-  }),
+  createWorkItem: (identity: Identity, input: CreateWorkItemInput) => createResource<WorkItem>('/api/v1/work-items', identity, JSON.stringify(input)),
+  createTask: (identity: Identity, workItemID: string, input: TaskDraftInput) => createResource<Task>(`/api/v1/work-items/${workItemID}/tasks`, identity, JSON.stringify(input)),
   submitBlackboardCompletion: (identity: Identity, workItemID: string, result: string) => request<WorkItem>(`/api/v1/work-items/${workItemID}/completion`, identity, {
     method: 'POST', body: JSON.stringify({ result }),
   }),
@@ -165,9 +180,9 @@ export const api = {
   cancelWorkItem: (identity: Identity, workItemID: string, reason: string) => request<WorkItem>(`/api/v1/work-items/${workItemID}/cancellation`, identity, {
     method: 'POST', body: JSON.stringify({ reason }),
   }),
-  claimTask: (identity: Identity, taskID: string) => request<Claim>(`/api/v1/tasks/${taskID}/claims`, identity, { method: 'POST' }),
+  claimTask: (identity: Identity, taskID: string) => createResource<Claim>(`/api/v1/tasks/${taskID}/claims`, identity),
   releaseClaim: (identity: Identity, taskID: string, claimID: string) => request<void>(`/api/v1/tasks/${taskID}/claims/${claimID}`, identity, { method: 'DELETE' }),
-  createArtifact: (identity: Identity, taskID: string, input: { claim_id: string; name: string; uri: string }) => request<Artifact>(`/api/v1/tasks/${taskID}/artifacts`, identity, { method: 'POST', body: JSON.stringify(input) }),
+  createArtifact: (identity: Identity, taskID: string, input: { claim_id: string; name: string; uri: string }) => createResource<Artifact>(`/api/v1/tasks/${taskID}/artifacts`, identity, JSON.stringify(input)),
   uploadArtifact: (identity: Identity, taskID: string, claimID: string, name: string, file: File, operationID: string) => {
     const form = new FormData()
     form.set('claim_id', claimID); form.set('name', name); form.set('file', file)
@@ -189,12 +204,8 @@ export const api = {
   skipBlackboardTask: (identity: Identity, taskID: string, reason: string) => request<Task>(`/api/v1/tasks/${taskID}/skip`, identity, {
     method: 'POST', body: JSON.stringify({ reason }),
   }),
-  decomposeBlackboardTask: (identity: Identity, taskID: string, input: DecomposeTaskInput) => request<BlackboardTaskDecomposition>(`/api/v1/tasks/${taskID}/decomposition`, identity, {
-    method: 'POST', body: JSON.stringify(input),
-  }),
-  addBlackboardChildTask: (identity: Identity, taskID: string, input: TaskDraftInput) => request<Task>(`/api/v1/tasks/${taskID}/children`, identity, {
-    method: 'POST', body: JSON.stringify(input),
-  }),
+  decomposeBlackboardTask: (identity: Identity, taskID: string, input: DecomposeTaskInput) => createResource<BlackboardTaskDecomposition>(`/api/v1/tasks/${taskID}/decomposition`, identity, JSON.stringify(input)),
+  addBlackboardChildTask: (identity: Identity, taskID: string, input: TaskDraftInput) => createResource<Task>(`/api/v1/tasks/${taskID}/children`, identity, JSON.stringify(input)),
   decideReview: (identity: Identity, taskID: string, reviewID: string, input: ReviewDecisionInput) => request(`/api/v1/tasks/${taskID}/reviews/${reviewID}/decision`, identity, {
     method: 'POST', body: JSON.stringify(input),
   }),

@@ -263,10 +263,25 @@ func (s *sqlStore) ListTaskRelations(workItemID domain.WorkItemID) ([]domain.Tas
 }
 
 func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
-	rows, err := s.query(
-		"SELECT payload, executor_kind, executor_id, last_heartbeat_at, lease_until, lease_seconds FROM claims WHERE task_id = ? ORDER BY claimed_at, id",
+	return s.listClaims(
+		"SELECT c.payload, c.executor_kind, c.executor_id, c.last_heartbeat_at, c.lease_until, c.lease_seconds FROM claims c WHERE c.task_id = ? ORDER BY c.claimed_at, c.id",
 		taskID,
 	)
+}
+
+func (s *sqlStore) ListClaimsByWorkItem(workItemID domain.WorkItemID) ([]domain.Claim, error) {
+	return s.listClaims(`
+		SELECT c.payload, c.executor_kind, c.executor_id, c.last_heartbeat_at, c.lease_until, c.lease_seconds
+		FROM claims c
+		JOIN tasks t ON t.id = c.task_id
+		WHERE t.work_item_id = ?
+		ORDER BY t.position, t.id, c.claimed_at, c.id`,
+		workItemID,
+	)
+}
+
+func (s *sqlStore) listClaims(query string, args ...any) ([]domain.Claim, error) {
+	rows, err := s.query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1404,6 +1419,21 @@ func (s *sqlStore) DeleteIdempotencyRecord(actor domain.ActorRef, operationID st
 		return application.ErrNotFound
 	}
 	return nil
+}
+
+func (s *sqlStore) DeleteCompletedArtifactOperationRecords(before time.Time) (int, error) {
+	result, err := s.exec(`
+		DELETE FROM idempotency_records
+		WHERE operation IN (?, ?) AND status = ? AND updated_at <= ?`,
+		application.CreateArtifactOperation, application.ArtifactUploadOperation, application.IdempotencyCompleted, databaseTime(before))
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, normalizeError(err)
+	}
+	return int(count), nil
 }
 
 func (s *sqlStore) workItemMode(workItemID domain.WorkItemID) (domain.CoordinationMode, error) {

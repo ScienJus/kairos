@@ -110,7 +110,7 @@ Available in this repository:
 - Workflow and Blackboard runtime semantics;
 - PostgreSQL and SQLite persistence;
 - Workflow Artifact delivery contracts and a built-in `kairos://` Artifact Store with database-first uploads, integrity digests, configurable limits, and garbage collection;
-- concurrency and idempotency protection;
+- concurrency guards plus replay protection for resource-creating API calls and managed uploads;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;

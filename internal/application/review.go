@@ -10,12 +10,11 @@ import (
 
 // DecideReviewCommand records a human decision on the latest pending Review.
 type DecideReviewCommand struct {
-	TaskID      domain.TaskID
-	ReviewID    domain.ReviewID
-	Identity    Identity
-	OperationID string
-	Decision    domain.ReviewStatus
-	Feedback    string
+	TaskID   domain.TaskID
+	ReviewID domain.ReviewID
+	Identity Identity
+	Decision domain.ReviewStatus
+	Feedback string
 }
 
 // DecideReview approves a Submission or reopens its Task for another Claim.
@@ -34,7 +33,7 @@ func (s *Service) DecideReview(ctx context.Context, command DecideReviewCommand)
 	}
 
 	var decided domain.Review
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "decide_review", command, &decided, func(store WriteStore) error {
+	err := s.repository.Update(ctx, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)

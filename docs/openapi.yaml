@@ -183,7 +183,6 @@ paths:
       operationId: createWorkflowDefinitionVersion
       summary: Append Workflow Definition Version
       description: Workflow Definitions are immutable and append-only. Omit `base_version` to create version 1 for a new ID. For an existing ID, `base_version` must equal the latest stored version; the server atomically assigns the next version or returns `409` if another edit was accepted first.
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
@@ -269,7 +268,6 @@ paths:
       operationId: createBlackboardDefinitionVersion
       summary: Append Blackboard Definition Version
       description: Blackboard Definitions are immutable and append-only. Omit `base_version` to create version 1 for a new ID. For an existing ID, `base_version` must equal the latest stored version; the server atomically assigns the next version or returns `409` if another edit was accepted first.
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
@@ -453,7 +451,6 @@ paths:
     post:
       operationId: addBlackboardRelation
       summary: Add Blackboard Relation
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
@@ -474,7 +471,6 @@ paths:
     post:
       operationId: submitBlackboardCompletion
       summary: Submit Blackboard Completion
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
@@ -499,7 +495,6 @@ paths:
     post:
       operationId: acceptBlackboardCompletion
       summary: Accept Blackboard Completion
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       responses:
         '200': { $ref: '#/components/responses/WorkItem' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -517,7 +512,6 @@ paths:
       operationId: cancelWorkItem
       summary: Cancel Work Item
       description: Human-only terminal cancellation. Active Claims are ended; no Task is marked failed.
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
@@ -603,7 +597,6 @@ paths:
     delete:
       operationId: releaseClaim
       summary: Release Claim
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: false
         content:
@@ -629,7 +622,6 @@ paths:
     post:
       operationId: heartbeatClaim
       summary: Heartbeat Claim
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: false
         content:
@@ -651,7 +643,6 @@ paths:
     post:
       operationId: submitTask
       summary: Submit Task
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
@@ -747,7 +738,6 @@ paths:
     post:
       operationId: failTask
       summary: Fail Task
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
@@ -769,7 +759,6 @@ paths:
     post:
       operationId: skipBlackboardTask
       summary: Skip Blackboard Task
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
@@ -851,7 +840,6 @@ paths:
     post:
       operationId: decideReview
       summary: Decide Review
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
@@ -902,13 +890,14 @@ components:
       name: Idempotency-Key
       in: header
       required: false
-      schema: { type: string }
-      description: Reuse only for a byte-equivalent logical retry.
+      schema: { type: string, minLength: 1 }
+      description: Stable key for replaying an identical resource-creation request after a lost response.
     RequiredIdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
       schema: { type: string, minLength: 1 }
+      description: Stable key used only to recover a managed Artifact upload across file-store and database writes.
     ActorKindPath:
       name: kind
       in: path
@@ -993,7 +982,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     Conflict:
-      description: The operation conflicts with current state or a prior idempotent request (`conflict`), or the WorkItem was terminally cancelled (`work_item_cancelled`)
+      description: The operation conflicts with current state or incompatible reuse of a resource-creation key (`conflict`), or the WorkItem was terminally cancelled (`work_item_cancelled`)
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }

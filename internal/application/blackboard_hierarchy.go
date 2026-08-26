@@ -40,7 +40,7 @@ func (s *Service) DecomposeBlackboardTask(
 	}
 
 	var result BlackboardTaskDecomposition
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "decompose_blackboard_task", command, &result, func(store WriteStore) error {
+	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "decompose_blackboard_task", command, &result, func(store WriteStore) error {
 		parent, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)
@@ -183,7 +183,7 @@ func (s *Service) AddBlackboardChildTask(
 	}
 
 	var created domain.Task
-	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "add_blackboard_child_task", command, &created, func(store WriteStore) error {
+	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "add_blackboard_child_task", command, &created, func(store WriteStore) error {
 		parent, err := store.GetTask(command.ParentTaskID)
 		if err != nil {
 			return fmt.Errorf("get parent task %q: %w", command.ParentTaskID, err)

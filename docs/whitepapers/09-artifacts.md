@@ -27,7 +27,7 @@ Staged Artifacts are available only to their creating Claim. Submitted Artifacts
 
 An active Claim protects all of its staged Artifacts regardless of age. After the Claim ends, an unsubmitted Artifact is eligible for background garbage collection once its age exceeds the configured retention period; an Artifact already older than that period may therefore be collected on the next pass. Submitted Artifacts are never collected by this lifecycle. GC removes managed Blob content only after no Artifact references its URI; stale pending uploads are removed by their registered URI.
 
-Pending managed-upload records use the same retention window. Completed idempotency records remain available for retry recovery.
+Pending managed-upload records and completed replay records for both external registration and managed upload use the same retention window. Within that window, a completed record can replay the staged Artifact result after a lost response; after it expires, the current Artifact and Claim state governs any later request.
 
 ## Storage
 
