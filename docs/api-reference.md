@@ -16,6 +16,9 @@ KAIROS_ARTIFACT_DIR=artifacts \
 KAIROS_ARTIFACT_MAX_UPLOAD_BYTES=16777216 \
 KAIROS_ARTIFACT_GC_RETENTION=24h \
 KAIROS_ARTIFACT_GC_INTERVAL=15m \
+KAIROS_HTTP_READ_TIMEOUT=60s \
+KAIROS_HTTP_WRITE_TIMEOUT=120s \
+KAIROS_HTTP_IDLE_TIMEOUT=120s \
 go run ./cmd/kairos-server
 ```
 
@@ -27,6 +30,10 @@ go run ./cmd/kairos-server
 ```
 
 When `KAIROS_POSTGRES_DSN` is non-empty it takes precedence over `KAIROS_SQLITE_PATH`. Startup verifies the connection and applies the embedded PostgreSQL migrations before serving requests; an invalid or unavailable explicitly configured database causes startup to fail.
+
+The HTTP read timeout bounds the total time spent reading a request, including JSON, MCP, and managed Artifact uploads. Go applies the absolute write deadline after reading the request headers, so reading the body, running the handler, and writing the response share that budget; it is not a separate response-only timer. The default write timeout is therefore twice the read timeout and also bounds Artifact downloads. The idle timeout bounds the gap between requests on a keep-alive connection. All three settings use Go duration syntax and must be positive.
+
+For an internet-facing deployment, place Kairos behind a reverse proxy that terminates TLS and enforces connection and request-rate limits. Configure the proxy's upstream timeouts slightly above the corresponding Kairos timeouts so Kairos closes slow requests predictably. A proxy may intentionally impose a smaller upload limit; otherwise its request-body limit must allow `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` plus multipart overhead.
 
 Runtime fields used by discovery, authorization narrowing, filtering, or ordering are stored in dedicated columns as well as in the aggregate payload. PostgreSQL uses native `TEXT[]` columns for WorkItem/Task tags and Task allowed roles, with GIN indexes for the current containment queries. SQLite stores the same logical fields as validated JSON-array `TEXT` columns and evaluates containment through `json_each`; SQLite is intended for local and smaller deployments. Empty collections are stored and returned as arrays, never `null`.
 

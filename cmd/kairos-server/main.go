@@ -54,6 +54,10 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	httpTimeouts, err := httpTimeoutConfigurationFromEnvironment()
+	if err != nil {
+		return err
+	}
 	repo, err := openConfiguredRepository(ctx)
 	if err != nil {
 		return err
@@ -143,6 +147,9 @@ func run() error {
 		Addr:              environment("KAIROS_LISTEN_ADDR", "127.0.0.1:8080"),
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       httpTimeouts.read,
+		WriteTimeout:      httpTimeouts.write,
+		IdleTimeout:       httpTimeouts.idle,
 	}
 	serverErrors := make(chan error, 1)
 	go func() {
@@ -168,6 +175,39 @@ func environment(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+type httpTimeoutConfiguration struct {
+	read  time.Duration
+	write time.Duration
+	idle  time.Duration
+}
+
+func httpTimeoutConfigurationFromEnvironment() (httpTimeoutConfiguration, error) {
+	read, err := positiveEnvironmentDuration("KAIROS_HTTP_READ_TIMEOUT", time.Minute)
+	if err != nil {
+		return httpTimeoutConfiguration{}, err
+	}
+	write, err := positiveEnvironmentDuration("KAIROS_HTTP_WRITE_TIMEOUT", 2*time.Minute)
+	if err != nil {
+		return httpTimeoutConfiguration{}, err
+	}
+	idle, err := positiveEnvironmentDuration("KAIROS_HTTP_IDLE_TIMEOUT", 2*time.Minute)
+	if err != nil {
+		return httpTimeoutConfiguration{}, err
+	}
+	return httpTimeoutConfiguration{read: read, write: write, idle: idle}, nil
+}
+
+func positiveEnvironmentDuration(name string, fallback time.Duration) (time.Duration, error) {
+	value, err := time.ParseDuration(environment(name, fallback.String()))
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", name, err)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration", name)
+	}
+	return value, nil
 }
 
 type databaseBackend string

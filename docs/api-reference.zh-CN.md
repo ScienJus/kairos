@@ -16,6 +16,9 @@ KAIROS_ARTIFACT_DIR=artifacts \
 KAIROS_ARTIFACT_MAX_UPLOAD_BYTES=16777216 \
 KAIROS_ARTIFACT_GC_RETENTION=24h \
 KAIROS_ARTIFACT_GC_INTERVAL=15m \
+KAIROS_HTTP_READ_TIMEOUT=60s \
+KAIROS_HTTP_WRITE_TIMEOUT=120s \
+KAIROS_HTTP_IDLE_TIMEOUT=120s \
 go run ./cmd/kairos-server
 ```
 
@@ -27,6 +30,10 @@ go run ./cmd/kairos-server
 ```
 
 `KAIROS_POSTGRES_DSN` 非空时优先于 `KAIROS_SQLITE_PATH`。服务在开始接收请求前会验证连接并应用内嵌的 PostgreSQL Migration；显式配置的数据库无效或不可访问时，启动将直接失败。
+
+HTTP read timeout 限制读取完整请求的总时间，包含 JSON、MCP 和托管 Artifact 上传。Go 在读取完请求头后设置绝对 write deadline，因此读取 Body、执行 Handler 和写出响应共享这段预算，它不是独立的响应写出计时器；默认 write timeout 因而设为 read timeout 的两倍，并同时限制 Artifact 下载。idle timeout 限制 keep-alive 连接在两次请求之间的空闲时间。三个配置均使用 Go duration 语法且必须为正数。
+
+公网部署应在 Kairos 前配置反向代理，由其终止 TLS，并限制连接数和请求速率。代理连接上游的 timeout 应略长于 Kairos 对应配置，使慢请求由 Kairos 可预测地关闭。代理可以有意采用更小的上传上限；否则其请求体限制应允许 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` 以及 multipart 开销。
 
 参与发现、授权候选收窄、筛选或排序的运行时字段，除了保留在聚合 payload 中，也存入专用列。PostgreSQL 对 WorkItem/Task tags 和 Task allowed roles 使用原生 `TEXT[]`，并为当前的包含查询建立 GIN 索引。SQLite 将相同逻辑字段保存为经过校验的 JSON 数组 `TEXT` 列，通过 `json_each` 执行包含查询；SQLite 定位于本地和较小规模部署。空集合在存储和响应中均为数组，不使用 `null`。
 
