@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -439,7 +440,7 @@ func newMCPFixture(t *testing.T, acceptanceModes ...domain.WorkItemAcceptanceMod
 	if err != nil {
 		t.Fatalf("new application service: %v", err)
 	}
-	localArtifacts, err := artifactstore.NewLocal(t.TempDir())
+	localArtifacts, err := artifactstore.NewLocal(privateArtifactDir(t))
 	if err != nil {
 		t.Fatalf("new local Artifact Store: %v", err)
 	}
@@ -532,6 +533,15 @@ func (t headerTransport) RoundTrip(request *http.Request) (*http.Response, error
 }
 
 type mcpClock struct{}
+
+func privateArtifactDir(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "artifacts")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create private artifact root: %v", err)
+	}
+	return root
+}
 
 func (mcpClock) Now() time.Time { return time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC) }
 

@@ -2,6 +2,8 @@ package domain
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -109,6 +111,72 @@ func TestWorkflowGraphRejectsOptionalStart(t *testing.T) {
 
 	if err := graph.Validate(); !errors.Is(err, ErrInvalidModel) {
 		t.Fatalf("optional start: got %v", err)
+	}
+}
+
+func TestWorkflowGraphAcceptsAllDefinitionTasksAsStarts(t *testing.T) {
+	t.Parallel()
+
+	tasks := make([]WorkflowTaskDefinition, MaxWorkflowTasks)
+	starts := make([]WorkflowTaskID, MaxWorkflowTasks)
+	for index := range tasks {
+		id := WorkflowTaskID(fmt.Sprintf("start-%d", index))
+		tasks[index] = workflowTask(id, ExecutionRequired)
+		starts[index] = id
+	}
+	graph := WorkflowGraph{StartTaskIDs: starts, Tasks: tasks, MaxTaskExecutions: MaxWorkflowTasks}
+	if err := graph.Validate(); err != nil {
+		t.Fatalf("validate all definition tasks as starts: %v", err)
+	}
+}
+
+func TestWorkflowGraphRejectsTooManyTasks(t *testing.T) {
+	t.Parallel()
+
+	tasks := make([]WorkflowTaskDefinition, MaxWorkflowTasks+1)
+	for index := range tasks {
+		tasks[index] = workflowTask(WorkflowTaskID(fmt.Sprintf("task-%d", index)), ExecutionRequired)
+	}
+	graph := WorkflowGraph{StartTaskIDs: []WorkflowTaskID{"task-0"}, Tasks: tasks}
+	if err := graph.Validate(); !errors.Is(err, ErrInvalidModel) || !strings.Contains(err.Error(), "workflow.tasks: must contain at most") {
+		t.Fatalf("too many tasks: got %v", err)
+	}
+}
+
+func TestWorkflowGraphRejectsTooManyRelations(t *testing.T) {
+	t.Parallel()
+
+	relations := make([]WorkflowRelationDefinition, MaxWorkflowRelations+1)
+	for index := range relations {
+		relations[index] = workflowRelation(
+			WorkflowRelationID(fmt.Sprintf("relation-%d", index)),
+			"start",
+			"target",
+		)
+	}
+	graph := WorkflowGraph{
+		StartTaskIDs: []WorkflowTaskID{"start"},
+		Tasks: []WorkflowTaskDefinition{
+			workflowTask("start", ExecutionRequired),
+			workflowTask("target", ExecutionRequired),
+		},
+		Relations: relations,
+	}
+	if err := graph.Validate(); !errors.Is(err, ErrInvalidModel) || !strings.Contains(err.Error(), "workflow.relations: must contain at most") {
+		t.Fatalf("too many relations: got %v", err)
+	}
+}
+
+func TestWorkflowGraphRejectsTaskExecutionLimitAboveMaximum(t *testing.T) {
+	t.Parallel()
+
+	graph := WorkflowGraph{
+		StartTaskIDs:      []WorkflowTaskID{"start"},
+		Tasks:             []WorkflowTaskDefinition{workflowTask("start", ExecutionRequired)},
+		MaxTaskExecutions: MaxWorkflowTaskExecutions + 1,
+	}
+	if err := graph.Validate(); !errors.Is(err, ErrInvalidModel) {
+		t.Fatalf("execution limit above maximum: got %v", err)
 	}
 }
 

@@ -126,7 +126,7 @@ Still to be built:
 For development, use Go 1.26.6 or later and run:
 
 ```bash
-go test ./...
+make go-test
 ```
 
 ## Quickstart

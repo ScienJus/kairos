@@ -209,6 +209,9 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 		if err != nil {
 			return fmt.Errorf("list claims for task %q: %w", task.ID, err)
 		}
+		if len(claims) >= MaxClaimsPerTask {
+			return conflict("task %q has reached the maximum of %d claims", task.ID, MaxClaimsPerTask)
+		}
 		claims = append(claims, claim)
 		if err := domain.ValidateTaskContext(workItem.CoordinationMode(), task, claims); err != nil {
 			return err

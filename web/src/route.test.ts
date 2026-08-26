@@ -13,6 +13,12 @@ describe('route state', () => {
     expect(readRoute(routePath(route))).toEqual(route)
   })
 
+  it('falls back to the homepage for malformed URL encoding', () => {
+    const homepage = { workItemID: null, taskID: null, homeView: 'all' }
+    expect(readRoute('/work-items/%ZZ')).toEqual(homepage)
+    expect(readRoute('/work-items/%E0%A4')).toEqual(homepage)
+  })
+
   it('round trips Blackboard definition versions', () => {
     const route = { workItemID: null, taskID: null, homeView: 'all' as const, blackboardID: 'product work', blackboardVersion: 3 }
     expect(routePath(route)).toBe('/blackboards/product%20work/versions/3')

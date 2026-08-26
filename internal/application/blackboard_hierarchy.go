@@ -63,6 +63,9 @@ func (s *Service) DecomposeBlackboardTask(
 		if err != nil {
 			return fmt.Errorf("list blackboard tasks: %w", err)
 		}
+		if err := ensureBlackboardTaskCapacity(len(tasks), len(command.Children)); err != nil {
+			return err
+		}
 		now := s.clock.Now()
 		nextPosition := nextTaskPosition(tasks)
 		children := make([]domain.Task, 0, len(command.Children))
@@ -204,6 +207,9 @@ func (s *Service) AddBlackboardChildTask(
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return fmt.Errorf("list blackboard tasks: %w", err)
+		}
+		if err := ensureBlackboardTaskCapacity(len(tasks), 1); err != nil {
+			return err
 		}
 		id, err := s.newID("child task id")
 		if err != nil {

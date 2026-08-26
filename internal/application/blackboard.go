@@ -9,6 +9,13 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
+// Blackboard resource limits keep one dynamically planned WorkItem bounded.
+// They are deliberately high safety ceilings, not normal planning quotas.
+const (
+	MaxBlackboardTasks     = 1000
+	MaxBlackboardRelations = 10000
+)
+
 // CreateBlackboardTaskCommand adds one planned Task to an open Blackboard.
 type CreateBlackboardTaskCommand struct {
 	WorkItemID  domain.WorkItemID
@@ -54,6 +61,9 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return fmt.Errorf("list blackboard tasks: %w", err)
+		}
+		if err := ensureBlackboardTaskCapacity(len(tasks), 1); err != nil {
+			return err
 		}
 		id, err := s.newID("task id")
 		if err != nil {
@@ -186,6 +196,9 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		if err != nil {
 			return fmt.Errorf("list blackboard relations: %w", err)
 		}
+		if err := ensureBlackboardRelationCapacity(len(relations), 1); err != nil {
+			return err
+		}
 		now := s.clock.Now()
 		relation := domain.TaskRelation{
 			WorkItemID: workItem.ID,
@@ -217,6 +230,20 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		return domain.TaskRelation{}, err
 	}
 	return created, nil
+}
+
+func ensureBlackboardTaskCapacity(existing, additional int) error {
+	if existing+additional > MaxBlackboardTasks {
+		return conflict("blackboard task limit reached (%d)", MaxBlackboardTasks)
+	}
+	return nil
+}
+
+func ensureBlackboardRelationCapacity(existing, additional int) error {
+	if existing+additional > MaxBlackboardRelations {
+		return conflict("blackboard relation limit reached (%d)", MaxBlackboardRelations)
+	}
+	return nil
 }
 
 // SkipBlackboardTaskCommand removes a no-longer-useful Task from the active plan.

@@ -78,6 +78,8 @@ Design ⇢ Implement ⇢ Test
 
 Blackboard uses shared information to help executors understand the choice space, and the Task Graph continues evolving through those decisions.
 
+To keep one collaboration space operationally bounded, a Blackboard WorkItem accepts at most 1,000 Task instances and 10,000 suggested Relations. These are hard safety ceilings covering completed history and decomposition children; exceeding either ceiling rejects the write.
+
 ## 4. Graph Authority and Evolution
 
 | Dimension | Workflow | Blackboard |

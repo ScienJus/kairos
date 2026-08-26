@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,6 +44,11 @@ func OpenSQLite(ctx context.Context, path string) (*SQLRepository, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("sqlite path is required")
 	}
+	if path != ":memory:" {
+		if err := prepareSQLiteFile(path); err != nil {
+			return nil, err
+		}
+	}
 	dsn := sqliteDSN(path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -55,7 +61,38 @@ func OpenSQLite(ctx context.Context, path string) (*SQLRepository, error) {
 		db.Close()
 		return nil, err
 	}
+	if path != ":memory:" {
+		if err := secureSQLiteFiles(path); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	return repository, nil
+}
+
+func prepareSQLiteFile(path string) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("prepare sqlite file: %w", err)
+	}
+	chmodErr := file.Chmod(0o600)
+	closeErr := file.Close()
+	if chmodErr != nil {
+		return fmt.Errorf("secure sqlite file: %w", chmodErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close sqlite file: %w", closeErr)
+	}
+	return nil
+}
+
+func secureSQLiteFiles(path string) error {
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(candidate, 0o600); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("secure sqlite file %q: %w", candidate, err)
+		}
+	}
+	return nil
 }
 
 // OpenPostgres opens and migrates one PostgreSQL database.

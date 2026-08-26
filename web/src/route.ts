@@ -11,7 +11,12 @@ export type RouteState = {
 }
 
 export function readRoute(pathname: string): RouteState {
-  const parts = pathname.split('/').filter(Boolean).map(part => decodeURIComponent(part))
+  let parts: string[]
+  try {
+    parts = pathname.split('/').filter(Boolean).map(part => decodeURIComponent(part))
+  } catch {
+    return { workItemID: null, taskID: null, homeView: 'all' }
+  }
   if (parts[0] === 'blackboards') {
     const version = parts[2] === 'versions' ? Number(parts[3]) : null
     return { workItemID: null, taskID: null, homeView: 'all', blackboardID: parts[1] ?? null, blackboardVersion: Number.isInteger(version) && version! > 0 ? version : null }

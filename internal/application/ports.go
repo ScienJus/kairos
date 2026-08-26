@@ -108,6 +108,14 @@ type PageRequest[T any] struct {
 
 const MaxPageLimit = 200
 
+// Per-task history ceilings keep executor contexts bounded while preserving
+// complete history for every accepted operation.
+const (
+	MaxClaimsPerTask      = 1000
+	MaxTaskHistoryEntries = 1000
+	MaxArtifactsPerTask   = 1000
+)
+
 type Page[T any] struct {
 	Items   []T
 	HasMore bool

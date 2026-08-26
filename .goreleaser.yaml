@@ -2,11 +2,6 @@ version: 2
 
 project_name: kairos
 
-before:
-  hooks:
-    - npm --prefix web ci
-    - npm --prefix web run build
-
 builds:
   - id: kairos-server
     main: ./cmd/kairos-server
@@ -35,16 +30,15 @@ archives:
       - LICENSE
       - README.md
       - README.zh-CN.md
+      - src: .release/THIRD_PARTY_NOTICES.txt
+        strip_parent: true
 
 checksum:
   name_template: checksums.txt
   algorithm: sha256
 
 sboms:
-  - artifacts: archive
+  - disable: true
 
 changelog:
-  use: github-native
-
-release:
-  prerelease: auto
+  disable: true

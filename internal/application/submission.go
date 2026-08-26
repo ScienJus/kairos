@@ -101,6 +101,9 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 		if err := submission.Validate(); err != nil {
 			return err
 		}
+		if len(task.Submissions) >= MaxTaskHistoryEntries {
+			return conflict("task %q has reached the maximum of %d submissions", task.ID, MaxTaskHistoryEntries)
+		}
 
 		requestReview, err := submissionRequiresReview(workItem.CoordinationMode(), task, command.RequestReview)
 		if err != nil {
@@ -120,6 +123,9 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 		task.ActiveClaimID = nil
 		task.Submissions = append(task.Submissions, submission)
 		if decision != nil {
+			if len(task.TransitionDecisions) >= MaxTaskHistoryEntries {
+				return conflict("task %q has reached the maximum of %d transition decisions", task.ID, MaxTaskHistoryEntries)
+			}
 			task.TransitionDecisions = append(task.TransitionDecisions, *decision)
 		}
 		task.UpdatedAt = now
@@ -127,6 +133,9 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 
 		var review *domain.Review
 		if requestReview {
+			if len(task.Reviews) >= MaxTaskHistoryEntries {
+				return conflict("task %q has reached the maximum of %d reviews", task.ID, MaxTaskHistoryEntries)
+			}
 			reviewID, err := s.newID("review id")
 			if err != nil {
 				return err

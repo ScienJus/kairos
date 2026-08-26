@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -85,7 +86,7 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
-	localArtifacts, err := artifactstore.NewLocal(t.TempDir())
+	localArtifacts, err := artifactstore.NewLocal(privateArtifactDir(t))
 	if err != nil {
 		t.Fatalf("new local Artifact Store: %v", err)
 	}
@@ -789,6 +790,15 @@ func newTrustedRequest(
 type endToEndClock struct{}
 
 func (endToEndClock) Now() time.Time { return endToEndTime }
+
+func privateArtifactDir(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "artifacts")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create private artifact root: %v", err)
+	}
+	return root
+}
 
 type endToEndIDs struct{}
 

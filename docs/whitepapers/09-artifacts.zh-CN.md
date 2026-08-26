@@ -31,7 +31,7 @@ Pending 托管上传记录，以及外部登记与托管上传的 completed 重�
 
 ## 存储
 
-Artifact 记录来源链路、名称和 URI；托管 Blob 元数据记录 URI、Digest 和大小。内置 Store 在数据库先登记稳定上传 URI 后再写入文件，并在数据库把上传标记为 completed 前同步文件及其目录链。Digest 只作为完整性元数据，不参与 URI 生成，相同内容可以占用不同的托管位置。
+Artifact 记录来源链路、名称和 URI；托管 Blob 元数据记录 URI、Digest 和大小。内置 Store 在数据库先登记稳定上传 URI 后再写入文件，并在数据库把上传标记为 completed 前同步文件及其目录链。其根目录和散列子目录使用 `0700`，托管文件使用 `0600`，重试时也会收紧已有路径的权限。Digest 只作为完整性元数据，不参与 URI 生成，相同内容可以占用不同的托管位置。
 
 Agent 不能选择 Store。服务端在本次部署中只使用一个配置好的托管 Store。内置实现支持 `kairos://`；大文件应使用 `create_artifact` 登记其持久化外部 URI。
 

@@ -31,6 +31,8 @@ go run ./cmd/kairos-server
 
 When `KAIROS_POSTGRES_DSN` is non-empty it takes precedence over `KAIROS_SQLITE_PATH`. Startup verifies the connection and applies the embedded PostgreSQL migrations before serving requests; an invalid or unavailable explicitly configured database causes startup to fail.
 
+The built-in local persistence is private to the operating-system user running Kairos. SQLite database, WAL, and shared-memory files are forced to mode `0600`; existing database files are tightened when opened. The managed Artifact root must be a dedicated non-root, non-symlink directory with mode `0700`; Kairos rejects an existing root with broader permissions instead of changing it. Hash directories and managed files are created with `0700` and `0600`, including files replaced by a retry. Deployments that intentionally share these paths between operating-system users must configure access outside Kairos rather than relying on group-readable defaults.
+
 The HTTP read timeout bounds the total time spent reading a request, including JSON, MCP, and managed Artifact uploads. Go applies the absolute write deadline after reading the request headers, so reading the body, running the handler, and writing the response share that budget; it is not a separate response-only timer. The default write timeout is therefore twice the read timeout and also bounds Artifact downloads. The idle timeout bounds the gap between requests on a keep-alive connection. All three settings use Go duration syntax and must be positive.
 
 For an internet-facing deployment, place Kairos behind a reverse proxy that terminates TLS and enforces connection and request-rate limits. Configure the proxy's upstream timeouts slightly above the corresponding Kairos timeouts so Kairos closes slow requests predictably. A proxy may intentionally impose a smaller upload limit; otherwise its request-body limit must allow `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` plus multipart overhead.
@@ -43,7 +45,7 @@ Database timestamps are normalized at the application boundary to UTC with micro
 
 ## HTTP Contract
 
-The machine-readable [OpenAPI 3.1 document](openapi.yaml) is the exact contract for all 39 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
+The machine-readable [OpenAPI 3.1 document](openapi.yaml) is the exact contract for all 43 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
 
 All API JSON field names use `snake_case`. JSON request objects are closed contracts; an unknown field is rejected with `400 invalid_request`, including unknown fields inside nested objects. JSON success responses use `{ "data": ... }`; JSON errors use `{ "error": { "code": string, "message": string } }`. Release and token-revocation operations return `204` without a body, `/healthz` returns `{ "status": "ok" }`, and Artifact content is returned as `application/octet-stream`.
 
@@ -117,7 +119,13 @@ Creating a WorkItem intentionally accepts a Definition ID and mode rather than a
 
 Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. After Blackboard Tasks converge, `find_work` returns `blackboard_completion`; a collaborator either creates more Tasks or posts a durable completion result. That submission then applies `acceptance_mode`: `none` (default) completes immediately, `agent` returns `work_item_acceptance`, and `human` enters human acceptance. Acceptance is a separate `POST /acceptance` action. Agent acceptance candidates are visible only to Agent identities.
 
+Workflow Definitions accept at most 100 Task Definitions and 1,000 Relation Definitions. Start Task IDs must be unique, refer to required Tasks in the graph, and are therefore bounded by the Task Definition limit. `max_task_executions` defaults to 100 when sent as zero and may not exceed 500; it limits total runtime Task instances for one WorkItem. These limits protect graph size and cyclic execution without adding duplicate runtime graph checks.
+
 `find_work` returns candidates in `work_item_acceptance`, `blackboard_completion`, `task`, then `empty_blackboard` groups. Its `limit` applies independently to each group, defaults to 5 when omitted or zero, and accepts values up to 50. An Agent can therefore receive at most four times the limit; a Human does not receive Agent-acceptance candidates. Each group is bounded in its database query rather than after loading the complete candidate set.
+
+One Blackboard WorkItem may contain at most 1,000 Task instances and 10,000 suggested Relations, including completed history and Tasks created as decomposition children. The server checks these hard ceilings inside the write transaction for root Task creation, decomposition, child creation, and Relation creation; an operation that would exceed a ceiling returns `409 conflict` and does not create a partial result.
+
+To keep executor and WorkItem contexts bounded without truncating history, each Task accepts at most 1,000 Claims, Submissions, Reviews, Failures, Transition Decisions, and Artifacts. Attempts to append beyond a per-Task ceiling return `409 conflict`; accepted history remains complete in context responses.
 
 Each Workflow Definition `graph.relations[]` entry accepts optional `label` and `agent_guidance` strings. Empty strings mean no additional guidance. Neither field changes graph compilation or progression semantics. HTTP Workflow Task context exposes complete guidance in each Choice Group's `relations`. MCP `get_task_context` annotates the corresponding `targets[]` entry with merged `relation_guidance` (preferring `agent_guidance`, then `label`), avoiding duplicate target structures.
 

@@ -31,6 +31,8 @@ go run ./cmd/kairos-server
 
 `KAIROS_POSTGRES_DSN` 非空时优先于 `KAIROS_SQLITE_PATH`。服务在开始接收请求前会验证连接并应用内嵌的 PostgreSQL Migration；显式配置的数据库无效或不可访问时，启动将直接失败。
 
+内置本地持久化仅允许运行 Kairos 的操作系统用户访问。SQLite 数据库、WAL 和共享内存文件会强制设为 `0600`，打开已有数据库时也会收紧其权限。托管 Artifact 根目录必须是专用、非文件系统根、非符号链接且权限为 `0700` 的目录；已有根目录权限过宽时 Kairos 会拒绝启动，而不会替管理员修改。散列子目录会以 `0700` 创建，托管文件会以 `0600` 创建，重试替换已有文件时同样如此。若部署确实需要多个操作系统用户共享这些路径，应在 Kairos 之外配置访问方式，而不是依赖默认的 Group 可读权限。
+
 HTTP read timeout 限制读取完整请求的总时间，包含 JSON、MCP 和托管 Artifact 上传。Go 在读取完请求头后设置绝对 write deadline，因此读取 Body、执行 Handler 和写出响应共享这段预算，它不是独立的响应写出计时器；默认 write timeout 因而设为 read timeout 的两倍，并同时限制 Artifact 下载。idle timeout 限制 keep-alive 连接在两次请求之间的空闲时间。三个配置均使用 Go duration 语法且必须为正数。
 
 公网部署应在 Kairos 前配置反向代理，由其终止 TLS，并限制连接数和请求速率。代理连接上游的 timeout 应略长于 Kairos 对应配置，使慢请求由 Kairos 可预测地关闭。代理可以有意采用更小的上传上限；否则其请求体限制应允许 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` 以及 multipart 开销。
@@ -43,7 +45,7 @@ HTTP read timeout 限制读取完整请求的总时间，包含 JSON、MCP 和�
 
 ## HTTP 契约
 
-机器可读的 [OpenAPI 3.1 文档](openapi.yaml)是当前全部 39 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
+机器可读的 [OpenAPI 3.1 文档](openapi.yaml)是当前全部 43 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
 
 所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim 和撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
 
@@ -117,7 +119,13 @@ Definition ID 只能包含小写 ASCII 字母、数字和连字符（`^[a-z0-9-]
 
 Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。Blackboard Task 收敛后，`find_work` 返回 `blackboard_completion`；协作者可以继续创建 Task，也可以提交持久完成结果。提交后才应用 `acceptance_mode`：`none`（默认）立即完成，`agent` 返回 `work_item_acceptance`，`human` 进入人工验收；验收通过独立的 `POST /acceptance` 动作完成。Agent 验收候选仅对 Agent identity 可见。
 
+Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation Definition。起始 Task ID 必须唯一、存在于图中且对应 required Task，因此其数量由 Task Definition 上限自然约束。`max_task_executions` 传 0 时使用 100 的服务端默认值，显式值不能超过 500；它限制一个 WorkItem 的运行时 Task 实例总数。这些限制用于保护图规模和循环执行，不增加重复的运行时图校验。
+
 `find_work` 按 `work_item_acceptance`、`blackboard_completion`、`task`、`empty_blackboard` 分组顺序返回候选。`limit` 独立作用于每个组；省略或传 0 时默认为 5，最大允许 50。因此 Agent 最多收到四倍于 limit 的候选；Human 不会收到 Agent 验收候选。每个组都在数据库查询阶段限制结果，不会先加载完整候选集合再截断。
+
+单个 Blackboard WorkItem 最多包含 1,000 个 Task 实例和 10,000 条建议 Relation；已完成的历史 Task 以及拆分产生的子 Task 也计入总数。服务端会在根 Task 创建、Task 拆分、追加子 Task 和新增 Relation 的写事务内检查硬上限；超过上限时返回 `409 conflict`，不会产生部分写入结果。
+
+为在不截断历史的前提下限制执行上下文和 WorkItem 上下文大小，每个 Task 最多接受 1,000 条 Claim、Submission、Review、Failure、Transition Decision 和 Artifact。超过单个 Task 上限的追加操作返回 `409 conflict`；已接受的历史在上下文响应中保持完整。
 
 Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `agent_guidance` 字符串。空字符串表示没有额外 Guidance。两者不改变图编译或推进语义。HTTP Workflow Task context 的每个 Choice Group 在 `relations` 中返回完整 Guidance；MCP `get_task_context` 则在对应的 `targets[]` 项上提供合并后的 `relation_guidance`（优先使用 `agent_guidance`，否则使用 `label`），避免重复目标结构。
 
