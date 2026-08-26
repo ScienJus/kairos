@@ -1,24 +1,13 @@
 import { type FormEvent } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck } from 'lucide-react'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ArrowDown, ShieldCheck } from 'lucide-react'
 import { api } from './api'
 import { useI18n } from './i18n'
 import { refreshHomeState } from './taskOperations'
-import type { CreateWorkItemInput, Identity, Mode, WorkItem } from './types'
+import type { CreateWorkItemInput, Definition, Identity, Mode, WorkflowDefinition, WorkItem } from './types'
 import { FormError, Modal, formValue, splitValues } from './ui'
 
-type SelectableDefinition = Awaited<ReturnType<typeof api.listDefinitions>>[number]
 export type WorkDefinitionTarget = { id: string; mode: Mode; name: string; version: number }
-
-export function latestPublishedDefinitions(definitions: SelectableDefinition[]) {
-  const latest = new Map<string, SelectableDefinition>()
-  for (const definition of definitions) {
-    const key = `${definition.mode}:${definition.id}`
-    const current = latest.get(key)
-    if (!current || definition.version > current.version) latest.set(key, definition)
-  }
-  return [...latest.values()].filter(definition => definition.status === 'published')
-}
 
 export function CreateWorkModal({ open, onOpenChange, identity, definition, onCreated }: {
   open: boolean; onOpenChange: (open: boolean) => void; identity: Identity
@@ -26,7 +15,16 @@ export function CreateWorkModal({ open, onOpenChange, identity, definition, onCr
 }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
-  const definitions = useQuery({ queryKey: ['definitions', identity], queryFn: () => api.listDefinitions(identity), enabled: open && !definition, staleTime: 60_000 })
+  const blackboards = useInfiniteQuery({
+    queryKey: ['blackboard-definitions', identity], queryFn: ({ pageParam }) => api.listBlackboardDefinitions(identity, pageParam),
+    initialPageParam: undefined as string | undefined, getNextPageParam: page => page.next_cursor ?? undefined,
+    enabled: open && !definition, staleTime: 60_000,
+  })
+  const workflows = useInfiniteQuery({
+    queryKey: ['workflow-definitions', identity], queryFn: ({ pageParam }) => api.listWorkflowDefinitions(identity, pageParam),
+    initialPageParam: undefined as string | undefined, getNextPageParam: page => page.next_cursor ?? undefined,
+    enabled: open && !definition, staleTime: 60_000,
+  })
   const mutation = useMutation({ mutationFn: (input: CreateWorkItemInput) => api.createWorkItem(identity, input), onSuccess: async workItem => { await refreshHomeState(queryClient, identity); onOpenChange(false); onCreated?.(workItem) } })
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -40,10 +38,25 @@ export function CreateWorkModal({ open, onOpenChange, identity, definition, onCr
     })
   }
 
-  const availableDefinitions = latestPublishedDefinitions(definitions.data ?? [])
+  const availableDefinitions = [
+    ...(blackboards.data?.pages.flatMap(page => page.data).map(item => ({ ...item, mode: 'blackboard' as const })) ?? []),
+    ...(workflows.data?.pages.flatMap(page => page.data).map(item => ({ ...item, mode: 'workflow' as const })) ?? []),
+  ]
+  const definitionsError = blackboards.error ?? workflows.error
+  const hasMoreDefinitions = blackboards.hasNextPage || workflows.hasNextPage
+  const loadingMoreDefinitions = blackboards.isFetchingNextPage || workflows.isFetchingNextPage
+
+  async function loadMoreDefinitions() {
+    await Promise.all([
+      blackboards.hasNextPage ? blackboards.fetchNextPage() : Promise.resolve(),
+      workflows.hasNextPage ? workflows.fetchNextPage() : Promise.resolve(),
+    ])
+  }
+
   return <Modal open={open} onOpenChange={onOpenChange} title={t('openNewWork')} eyebrow={t('newWork')}>
     <form className="form-grid" onSubmit={submit}>
       {definition ? <div className="selected-definition wide"><span>{t('coordinationDefinition')}</span><strong>{definition.name}</strong><small>v{definition.version} · {t(definition.mode === 'workflow' ? 'workflow' : 'blackboard')}</small></div> : <label className="wide">{t('coordinationDefinition')}<select name="definition" required defaultValue=""><option value="" disabled>{t('selectDefinition')}</option>{availableDefinitions.map(item => <option key={`${item.mode}-${item.id}-${item.version}`} value={`${item.id}|${item.mode}`}>{item.name} · v{item.version} · {t(item.mode === 'workflow' ? 'workflow' : 'blackboard')}</option>)}</select></label>}
+      {!definition && hasMoreDefinitions && <button type="button" className="load-more-button wide" disabled={loadingMoreDefinitions} onClick={loadMoreDefinitions}><ArrowDown size={15} />{t(loadingMoreDefinitions ? 'loadingMore' : 'loadMore')}</button>}
       <label className="wide">{t('title')}<input name="title" required /></label>
       <label className="wide">{t('goal')}<textarea name="goal" required rows={2} /></label>
       <label className="wide">{t('context')}<textarea name="context" rows={2} /></label>
@@ -51,6 +64,7 @@ export function CreateWorkModal({ open, onOpenChange, identity, definition, onCr
       <label>{t('acceptanceCriteria')}<textarea name="acceptance" rows={2} /></label>
       {(!definition || definition.mode === 'blackboard') && <label className="wide">{t('acceptanceMode')}<select name="acceptance_mode" defaultValue="none"><option value="none">{t('acceptanceNone')}</option><option value="agent">{t('acceptanceAgent')}</option><option value="human">{t('acceptanceHuman')}</option></select></label>}
       <label className="wide">{t('tags')}<input name="tags" placeholder="development, backend" /></label>
+      {definitionsError && <FormError error={definitionsError} />}
       {mutation.error && <FormError error={mutation.error} />}
       <div className="form-actions"><button type="button" onClick={() => onOpenChange(false)}>{t('cancel')}</button><button className="primary-button" disabled={mutation.isPending || (!definition && availableDefinitions.length === 0)}>{t('openWork')}</button></div>
     </form>

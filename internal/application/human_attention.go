@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/ScienJus/kairos/internal/domain"
 )
@@ -24,74 +23,47 @@ type HumanAttentionItem struct {
 	Task     *domain.Task       `json:"task"`
 }
 
-// ListHumanAttention returns pending Reviews and unclaimed Tasks assigned to a human.
-func (s *Service) ListHumanAttention(ctx context.Context, identity Identity) ([]HumanAttentionItem, error) {
-	if err := identity.Validate(); err != nil {
-		return nil, err
+// Cursor returns the item's stable position in the Human Attention collection.
+func (i HumanAttentionItem) Cursor() HumanAttentionCursor {
+	updatedAt := i.WorkItem.UpdatedAt
+	taskID := domain.TaskID("")
+	if i.Task != nil {
+		updatedAt = i.Task.UpdatedAt
+		taskID = i.Task.ID
 	}
-	items := []HumanAttentionItem{}
+	priority := 1
+	if i.Kind == HumanAttentionReview {
+		priority = 0
+	}
+	return HumanAttentionCursor{Priority: priority, UpdatedAt: updatedAt, WorkItemID: i.WorkItem.ID, TaskID: taskID}
+}
+
+// ListHumanAttention returns a page of pending Reviews, human Tasks, and human acceptances.
+func (s *Service) ListHumanAttention(ctx context.Context, identity Identity, page PageRequest[HumanAttentionCursor]) (Page[HumanAttentionItem], error) {
+	if err := identity.Validate(); err != nil {
+		return Page[HumanAttentionItem]{}, err
+	}
+	if err := validatePageRequest(page.Limit); err != nil {
+		return Page[HumanAttentionItem]{}, err
+	}
+	items := make([]HumanAttentionItem, 0)
 	err := s.repository.View(ctx, func(store ReadStore) error {
-		workItems, err := store.ListWorkItems(WorkItemFilter{
-			Statuses: []domain.WorkItemStatus{
-				domain.WorkItemStatusOpen,
-				domain.WorkItemStatusAwaitingHumanAcceptance,
-			},
-		})
+		candidates, err := store.ListHumanAttention(page)
 		if err != nil {
-			return fmt.Errorf("list work items: %w", err)
+			return fmt.Errorf("list human attention: %w", err)
 		}
-		for _, workItem := range workItems {
-			if workItem.Status != domain.WorkItemStatusOpen && workItem.Status != domain.WorkItemStatusAwaitingHumanAcceptance {
-				continue
+		for _, candidate := range candidates {
+			candidate.WorkItem = normalizeWorkItemCollections(candidate.WorkItem)
+			if candidate.Task != nil {
+				task := normalizeTaskCollections(*candidate.Task)
+				candidate.Task = &task
 			}
-			if workItem.Status == domain.WorkItemStatusAwaitingHumanAcceptance {
-				items = append(items, HumanAttentionItem{Kind: HumanAttentionAcceptance, WorkItem: normalizeWorkItemCollections(workItem)})
-				continue
-			}
-			tasks, err := store.ListTasks(workItem.ID)
-			if err != nil {
-				return fmt.Errorf("list tasks for work item %q: %w", workItem.ID, err)
-			}
-			for _, task := range tasks {
-				kind := HumanAttentionKind("")
-				if task.Status == domain.TaskStatusInReview && hasPendingReview(task) {
-					kind = HumanAttentionReview
-				} else if task.Status == domain.TaskStatusPending && task.ActiveClaimID == nil && task.Executor == domain.ExecutorHuman {
-					kind = HumanAttentionTask
-				}
-				if kind != "" {
-					taskCopy := normalizeTaskCollections(task)
-					items = append(items, HumanAttentionItem{Kind: kind, WorkItem: normalizeWorkItemCollections(workItem), Task: &taskCopy})
-				}
-			}
+			items = append(items, candidate)
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return Page[HumanAttentionItem]{}, err
 	}
-	sort.SliceStable(items, func(left, right int) bool {
-		if items[left].Kind != items[right].Kind {
-			return items[left].Kind == HumanAttentionReview
-		}
-		leftUpdated := items[left].WorkItem.UpdatedAt
-		rightUpdated := items[right].WorkItem.UpdatedAt
-		if items[left].Task != nil {
-			leftUpdated = items[left].Task.UpdatedAt
-		}
-		if items[right].Task != nil {
-			rightUpdated = items[right].Task.UpdatedAt
-		}
-		return leftUpdated.After(rightUpdated)
-	})
-	return items, nil
-}
-
-func hasPendingReview(task domain.Task) bool {
-	for _, review := range task.Reviews {
-		if review.Status == domain.ReviewStatusPending {
-			return true
-		}
-	}
-	return false
+	return boundedPage(items, page.Limit), nil
 }

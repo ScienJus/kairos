@@ -22,8 +22,8 @@ beforeEach(() => {
   localStorage.setItem('kairos-console-locale', 'en')
   sessionStorage.clear()
   window.history.replaceState({}, '', '/')
-  vi.spyOn(api, 'listWorkItems').mockResolvedValue([])
-  vi.spyOn(api, 'listHumanAttention').mockResolvedValue([])
+  vi.spyOn(api, 'listWorkItems').mockResolvedValue({ data: [], next_cursor: null })
+  vi.spyOn(api, 'listHumanAttention').mockResolvedValue({ data: [], next_cursor: null })
 })
 
 afterEach(() => {

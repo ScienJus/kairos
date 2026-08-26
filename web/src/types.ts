@@ -58,7 +58,7 @@ export interface DefinitionContext { name: string; description: string; agent_in
 export interface WorkItemContext { work_item: WorkItem; definition: DefinitionContext; tasks: Task[]; relations: TaskRelation[]; claims: Claim[]; active_claims: Claim[]; artifacts: Artifact[] }
 export interface Definition {
   id: string; version: number; name: string; description: string; agent_instructions: string
-  suggested_tags: string[]; status: 'draft' | 'published' | 'archived'; graph?: unknown
+  suggested_tags: string[]; graph?: unknown
 }
 export interface WorkflowTaskDefinition {
   id: string; title: string; description: string; acceptance_criteria: string
@@ -85,8 +85,8 @@ export interface FailTaskInput { claim_id: string; action: 'reopen' | 'fail_work
 export interface DecomposeTaskInput { claim_id: string; children: TaskDraftInput[] }
 export interface ReviewDecisionInput { decision: 'approved' | 'rejected'; feedback: string }
 export interface CreateDefinitionInput {
-  id: string; version: number; name: string; description: string
-  agent_instructions: string; suggested_tags: string[]; status: 'draft' | 'published' | 'archived'
+  id: string; base_version?: number; name: string; description: string
+  agent_instructions: string; suggested_tags: string[]
 }
 export interface CreateWorkflowDefinitionInput extends CreateDefinitionInput {
   graph: {

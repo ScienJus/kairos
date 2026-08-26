@@ -2,7 +2,6 @@ CREATE TABLE definitions (
     id TEXT NOT NULL,
     version INTEGER NOT NULL,
     mode TEXT NOT NULL CHECK (mode IN ('workflow', 'blackboard')),
-    status TEXT NOT NULL CHECK (status IN ('draft', 'published', 'archived')),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     payload TEXT NOT NULL CHECK (json_valid(payload)),
@@ -26,6 +25,10 @@ CREATE TABLE work_items (
 );
 -- +kairos StatementBreak
 CREATE INDEX work_items_status_idx ON work_items (status, mode, updated_at, id);
+-- +kairos StatementBreak
+CREATE INDEX work_items_order_idx ON work_items (updated_at DESC, id);
+-- +kairos StatementBreak
+CREATE INDEX definitions_list_idx ON definitions (mode, id, version DESC);
 -- +kairos StatementBreak
 CREATE TABLE tasks (
     id TEXT PRIMARY KEY,

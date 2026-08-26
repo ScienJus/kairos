@@ -5,20 +5,6 @@ import (
 	"time"
 )
 
-// DefinitionStatus is the publication state of a coordination definition version.
-type DefinitionStatus string
-
-const (
-	DefinitionStatusDraft     DefinitionStatus = "draft"
-	DefinitionStatusPublished DefinitionStatus = "published"
-	DefinitionStatusArchived  DefinitionStatus = "archived"
-)
-
-// Valid reports whether the definition status is recognized.
-func (s DefinitionStatus) Valid() bool {
-	return s == DefinitionStatusDraft || s == DefinitionStatusPublished || s == DefinitionStatusArchived
-}
-
 // DefinitionBinding identifies the immutable definition version used by a WorkItem.
 type DefinitionBinding struct {
 	ID      DefinitionID     `json:"id"`
@@ -56,8 +42,6 @@ type DefinitionMetadata struct {
 	// are not enforced as a schema or permission rule.
 	SuggestedTags []string `json:"suggested_tags"`
 
-	Status DefinitionStatus `json:"status"`
-
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -72,9 +56,6 @@ func (m DefinitionMetadata) Validate() error {
 	}
 	if strings.TrimSpace(m.Name) == "" {
 		return invalid("definition.name", "is required")
-	}
-	if !m.Status.Valid() {
-		return invalid("definition.status", "unsupported value %q", m.Status)
 	}
 	if err := validateStringSet("definition.suggested_tags", m.SuggestedTags); err != nil {
 		return err
@@ -113,10 +94,7 @@ func (d WorkflowDefinition) Validate() error {
 	if err := d.DefinitionMetadata.Validate(); err != nil {
 		return err
 	}
-	if d.Status != DefinitionStatusDraft {
-		return d.Graph.Validate()
-	}
-	return nil
+	return d.Graph.Validate()
 }
 
 // Binding returns the immutable reference stored by Workflow WorkItems.

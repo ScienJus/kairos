@@ -6,7 +6,7 @@ import { appendWorkflowTask, connectWorkflowTasks, deleteWorkflowTask, draftFrom
 
 const task = (id: string): WorkflowTaskDefinition => ({ id, title: id, description: '', acceptance_criteria: '', executor: 'agent', allowed_roles: [], execution: 'required', review_policy: 'none', default_tags: [], artifacts: [] })
 const definition: WorkflowDefinition = {
-  id: 'release', version: 2, name: 'Release', description: '', agent_instructions: '', suggested_tags: [], status: 'published',
+  id: 'release', version: 2, name: 'Release', description: '', agent_instructions: '', suggested_tags: [],
   graph: { start_task_ids: ['a'], tasks: [{ ...task('a'), artifacts: [{ name: 'commit', description: 'Provide the immutable commit.' }] }, task('b')], relations: [{ id: 'ab', from_task_id: 'a', to_task_id: 'b', label: 'Ready', agent_guidance: 'Continue when implementation is ready.' }], max_task_executions: 10 },
 }
 
@@ -27,7 +27,7 @@ describe('Workflow local drafts', () => {
     expect(workflowDraftKey('release', 2)).toBe('kairos-workflow-draft:release:v2')
   })
 
-  it('copies a published version into the next version without sharing collections', () => {
+  it('copies a version into the next version without sharing collections', () => {
     const draft = draftFromDefinition(definition)
     draft.tasks[0].allowed_roles.push('backend')
     draft.tasks[0].artifacts[0].description = 'Changed locally'
@@ -78,7 +78,7 @@ describe('Workflow local drafts', () => {
     const draft = draftFromDefinition(definition)
     const input = workflowDraftInput(draft)
     expect(validateWorkflowDraft(draft)).toEqual([])
-    expect(input).toMatchObject({ id: 'release', version: 3, status: 'published', graph: { start_task_ids: ['a'], max_task_executions: 10 } })
+    expect(input).toMatchObject({ id: 'release', base_version: 2, graph: { start_task_ids: ['a'], max_task_executions: 10 } })
     expect(input.graph.relations).toEqual([{ id: 'ab', from_task_id: 'a', to_task_id: 'b', label: 'Ready', agent_guidance: 'Continue when implementation is ready.' }])
     expect(input.graph.tasks[0].artifacts).toEqual([{ name: 'commit', description: 'Provide the immutable commit.' }])
 

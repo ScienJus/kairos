@@ -119,7 +119,7 @@ const (
 	WorkflowChoiceGroupExit     WorkflowChoiceGroupKind = "exit"
 )
 
-// WorkflowChoiceGroup is derived from graph topology when a Definition is published.
+// WorkflowChoiceGroup is derived from graph topology when a Workflow is compiled.
 type WorkflowChoiceGroup struct {
 	ID          WorkflowChoiceGroupID
 	Kind        WorkflowChoiceGroupKind

@@ -1,4 +1,4 @@
-import type { Artifact, AuthenticationConfig, BlackboardTaskDecomposition, Claim, CreateDefinitionInput, CreateWorkflowDefinitionInput, CreateWorkItemInput, DecomposeTaskInput, Definition, FailTaskInput, HumanAttentionItem, Identity, Mode, ReviewDecisionInput, Submission, SubmitTaskInput, Task, TaskDetailView, TaskDraftInput, TaskExecutionContext, WorkflowDefinition, WorkItem, WorkItemContext } from './types'
+import type { Artifact, AuthenticationConfig, BlackboardTaskDecomposition, Claim, CreateDefinitionInput, CreateWorkflowDefinitionInput, CreateWorkItemInput, DecomposeTaskInput, Definition, FailTaskInput, HumanAttentionItem, Identity, ReviewDecisionInput, Submission, SubmitTaskInput, Task, TaskDetailView, TaskDraftInput, TaskExecutionContext, WorkflowDefinition, WorkItem, WorkItemContext } from './types'
 
 const identityKey = 'kairos-console-identity'
 const bearerTokenKey = 'kairos-console-token'
@@ -62,6 +62,11 @@ export class APIError extends Error {
   constructor(public status: number, message: string, public code = '') { super(message) }
 }
 
+export interface Page<T> {
+  data: T[]
+  next_cursor: string | null
+}
+
 function authenticationHeaders(identity?: Identity) {
   const headers = new Headers()
   const token = authenticationMode === 'authenticated' ? loadBearerToken() : ''
@@ -81,7 +86,7 @@ function handleUnauthorized(status: number, requestToken: string) {
   } catch { /* the authentication gate reports storage failures on its next operation */ }
 }
 
-async function request<T>(path: string, identity?: Identity, init?: RequestInit): Promise<T> {
+async function requestJSON<T>(path: string, identity?: Identity, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   const authentication = authenticationHeaders(identity)
   headers.set('Accept', 'application/json')
@@ -95,8 +100,27 @@ async function request<T>(path: string, identity?: Identity, init?: RequestInit)
     throw new APIError(response.status, body?.error?.message ?? `Request failed (${response.status})`, body?.error?.code)
   }
   if (response.status === 204) return undefined as T
-  const body = await response.json() as { data: T }
+  return response.json() as Promise<T>
+}
+
+async function request<T>(path: string, identity?: Identity, init?: RequestInit): Promise<T> {
+  const body = await requestJSON<{ data: T }>(path, identity, init)
   return body.data
+}
+
+function pagePath(path: string, cursor?: string, parameters?: Record<string, string | number | string[] | undefined>) {
+  const query = new URLSearchParams()
+  if (cursor) query.set('cursor', cursor)
+  Object.entries(parameters ?? {}).forEach(([name, value]) => {
+    if (Array.isArray(value)) value.forEach(item => query.append(name, item))
+    else if (value !== undefined) query.set(name, String(value))
+  })
+  const encoded = query.toString()
+  return encoded ? `${path}?${encoded}` : path
+}
+
+function requestPage<T>(path: string, identity: Identity, cursor?: string, parameters?: Record<string, string | number | string[] | undefined>) {
+  return requestJSON<Page<T>>(pagePath(path, cursor, parameters), identity)
 }
 
 export const api = {
@@ -107,30 +131,27 @@ export const api = {
     return body.data
   },
   getSession: (identity?: Identity) => request<Identity>('/api/v1/session', identity, { cache: 'no-store' }),
-  listWorkItems: (identity: Identity) => request<WorkItem[]>('/api/v1/work-items', identity),
-  listHumanAttention: (identity: Identity) => request<HumanAttentionItem[]>('/api/v1/human-attention', identity),
+  listWorkItems: (identity: Identity, cursor?: string, options?: { statuses?: WorkItem['status'][] }) => requestPage<WorkItem>('/api/v1/work-items', identity, cursor, { status: options?.statuses }),
+  listHumanAttention: (identity: Identity, cursor?: string) => requestPage<HumanAttentionItem>('/api/v1/human-attention', identity, cursor),
   getWorkItem: (identity: Identity, id: string) => request<WorkItemContext>(`/api/v1/work-items/${id}/context`, identity),
   getTaskContext: (identity: Identity, id: string) => request<TaskExecutionContext>(`/api/v1/tasks/${id}/context`, identity),
   getTaskDetail: (identity: Identity, id: string) => request<TaskDetailView>(`/api/v1/tasks/${id}`, identity),
-  listBlackboardDefinitions: (identity: Identity) => request<Definition[]>('/api/v1/definitions/blackboards', identity),
-  listWorkflowDefinitions: (identity: Identity) => request<WorkflowDefinition[]>('/api/v1/definitions/workflows', identity),
+  listBlackboardDefinitions: (identity: Identity, cursor?: string, options?: { limit?: number }) => requestPage<Definition>('/api/v1/definitions/blackboards', identity, cursor, options),
+  listWorkflowDefinitions: (identity: Identity, cursor?: string, options?: { limit?: number }) => requestPage<WorkflowDefinition>('/api/v1/definitions/workflows', identity, cursor, options),
+  listBlackboardDefinitionVersions: (identity: Identity, id: string, cursor?: string) => requestPage<Definition>(`/api/v1/definitions/blackboards/${encodeURIComponent(id)}/versions`, identity, cursor),
+  listWorkflowDefinitionVersions: (identity: Identity, id: string, cursor?: string) => requestPage<WorkflowDefinition>(`/api/v1/definitions/workflows/${encodeURIComponent(id)}/versions`, identity, cursor),
+  getLatestBlackboardDefinition: (identity: Identity, id: string) => request<Definition>(`/api/v1/definitions/blackboards/${encodeURIComponent(id)}`, identity),
+  getLatestWorkflowDefinition: (identity: Identity, id: string) => request<WorkflowDefinition>(`/api/v1/definitions/workflows/${encodeURIComponent(id)}`, identity),
+  getBlackboardDefinition: (identity: Identity, id: string, version: number) => request<Definition>(`/api/v1/definitions/blackboards/${encodeURIComponent(id)}/versions/${version}`, identity),
   getWorkflowDefinition: (identity: Identity, id: string, version: number) => request<WorkflowDefinition>(`/api/v1/definitions/workflows/${encodeURIComponent(id)}/versions/${version}`, identity),
-  listDefinitions: async (identity: Identity) => {
-    const [blackboards, workflows] = await Promise.all([
-      request<Definition[]>('/api/v1/definitions/blackboards', identity),
-      request<Definition[]>('/api/v1/definitions/workflows', identity),
-    ])
-    return [
-      ...blackboards.map(definition => ({ ...definition, mode: 'blackboard' as Mode })),
-      ...workflows.map(definition => ({ ...definition, mode: 'workflow' as Mode })),
-    ]
+  createDefinition: (identity: Identity, input: CreateDefinitionInput) => {
+    const { id, ...version } = input
+    return request<Definition>(`/api/v1/definitions/blackboards/${encodeURIComponent(id)}/versions`, identity, { method: 'POST', body: JSON.stringify(version) })
   },
-  createDefinition: (identity: Identity, input: CreateDefinitionInput) => request<Definition>('/api/v1/definitions/blackboards', identity, {
-    method: 'POST', body: JSON.stringify(input),
-  }),
-  createWorkflowDefinition: (identity: Identity, input: CreateWorkflowDefinitionInput) => request<WorkflowDefinition>('/api/v1/definitions/workflows', identity, {
-    method: 'POST', body: JSON.stringify(input),
-  }),
+  createWorkflowDefinition: (identity: Identity, input: CreateWorkflowDefinitionInput) => {
+    const { id, ...version } = input
+    return request<WorkflowDefinition>(`/api/v1/definitions/workflows/${encodeURIComponent(id)}/versions`, identity, { method: 'POST', body: JSON.stringify(version) })
+  },
   createWorkItem: (identity: Identity, input: CreateWorkItemInput) => request<WorkItem>('/api/v1/work-items', identity, {
     method: 'POST', body: JSON.stringify(input),
   }),

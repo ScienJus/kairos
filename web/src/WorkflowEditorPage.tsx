@@ -15,9 +15,18 @@ export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navi
 }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
-  const definitions = useQuery({ queryKey: ['workflow-definitions', identity], queryFn: () => api.listWorkflowDefinitions(identity), enabled: Boolean(workflowID) })
-  const base = definitions.data?.find(item => item.id === workflowID && item.version === workflowVersion) ?? null
-  const latestVersion = definitions.data?.filter(item => item.id === workflowID).reduce((latest, item) => Math.max(latest, item.version), 0) ?? 0
+  const definition = useQuery({
+    queryKey: ['workflow-definition', identity, workflowID, workflowVersion],
+    queryFn: () => api.getWorkflowDefinition(identity, workflowID!, workflowVersion!),
+    enabled: Boolean(workflowID && workflowVersion),
+  })
+  const latestDefinition = useQuery({
+	queryKey: ['workflow-definition-latest', identity, workflowID],
+	queryFn: () => api.getLatestWorkflowDefinition(identity, workflowID!),
+    enabled: Boolean(workflowID && workflowVersion),
+  })
+  const base = definition.data ?? null
+  const latest = latestDefinition.data ?? null
   const storageKey = workflowDraftKey(workflowID, workflowVersion)
   const [draft, setDraft] = useState<WorkflowDraft | null>(() => workflowID ? null : loadWorkflowDraft(storageKey) ?? newWorkflowDraft())
   const [selectedTaskID, setSelectedTaskID] = useState<string | null>(null)
@@ -33,9 +42,9 @@ export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navi
   const [automaticallySelectedTaskID, setAutomaticallySelectedTaskID] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!workflowID || !base || draft) return
+    if (!workflowID || !base || !latest || base.version !== latest.version || draft) return
     setDraft(loadWorkflowDraft(storageKey) ?? draftFromDefinition(base))
-  }, [workflowID, base, draft, storageKey])
+  }, [workflowID, base, latest, draft, storageKey])
 
   useEffect(() => {
     if (!draft) return
@@ -55,7 +64,11 @@ export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navi
     mutationFn: (current: WorkflowDraft) => api.createWorkflowDefinition(identity, workflowDraftInput(current)),
     onSuccess: async definition => {
       removeWorkflowDraft(storageKey)
-      await Promise.all([queryClient.invalidateQueries({ queryKey: ['workflow-definitions', identity] }), queryClient.invalidateQueries({ queryKey: ['definitions', identity] })])
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['workflow-definitions', identity] }),
+        queryClient.invalidateQueries({ queryKey: ['workflow-definition-versions', identity, definition.id] }),
+        queryClient.invalidateQueries({ queryKey: ['workflow-definition-latest', identity, definition.id] }),
+      ])
       navigate({ workItemID: null, taskID: null, homeView: 'all', workflowID: definition.id, workflowVersion: definition.version })
     },
   })
@@ -92,8 +105,10 @@ export function WorkflowEditorPage({ identity, workflowID, workflowVersion, navi
     navigate(workflowID && workflowVersion ? { workItemID: null, taskID: null, homeView: 'all', workflowID, workflowVersion } : { workItemID: null, taskID: null, homeView: 'all', workflowID: null })
   }
 
-  if (workflowID && definitions.isLoading) return <div className="editor-loading">{t('loadingWorkflows')}</div>
-  if (workflowID && definitions.data && (!base || latestVersion !== workflowVersion)) return <div className="editor-loading"><XCircle size={20} /><strong>{t('workflowEditLatestOnly')}</strong><button className="quiet-button" onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', workflowID, workflowVersion: latestVersion || workflowVersion })}>{t('back')}</button></div>
+  if (workflowID && (definition.isLoading || latestDefinition.isLoading)) return <div className="editor-loading">{t('loadingWorkflows')}</div>
+  const loadError = definition.error ?? latestDefinition.error
+  if (workflowID && loadError) return <div className="editor-loading"><XCircle size={20} /><strong>{loadError instanceof APIError ? loadError.message : t('unreachable')}</strong><button className="quiet-button" onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', workflowID, workflowVersion })}>{t('back')}</button></div>
+  if (workflowID && base && (!latest || base.version !== latest.version)) return <div className="editor-loading"><XCircle size={20} /><strong>{t('workflowEditLatestOnly')}</strong><button className="quiet-button" onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', workflowID, workflowVersion: latest?.version ?? workflowVersion })}>{t('back')}</button></div>
   if (!draft) return null
 
   return <section className="workflow-editor-page">

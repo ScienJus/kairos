@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -58,6 +59,9 @@ func TestSQLRepositoryContract(t *testing.T) {
 		t.Run("concurrent claim", func(t *testing.T) {
 			testConcurrentClaim(t, repository, openPeer(t), blackboard)
 		})
+		t.Run("concurrent Definition versions", func(t *testing.T) {
+			testConcurrentDefinitionVersions(t, repository, openPeer(t), workflow)
+		})
 		t.Run("claim lease columns", func(t *testing.T) {
 			testClaimLeaseColumns(t, repository, blackboard)
 		})
@@ -87,7 +91,337 @@ func TestSQLRepositoryContract(t *testing.T) {
 				testIndependentWorkItemsDoNotBlock(t, repository, openPeer(t), blackboard)
 			})
 		}
+		t.Run("cursor pagination", func(t *testing.T) {
+			testCursorPagination(t, repository, workflow, blackboard)
+		})
 	})
+}
+
+func testConcurrentDefinitionVersions(
+	t *testing.T,
+	repository *SQLRepository,
+	peer *SQLRepository,
+	definition domain.WorkflowDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	services := []*application.Service{
+		repositoryTestService(t, repository),
+		repositoryTestService(t, peer),
+	}
+	actors := []application.Identity{
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "definition-author-a"}, Role: "architect"},
+		{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "definition-author-b"}, Role: "architect"},
+	}
+	definitionID := domain.DefinitionID("concurrent-definition-versions")
+	base, err := services[0].CreateWorkflowDefinition(ctx, application.CreateWorkflowDefinitionCommand{
+		Identity: actors[0], OperationID: "concurrent-definition-v1",
+		Metadata: application.DefinitionMetadataCommand{ID: definitionID, Name: "Concurrent Definition v1"},
+		Graph:    definition.Graph,
+	})
+	if err != nil || base.Version != 1 {
+		t.Fatalf("create initial concurrent Definition: %#v, err=%v", base, err)
+	}
+
+	start := make(chan struct{})
+	baseVersion := base.Version
+	versions := make([]int64, len(services))
+	errorsByAuthor := make([]error, len(services))
+	var wait sync.WaitGroup
+	for index, service := range services {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			created, err := service.CreateWorkflowDefinition(ctx, application.CreateWorkflowDefinitionCommand{
+				Identity: actors[index], OperationID: fmt.Sprintf("concurrent-definition-author-%d", index+1), BaseVersion: &baseVersion,
+				Metadata: application.DefinitionMetadataCommand{
+					ID: definitionID, Name: fmt.Sprintf("Concurrent Definition by author %d", index+1),
+				},
+				Graph: definition.Graph,
+			})
+			errorsByAuthor[index] = err
+			versions[index] = created.Version
+		}()
+	}
+	close(start)
+	wait.Wait()
+	successes := make([]int64, 0, 1)
+	staleAuthor := -1
+	for index, err := range errorsByAuthor {
+		if err == nil {
+			successes = append(successes, versions[index])
+			continue
+		}
+		if !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), "advanced from version 1 to 2") {
+			t.Fatalf("concurrent Definition append error = %v, want stale-base conflict", err)
+		}
+		staleAuthor = index
+	}
+	if !slices.Equal(successes, []int64{2}) || staleAuthor < 0 {
+		t.Fatalf("concurrent Definition results = versions %v errors %v", versions, errorsByAuthor)
+	}
+	retryBase := int64(2)
+	retried, err := services[staleAuthor].CreateWorkflowDefinition(ctx, application.CreateWorkflowDefinitionCommand{
+		Identity: actors[staleAuthor], OperationID: "concurrent-definition-retry", BaseVersion: &retryBase,
+		Metadata: application.DefinitionMetadataCommand{ID: definitionID, Name: "Rebased concurrent Definition"},
+		Graph:    definition.Graph,
+	})
+	if err != nil || retried.Version != 3 {
+		t.Fatalf("retry concurrent Definition append: %#v, err=%v", retried, err)
+	}
+}
+
+func testCursorPagination(
+	t *testing.T,
+	repository *SQLRepository,
+	workflow domain.WorkflowDefinition,
+	blackboard domain.BlackboardDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	secondWorkflow := workflow
+	secondWorkflow.ID = "pagination-workflow"
+	secondWorkflow.Name = "Pagination Workflow"
+	if err := repository.CreateWorkflowDefinition(ctx, secondWorkflow); err != nil {
+		t.Fatalf("create pagination Workflow: %v", err)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		first, err := store.ListWorkflowDefinitionCatalog(application.DefinitionCatalogFilter{Page: application.PageRequest[application.DefinitionCatalogCursor]{Limit: 1}})
+		if err != nil {
+			return err
+		}
+		if len(first) != 2 || first[0].ID == first[1].ID {
+			return fmt.Errorf("first Definition catalog repository page = %#v", first)
+		}
+		cursor := application.DefinitionCatalogCursor{ID: first[0].ID}
+		second, err := store.ListWorkflowDefinitionCatalog(application.DefinitionCatalogFilter{Page: application.PageRequest[application.DefinitionCatalogCursor]{Limit: 1, After: &cursor}})
+		if err != nil {
+			return err
+		}
+		if len(second) == 0 || second[0].ID != first[1].ID {
+			return fmt.Errorf("second Definition catalog repository page = %#v after %#v", second, first)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("paginate Definition catalog: %v", err)
+	}
+	latestWorkflow := secondWorkflow
+	latestWorkflow.Version = 2
+	latestWorkflow.Name = "Pagination Workflow v2"
+	if err := repository.CreateWorkflowDefinition(ctx, latestWorkflow); err != nil {
+		t.Fatalf("create latest Workflow version: %v", err)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		latest, err := store.GetLatestWorkflowDefinition(secondWorkflow.ID)
+		if err != nil {
+			return err
+		}
+		if latest.Version != 2 {
+			return fmt.Errorf("latest stored Definition = v%d, want v2", latest.Version)
+		}
+		catalog, err := store.ListWorkflowDefinitionCatalog(application.DefinitionCatalogFilter{
+			Page: application.PageRequest[application.DefinitionCatalogCursor]{Limit: 50},
+		})
+		if err != nil {
+			return err
+		}
+		var catalogVersion int64
+		for _, definition := range catalog {
+			if definition.ID == secondWorkflow.ID {
+				catalogVersion = definition.Version
+			}
+		}
+		if catalogVersion != 2 {
+			return fmt.Errorf("Definition catalog version = v%d, want v2", catalogVersion)
+		}
+		versions, err := store.ListWorkflowDefinitionVersions(application.DefinitionVersionFilter{
+			ID: secondWorkflow.ID, Page: application.PageRequest[application.DefinitionVersionCursor]{Limit: 1},
+		})
+		if err != nil {
+			return err
+		}
+		if len(versions) != 2 || versions[0].Version != 2 || versions[1].Version != 1 {
+			return fmt.Errorf("Definition version repository page = %#v", versions)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("query Definition catalog and versions: %v", err)
+	}
+
+	service := repositoryTestService(t, repository)
+	agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "pagination-agent"}, Role: "generalist"}
+	workItems := make([]domain.WorkItem, 0, 2)
+	for _, title := range []string{"Pagination one", "Pagination two"} {
+		workItem, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+			Definition: blackboard.Binding(), Identity: agent, Title: title, Goal: "Verify keyset pagination", Tags: []string{"pagination-contract"},
+		})
+		if err != nil {
+			t.Fatalf("create pagination WorkItem: %v", err)
+		}
+		workItems = append(workItems, workItem)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		first, err := store.ListWorkItems(application.WorkItemFilter{
+			Tags: []string{"pagination-contract"}, Page: application.PageRequest[application.WorkItemCursor]{Limit: 1},
+		})
+		if err != nil {
+			return err
+		}
+		if len(first) != 2 || first[0].ID == first[1].ID {
+			return fmt.Errorf("first WorkItem repository page = %#v", first)
+		}
+		cursor := application.WorkItemCursor{UpdatedAt: first[0].UpdatedAt, ID: first[0].ID}
+		second, err := store.ListWorkItems(application.WorkItemFilter{
+			Tags: []string{"pagination-contract"}, Page: application.PageRequest[application.WorkItemCursor]{Limit: 1, After: &cursor},
+		})
+		if err != nil {
+			return err
+		}
+		if len(second) != 1 || second[0].ID != first[1].ID {
+			return fmt.Errorf("second WorkItem repository page = %#v after %#v", second, first)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("paginate WorkItems: %v", err)
+	}
+
+	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItems[0].ID, Identity: agent, Title: "Submit pagination artifacts", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create pagination Task: %v", err)
+	}
+	claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim pagination Task: %v", err)
+	}
+	artifactIDs := make([]domain.ArtifactID, 0, 2)
+	for index, name := range []string{"first", "second"} {
+		artifact, err := service.CreateArtifact(ctx, application.CreateArtifactCommand{
+			TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Name: name, URI: fmt.Sprintf("https://example.test/pagination/%d", index),
+		})
+		if err != nil {
+			t.Fatalf("create pagination Artifact: %v", err)
+		}
+		artifactIDs = append(artifactIDs, artifact.ID)
+	}
+	if _, err := service.SubmitTask(ctx, application.SubmitTaskCommand{
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Result: "done", ArtifactIDs: artifactIDs,
+	}); err != nil {
+		t.Fatalf("submit pagination Artifacts: %v", err)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		first, err := store.ListArtifacts(application.ArtifactFilter{
+			WorkItemID: workItems[0].ID, SubmittedOnly: true, Page: application.PageRequest[application.ArtifactCursor]{Limit: 1},
+		})
+		if err != nil {
+			return err
+		}
+		if len(first) != 2 || first[0].ID == first[1].ID {
+			return fmt.Errorf("first Artifact repository page = %#v", first)
+		}
+		cursor := application.ArtifactCursor{CreatedAt: first[0].CreatedAt, ID: first[0].ID}
+		second, err := store.ListArtifacts(application.ArtifactFilter{
+			WorkItemID: workItems[0].ID, SubmittedOnly: true,
+			Page: application.PageRequest[application.ArtifactCursor]{Limit: 1, After: &cursor},
+		})
+		if err != nil {
+			return err
+		}
+		if len(second) != 1 || second[0].ID != first[1].ID {
+			return fmt.Errorf("second Artifact repository page = %#v after %#v", second, first)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("paginate Artifacts: %v", err)
+	}
+
+	otherTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItems[0].ID, Identity: agent, Title: "Submit another Task artifact", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create other Artifact Task: %v", err)
+	}
+	otherClaim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: otherTask.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim other Artifact Task: %v", err)
+	}
+	otherArtifact, err := service.CreateArtifact(ctx, application.CreateArtifactCommand{
+		TaskID: otherTask.ID, ClaimID: otherClaim.ID, Identity: agent, Name: "other", URI: "https://example.test/pagination/other",
+	})
+	if err != nil {
+		t.Fatalf("create other Task Artifact: %v", err)
+	}
+	if _, err := service.SubmitTask(ctx, application.SubmitTaskCommand{
+		TaskID: otherTask.ID, ClaimID: otherClaim.ID, Identity: agent, Result: "done", ArtifactIDs: []domain.ArtifactID{otherArtifact.ID},
+	}); err != nil {
+		t.Fatalf("submit other Task Artifact: %v", err)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		artifacts, err := store.ListArtifacts(application.ArtifactFilter{
+			WorkItemID: workItems[0].ID, TaskID: task.ID, SubmittedOnly: true,
+		})
+		if err != nil {
+			return err
+		}
+		if len(artifacts) != len(artifactIDs) {
+			return fmt.Errorf("Task-filtered Artifacts = %#v, want %d", artifacts, len(artifactIDs))
+		}
+		for _, artifact := range artifacts {
+			if artifact.TaskID != task.ID {
+				return fmt.Errorf("Task-filtered Artifact belongs to %q, want %q", artifact.TaskID, task.ID)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("filter Artifacts by Task: %v", err)
+	}
+
+	humanTasks := make([]domain.Task, 0, len(workItems))
+	for index, workItem := range workItems {
+		humanTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+			WorkItemID: workItem.ID, Identity: agent, Title: fmt.Sprintf("Human attention %d", index+1), Executor: domain.ExecutorHuman,
+		})
+		if err != nil {
+			t.Fatalf("create Human Attention Task: %v", err)
+		}
+		humanTasks = append(humanTasks, humanTask)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		all, err := store.ListHumanAttention(application.PageRequest[application.HumanAttentionCursor]{})
+		if err != nil {
+			return err
+		}
+		for _, task := range humanTasks {
+			if !slices.ContainsFunc(all, func(item application.HumanAttentionItem) bool {
+				return item.Task != nil && item.Task.ID == task.ID
+			}) {
+				return fmt.Errorf("Human Attention collection does not contain Task %q: %#v", task.ID, all)
+			}
+		}
+		if len(all) < 2 {
+			return fmt.Errorf("Human Attention collection = %#v, want at least two items", all)
+		}
+		first, err := store.ListHumanAttention(application.PageRequest[application.HumanAttentionCursor]{Limit: 1})
+		if err != nil {
+			return err
+		}
+		if len(first) != 2 || first[0].Cursor() != all[0].Cursor() || first[1].Cursor() != all[1].Cursor() {
+			return fmt.Errorf("first Human Attention repository page = %#v, all = %#v", first, all)
+		}
+		cursor := first[0].Cursor()
+		second, err := store.ListHumanAttention(application.PageRequest[application.HumanAttentionCursor]{Limit: 1, After: &cursor})
+		if err != nil {
+			return err
+		}
+		if len(second) == 0 || second[0].Cursor() != all[1].Cursor() || second[0].Cursor() == first[0].Cursor() {
+			return fmt.Errorf("second Human Attention repository page = %#v after %#v", second, first)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("paginate Human Attention: %v", err)
+	}
 }
 
 func testMutableRecordTimestamps(t *testing.T, repository *SQLRepository, definition domain.BlackboardDefinition) {
@@ -200,14 +534,12 @@ func testQueryableDomainColumns(
 		AcceptanceMode: domain.WorkItemAcceptanceNone, Title: "Workflow", Goal: "Verify mode filtering",
 		Tags: []string{"osr05", "workflow"}, CreatedAt: newerTime, UpdatedAt: newerTime,
 	}
-	workflowDraft := workflow
-	workflowDraft.Version++
-	workflowDraft.Status = domain.DefinitionStatusDraft
-	workflowDraft.UpdatedAt = newerTime
-	blackboardDraft := blackboard
-	blackboardDraft.Version++
-	blackboardDraft.Status = domain.DefinitionStatusDraft
-	blackboardDraft.UpdatedAt = newerTime
+	workflowV2 := workflow
+	workflowV2.Version++
+	workflowV2.UpdatedAt = newerTime
+	blackboardV2 := blackboard
+	blackboardV2.Version++
+	blackboardV2.UpdatedAt = newerTime
 	workflowTaskID := workflow.Graph.Tasks[0].ID
 	workflowActivationID := domain.WorkflowTaskActivationID("queryable-workflow-activation")
 	workflowExecution := workflow.Graph.Tasks[0].Execution
@@ -223,10 +555,10 @@ func testQueryableDomainColumns(
 		{ID: "queryable-workflow-task", WorkItemID: workflowItem.ID, WorkflowTaskID: &workflowTaskID, WorkflowActivationID: &workflowActivationID, Status: domain.TaskStatusPending, Title: "Workflow tags are descriptive", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Tags: []string{"workflow-label"}, Execution: &workflowExecution, ReviewPolicy: &workflowReview, CreatedAt: newerTime, UpdatedAt: newerTime},
 	}
 	if err := repository.Update(ctx, func(store application.WriteStore) error {
-		if err := store.CreateWorkflowDefinition(workflowDraft); err != nil {
+		if err := store.CreateWorkflowDefinition(workflowV2); err != nil {
 			return err
 		}
-		if err := store.CreateBlackboardDefinition(blackboardDraft); err != nil {
+		if err := store.CreateBlackboardDefinition(blackboardV2); err != nil {
 			return err
 		}
 		for _, workItem := range []domain.WorkItem{older, newer, workflowItem} {
@@ -255,13 +587,13 @@ func testQueryableDomainColumns(
 		if !persistedOlder.CreatedAt.Equal(olderTime.Truncate(time.Microsecond)) || !persistedOlder.UpdatedAt.Equal(olderTime.Truncate(time.Microsecond)) {
 			return fmt.Errorf("payload timestamps = %s/%s, want microsecond precision", persistedOlder.CreatedAt, persistedOlder.UpdatedAt)
 		}
-		latestWorkflow, err := store.GetLatestPublishedWorkflowDefinition(workflow.ID)
-		if err != nil || latestWorkflow.Version != workflow.Version {
-			return fmt.Errorf("latest published Workflow = version %d, err %v; want %d", latestWorkflow.Version, err, workflow.Version)
+		latestWorkflow, err := store.GetLatestWorkflowDefinition(workflow.ID)
+		if err != nil || latestWorkflow.Version != workflowV2.Version {
+			return fmt.Errorf("latest Workflow = version %d, err %v; want %d", latestWorkflow.Version, err, workflowV2.Version)
 		}
-		latestBlackboard, err := store.GetLatestPublishedBlackboardDefinition(blackboard.ID)
-		if err != nil || latestBlackboard.Version != blackboard.Version {
-			return fmt.Errorf("latest published Blackboard = version %d, err %v; want %d", latestBlackboard.Version, err, blackboard.Version)
+		latestBlackboard, err := store.GetLatestBlackboardDefinition(blackboard.ID)
+		if err != nil || latestBlackboard.Version != blackboardV2.Version {
+			return fmt.Errorf("latest Blackboard = version %d, err %v; want %d", latestBlackboard.Version, err, blackboardV2.Version)
 		}
 		workItems, err := store.ListWorkItems(application.WorkItemFilter{
 			Statuses: []domain.WorkItemStatus{domain.WorkItemStatusOpen},
@@ -321,7 +653,7 @@ func testQueryableDomainColumns(
 		arrayExpression = "to_json(tags)::text"
 		rolesExpression = "to_json(allowed_roles)::text"
 	}
-	var tagsJSON, rolesJSON, executor, definitionStatus string
+	var tagsJSON, rolesJSON, executor string
 	var createdAt, updatedAt scannedTime
 	query := rebind(repository.dialect, "SELECT "+arrayExpression+", created_at, updated_at FROM work_items WHERE id = ?")
 	if err := repository.db.QueryRowContext(ctx, query, older.ID).Scan(&tagsJSON, &createdAt, &updatedAt); err != nil {
@@ -356,13 +688,6 @@ func testQueryableDomainColumns(
 	}
 	if !relationCreatedAt.Time.Equal(olderTime.Truncate(time.Microsecond)) {
 		t.Fatalf("TaskRelation created_at = %s, want %s", relationCreatedAt.Time, olderTime.Truncate(time.Microsecond))
-	}
-	query = rebind(repository.dialect, "SELECT status FROM definitions WHERE id = ? AND version = ? AND mode = ?")
-	if err := repository.db.QueryRowContext(ctx, query, workflow.ID, workflow.Version, domain.CoordinationModeWorkflow).Scan(&definitionStatus); err != nil {
-		t.Fatalf("query Definition status: %v", err)
-	}
-	if definitionStatus != string(domain.DefinitionStatusPublished) {
-		t.Fatalf("Definition status = %q, want published", definitionStatus)
 	}
 }
 
@@ -1434,7 +1759,7 @@ func repositoryTestService(t *testing.T, repository application.Repository) *app
 func repositoryWorkflowDefinition() domain.WorkflowDefinition {
 	return domain.WorkflowDefinition{
 		DefinitionMetadata: domain.DefinitionMetadata{
-			ID: "sql-workflow", Version: 1, Name: "SQL workflow", Status: domain.DefinitionStatusPublished,
+			ID: "sql-workflow", Version: 1, Name: "SQL workflow",
 			CreatedAt: repositoryTestTime, UpdatedAt: repositoryTestTime,
 		},
 		Graph: domain.WorkflowGraph{
@@ -1454,7 +1779,7 @@ func repositoryWorkflowDefinition() domain.WorkflowDefinition {
 
 func repositoryBlackboardDefinition() domain.BlackboardDefinition {
 	return domain.BlackboardDefinition{DefinitionMetadata: domain.DefinitionMetadata{
-		ID: "sql-blackboard", Version: 1, Name: "SQL blackboard", Status: domain.DefinitionStatusPublished,
+		ID: "sql-blackboard", Version: 1, Name: "SQL blackboard",
 		CreatedAt: repositoryTestTime, UpdatedAt: repositoryTestTime,
 	}}
 }

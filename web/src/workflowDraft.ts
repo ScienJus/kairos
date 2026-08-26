@@ -92,8 +92,8 @@ export function validateWorkflowDraft(draft: WorkflowDraft) {
 
 export function workflowDraftInput(draft: WorkflowDraft): CreateWorkflowDefinitionInput {
   return {
-    id: draft.definitionID, version: draft.targetVersion, name: draft.name.trim(), description: draft.description.trim(),
-    agent_instructions: draft.agentInstructions.trim(), suggested_tags: draft.suggestedTags, status: 'published',
+    id: draft.definitionID, base_version: draft.baseVersion ?? undefined, name: draft.name.trim(), description: draft.description.trim(),
+    agent_instructions: draft.agentInstructions.trim(), suggested_tags: draft.suggestedTags,
     graph: {
       start_task_ids: draft.startTaskIDs,
       tasks: draft.tasks.map(task => ({ id: task.id, title: task.title.trim(), description: task.description.trim(), acceptance_criteria: task.acceptance_criteria.trim(), executor: task.executor, allowed_roles: task.allowed_roles, execution: task.execution, review_policy: task.review_policy, default_tags: task.default_tags, artifacts: task.artifacts.map(artifact => ({ name: artifact.name.trim(), description: artifact.description.trim() })) })),

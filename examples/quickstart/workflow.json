@@ -1,11 +1,8 @@
 {
-  "id": "open-source-readiness",
-  "version": 1,
   "name": "Open source readiness review",
   "description": "Assess a repository in parallel, then combine the findings into one release plan.",
   "agent_instructions": "Claim one eligible task at a time. Ground every finding in the repository and make the final plan concrete.",
   "suggested_tags": ["quickstart", "review"],
-  "status": "published",
   "graph": {
     "start_task_ids": ["review-code", "review-docs"],
     "tasks": [

@@ -379,31 +379,33 @@ func activeOwnedClaim(store ReadStore, taskID domain.TaskID, claimID domain.Clai
 	return task, claim, nil
 }
 
-// ListArtifacts returns every committed Artifact in a WorkItem.
-func (s *Service) ListArtifacts(ctx context.Context, workItemID domain.WorkItemID, identity Identity) ([]domain.Artifact, error) {
+// ListArtifacts returns a page of committed Artifacts in a WorkItem.
+func (s *Service) ListArtifacts(ctx context.Context, workItemID domain.WorkItemID, identity Identity, page PageRequest[ArtifactCursor]) (Page[domain.Artifact], error) {
 	if strings.TrimSpace(string(workItemID)) == "" {
-		return nil, invalidCommand("work item id is required")
+		return Page[domain.Artifact]{}, invalidCommand("work item id is required")
 	}
 	if err := identity.Validate(); err != nil {
-		return nil, err
+		return Page[domain.Artifact]{}, err
+	}
+	if err := validatePageRequest(page.Limit); err != nil {
+		return Page[domain.Artifact]{}, err
 	}
 	result := make([]domain.Artifact, 0)
 	err := s.repository.View(ctx, func(store ReadStore) error {
 		if _, err := store.GetWorkItem(workItemID); err != nil {
 			return fmt.Errorf("get work item %q: %w", workItemID, err)
 		}
-		artifacts, err := store.ListArtifacts(workItemID)
+		artifacts, err := store.ListArtifacts(ArtifactFilter{WorkItemID: workItemID, SubmittedOnly: true, Page: page})
 		if err != nil {
 			return fmt.Errorf("list artifacts for work item %q: %w", workItemID, err)
 		}
-		for _, artifact := range artifacts {
-			if artifact.SubmissionID != nil {
-				result = append(result, artifact)
-			}
-		}
+		result = append(result, artifacts...)
 		return nil
 	})
-	return result, err
+	if err != nil {
+		return Page[domain.Artifact]{}, err
+	}
+	return boundedPage(result, page.Limit), nil
 }
 
 // OpenArtifact opens managed content after checking staged Artifact ownership.

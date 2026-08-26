@@ -10,7 +10,7 @@ Workflow can also reserve explicit decision space for executors. Each Task can c
 
 ## 1. Workflow Structure
 
-A WorkItem is bound to a published Workflow Definition ID and Version when created. This binding remains unchanged throughout the WorkItem lifecycle; later Workflow versions do not alter work that has already started.
+A WorkItem is bound to the latest stored Workflow Definition ID and Version when created. This binding remains unchanged throughout the WorkItem lifecycle; later Workflow versions do not alter work that has already started.
 
 A Workflow Definition can also provide Agent Instructions and Suggested Tags that apply to all runtime Tasks. Executors use Suggested Tags to label concrete Tasks dynamically. The tags do not participate in prerequisite or candidate eligibility calculations.
 
@@ -48,7 +48,7 @@ Revisiting the same definition node creates a new Task instance:
 Implement #1 → Test #1 → Implement #2 → Test #2
 ```
 
-When a Workflow is published, the system derives progression choices for each Task from the graph structure. Every outgoing edge that remains inside the current cycle forms its own Continue Group. Edges leaving the cycle are combined into one Exit Group. Multiple Continue Groups and the Exit Group are mutually exclusive, and the executor selects one group. Cycle-internal edges do not express parallelism or prerequisites. A regular acyclic node has only one Exit Group.
+When a Workflow version is created, the system derives progression choices for each Task from the graph structure. Every outgoing edge that remains inside the current cycle forms its own Continue Group. Edges leaving the cycle are combined into one Exit Group. Multiple Continue Groups and the Exit Group are mutually exclusive, and the executor selects one group. Cycle-internal edges do not express parallelism or prerequisites. A regular acyclic node has only one Exit Group.
 
 Selecting a Continue Group retains and creates its target Task. The target Task’s optional configuration does not apply to that Activation. Unselected Continue Groups do not create Tasks.
 

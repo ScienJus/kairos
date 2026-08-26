@@ -136,10 +136,14 @@ func (h *Handler) routes() {
 		h.mux.HandleFunc("DELETE /api/v1/identities/{kind}/{actor_id}/token", h.revokeIdentityToken)
 	}
 	h.mux.HandleFunc("GET /api/v1/definitions/workflows", h.listWorkflowDefinitions)
-	h.mux.HandleFunc("POST /api/v1/definitions/workflows", h.createWorkflowDefinition)
+	h.mux.HandleFunc("GET /api/v1/definitions/workflows/{definition_id}", h.getLatestWorkflowDefinition)
+	h.mux.HandleFunc("GET /api/v1/definitions/workflows/{definition_id}/versions", h.listWorkflowDefinitionVersions)
+	h.mux.HandleFunc("POST /api/v1/definitions/workflows/{definition_id}/versions", h.createWorkflowDefinition)
 	h.mux.HandleFunc("GET /api/v1/definitions/workflows/{definition_id}/versions/{version}", h.getWorkflowDefinition)
 	h.mux.HandleFunc("GET /api/v1/definitions/blackboards", h.listBlackboardDefinitions)
-	h.mux.HandleFunc("POST /api/v1/definitions/blackboards", h.createBlackboardDefinition)
+	h.mux.HandleFunc("GET /api/v1/definitions/blackboards/{definition_id}", h.getLatestBlackboardDefinition)
+	h.mux.HandleFunc("GET /api/v1/definitions/blackboards/{definition_id}/versions", h.listBlackboardDefinitionVersions)
+	h.mux.HandleFunc("POST /api/v1/definitions/blackboards/{definition_id}/versions", h.createBlackboardDefinition)
 	h.mux.HandleFunc("GET /api/v1/definitions/blackboards/{definition_id}/versions/{version}", h.getBlackboardDefinition)
 	h.mux.HandleFunc("GET /api/v1/work", h.findWork)
 	h.mux.HandleFunc("GET /api/v1/human-attention", h.listHumanAttention)
@@ -206,12 +210,26 @@ func (h *Handler) listHumanAttention(writer http.ResponseWriter, request *http.R
 	if !ok {
 		return
 	}
-	items, err := h.service.ListHumanAttention(request.Context(), actor)
+	pageRequest, err := parsePageRequest(request, "human_attention", func(cursor application.HumanAttentionCursor) bool {
+		return (cursor.Priority == 0 || cursor.Priority == 1) && !cursor.UpdatedAt.IsZero() && strings.TrimSpace(string(cursor.WorkItemID)) != ""
+	})
 	if err != nil {
 		writeError(writer, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataResponse{Data: items})
+	page, err := h.service.ListHumanAttention(request.Context(), actor, pageRequest)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	nextCursor, err := nextPageCursor(page, "human_attention", func(item application.HumanAttentionItem) application.HumanAttentionCursor {
+		return item.Cursor()
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, pageResponse{Data: page.Items, NextCursor: nextCursor})
 }
 
 func (h *Handler) listWorkItems(writer http.ResponseWriter, request *http.Request) {
@@ -227,14 +245,28 @@ func (h *Handler) listWorkItems(writer http.ResponseWriter, request *http.Reques
 	for _, mode := range request.URL.Query()["mode"] {
 		modes = append(modes, domain.CoordinationMode(mode))
 	}
-	workItems, err := h.service.ListWorkItems(request.Context(), application.ListWorkItemsQuery{
-		Identity: actor, Statuses: statuses, Modes: modes, Tags: request.URL.Query()["tag"],
+	pageRequest, err := parsePageRequest(request, "work_items", func(cursor application.WorkItemCursor) bool {
+		return !cursor.UpdatedAt.IsZero() && strings.TrimSpace(string(cursor.ID)) != ""
 	})
 	if err != nil {
 		writeError(writer, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataResponse{Data: workItems})
+	page, err := h.service.ListWorkItems(request.Context(), application.ListWorkItemsQuery{
+		Identity: actor, Statuses: statuses, Modes: modes, Tags: request.URL.Query()["tag"], Page: pageRequest,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	nextCursor, err := nextPageCursor(page, "work_items", func(item domain.WorkItem) application.WorkItemCursor {
+		return application.WorkItemCursor{UpdatedAt: item.UpdatedAt, ID: item.ID}
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, pageResponse{Data: page.Items, NextCursor: nextCursor})
 }
 
 func (h *Handler) health(writer http.ResponseWriter, _ *http.Request) {
@@ -242,19 +274,17 @@ func (h *Handler) health(writer http.ResponseWriter, _ *http.Request) {
 }
 
 type definitionMetadataRequest struct {
-	ID                domain.DefinitionID     `json:"id"`
-	Version           int64                   `json:"version"`
-	Name              string                  `json:"name"`
-	Description       string                  `json:"description"`
-	AgentInstructions string                  `json:"agent_instructions"`
-	SuggestedTags     []string                `json:"suggested_tags"`
-	Status            domain.DefinitionStatus `json:"status"`
+	BaseVersion       *int64   `json:"base_version"`
+	Name              string   `json:"name"`
+	Description       string   `json:"description"`
+	AgentInstructions string   `json:"agent_instructions"`
+	SuggestedTags     []string `json:"suggested_tags"`
 }
 
 func (r definitionMetadataRequest) command() application.DefinitionMetadataCommand {
 	return application.DefinitionMetadataCommand{
-		ID: r.ID, Version: r.Version, Name: r.Name, Description: r.Description,
-		AgentInstructions: r.AgentInstructions, SuggestedTags: r.SuggestedTags, Status: r.Status,
+		Name: r.Name, Description: r.Description,
+		AgentInstructions: r.AgentInstructions, SuggestedTags: r.SuggestedTags,
 	}
 }
 
@@ -332,8 +362,10 @@ func (h *Handler) createWorkflowDefinition(writer http.ResponseWriter, request *
 	if !decodeRequest(writer, request, &body) {
 		return
 	}
+	metadata := body.definitionMetadataRequest.command()
+	metadata.ID = domain.DefinitionID(request.PathValue("definition_id"))
 	definition, err := h.service.CreateWorkflowDefinition(request.Context(), application.CreateWorkflowDefinitionCommand{
-		Identity: actor, OperationID: operationID(request), Metadata: body.definitionMetadataRequest.command(),
+		Identity: actor, OperationID: operationID(request), BaseVersion: body.BaseVersion, Metadata: metadata,
 		Graph: body.Graph.domainGraph(),
 	})
 	if err != nil {
@@ -352,8 +384,10 @@ func (h *Handler) createBlackboardDefinition(writer http.ResponseWriter, request
 	if !decodeRequest(writer, request, &body) {
 		return
 	}
+	metadata := body.command()
+	metadata.ID = domain.DefinitionID(request.PathValue("definition_id"))
 	definition, err := h.service.CreateBlackboardDefinition(request.Context(), application.CreateBlackboardDefinitionCommand{
-		Identity: actor, OperationID: operationID(request), Metadata: body.command(),
+		Identity: actor, OperationID: operationID(request), BaseVersion: body.BaseVersion, Metadata: metadata,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -367,12 +401,28 @@ func (h *Handler) listWorkflowDefinitions(writer http.ResponseWriter, request *h
 	if !ok {
 		return
 	}
-	definitions, err := h.service.ListWorkflowDefinitions(request.Context(), actor)
+	pageRequest, err := parsePageRequest(request, "workflow_definition_catalog", func(cursor application.DefinitionCatalogCursor) bool {
+		return strings.TrimSpace(string(cursor.ID)) != ""
+	})
 	if err != nil {
 		writeError(writer, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataResponse{Data: definitions})
+	page, err := h.service.ListWorkflowDefinitionCatalog(request.Context(), actor, application.DefinitionCatalogFilter{
+		Page: pageRequest,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	nextCursor, err := nextPageCursor(page, "workflow_definition_catalog", func(item domain.WorkflowDefinition) application.DefinitionCatalogCursor {
+		return application.DefinitionCatalogCursor{ID: item.ID}
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, pageResponse{Data: page.Items, NextCursor: nextCursor})
 }
 
 func (h *Handler) listBlackboardDefinitions(writer http.ResponseWriter, request *http.Request) {
@@ -380,12 +430,112 @@ func (h *Handler) listBlackboardDefinitions(writer http.ResponseWriter, request 
 	if !ok {
 		return
 	}
-	definitions, err := h.service.ListBlackboardDefinitions(request.Context(), actor)
+	pageRequest, err := parsePageRequest(request, "blackboard_definition_catalog", func(cursor application.DefinitionCatalogCursor) bool {
+		return strings.TrimSpace(string(cursor.ID)) != ""
+	})
 	if err != nil {
 		writeError(writer, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataResponse{Data: definitions})
+	page, err := h.service.ListBlackboardDefinitionCatalog(request.Context(), actor, application.DefinitionCatalogFilter{
+		Page: pageRequest,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	nextCursor, err := nextPageCursor(page, "blackboard_definition_catalog", func(item domain.BlackboardDefinition) application.DefinitionCatalogCursor {
+		return application.DefinitionCatalogCursor{ID: item.ID}
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, pageResponse{Data: page.Items, NextCursor: nextCursor})
+}
+
+func (h *Handler) getLatestWorkflowDefinition(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	definition, err := h.service.GetLatestWorkflowDefinition(request.Context(), actor, domain.DefinitionID(request.PathValue("definition_id")))
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: definition})
+}
+
+func (h *Handler) getLatestBlackboardDefinition(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	definition, err := h.service.GetLatestBlackboardDefinition(request.Context(), actor, domain.DefinitionID(request.PathValue("definition_id")))
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: definition})
+}
+
+func (h *Handler) listWorkflowDefinitionVersions(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	pageRequest, err := parsePageRequest(request, "workflow_definition_versions", validDefinitionVersionCursor)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	page, err := h.service.ListWorkflowDefinitionVersions(request.Context(), actor, application.DefinitionVersionFilter{
+		ID: domain.DefinitionID(request.PathValue("definition_id")), Page: pageRequest,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	nextCursor, err := nextPageCursor(page, "workflow_definition_versions", func(item domain.WorkflowDefinition) application.DefinitionVersionCursor {
+		return application.DefinitionVersionCursor{Version: item.Version}
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, pageResponse{Data: page.Items, NextCursor: nextCursor})
+}
+
+func (h *Handler) listBlackboardDefinitionVersions(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	pageRequest, err := parsePageRequest(request, "blackboard_definition_versions", validDefinitionVersionCursor)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	page, err := h.service.ListBlackboardDefinitionVersions(request.Context(), actor, application.DefinitionVersionFilter{
+		ID: domain.DefinitionID(request.PathValue("definition_id")), Page: pageRequest,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	nextCursor, err := nextPageCursor(page, "blackboard_definition_versions", func(item domain.BlackboardDefinition) application.DefinitionVersionCursor {
+		return application.DefinitionVersionCursor{Version: item.Version}
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, pageResponse{Data: page.Items, NextCursor: nextCursor})
+}
+
+func validDefinitionVersionCursor(cursor application.DefinitionVersionCursor) bool {
+	return cursor.Version > 0
 }
 
 func (h *Handler) getWorkflowDefinition(writer http.ResponseWriter, request *http.Request) {
@@ -839,12 +989,26 @@ func (h *Handler) listArtifacts(writer http.ResponseWriter, request *http.Reques
 	if !ok {
 		return
 	}
-	artifacts, err := h.service.ListArtifacts(request.Context(), domain.WorkItemID(request.PathValue("work_item_id")), actor)
+	pageRequest, err := parsePageRequest(request, "artifacts", func(cursor application.ArtifactCursor) bool {
+		return !cursor.CreatedAt.IsZero() && strings.TrimSpace(string(cursor.ID)) != ""
+	})
 	if err != nil {
 		writeError(writer, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, dataResponse{Data: artifacts})
+	page, err := h.service.ListArtifacts(request.Context(), domain.WorkItemID(request.PathValue("work_item_id")), actor, pageRequest)
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	nextCursor, err := nextPageCursor(page, "artifacts", func(item domain.Artifact) application.ArtifactCursor {
+		return application.ArtifactCursor{CreatedAt: item.CreatedAt, ID: item.ID}
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, pageResponse{Data: page.Items, NextCursor: nextCursor})
 }
 
 func (h *Handler) getArtifactContent(writer http.ResponseWriter, request *http.Request) {

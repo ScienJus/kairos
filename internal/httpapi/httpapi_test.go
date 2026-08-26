@@ -108,16 +108,16 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if session.ID != "codex-storage" || session.Kind != domain.ActorAgent || session.Role != "database" {
 		t.Fatalf("trusted session = %+v", session)
 	}
-	blackboardDefinition := requestData[domain.BlackboardDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/blackboards", map[string]any{
-		"id": "engineering", "version": 1, "name": "Engineering", "status": "published",
+	blackboardDefinition := requestData[domain.BlackboardDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/blackboards/engineering/versions", map[string]any{
+		"name":           "Engineering",
 		"suggested_tags": []string{"backend", "database"},
 	}, "create-blackboard-definition", http.StatusCreated)
 	if blackboardDefinition.ID != "engineering" {
 		t.Fatalf("blackboard definition ID = %q", blackboardDefinition.ID)
 	}
 
-	workflowDefinition := requestData[domain.WorkflowDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/workflows", map[string]any{
-		"id": "delivery", "version": 1, "name": "Delivery", "status": "published",
+	workflowDefinition := requestData[domain.WorkflowDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/workflows/delivery/versions", map[string]any{
+		"name":           "Delivery",
 		"suggested_tags": []string{},
 		"graph": map[string]any{
 			"start_task_ids": []string{"implement"},
@@ -155,6 +155,56 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if len(workflows) != 1 || len(blackboards) != 1 {
 		t.Fatalf("definition lists have %d workflows and %d blackboards", len(workflows), len(blackboards))
 	}
+	requestData[domain.WorkflowDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/workflows/delivery/versions", map[string]any{
+		"base_version": workflowDefinition.Version, "name": "Delivery v2", "suggested_tags": []string{},
+		"graph": map[string]any{
+			"start_task_ids": []string{"implement"},
+			"tasks": []map[string]any{{
+				"id": "implement", "title": "Implement", "executor": "agent", "allowed_roles": []string{"database"},
+				"execution": "required", "review_policy": "none", "default_tags": []string{}, "artifacts": []map[string]any{},
+			}},
+			"relations": []map[string]any{},
+		},
+	}, "create-workflow-definition-v2", http.StatusCreated)
+	requestErrorAs(t, client, http.MethodPost, server.URL+"/api/v1/definitions/workflows/delivery/versions", map[string]any{
+		"base_version": workflowDefinition.Version, "name": "Stale Delivery edit", "suggested_tags": []string{},
+		"graph": map[string]any{
+			"start_task_ids": []string{"implement"},
+			"tasks": []map[string]any{{
+				"id": "implement", "title": "Implement", "executor": "agent", "allowed_roles": []string{"database"},
+				"execution": "required", "review_policy": "none", "default_tags": []string{}, "artifacts": []map[string]any{},
+			}},
+			"relations": []map[string]any{},
+		},
+	}, "stale-workflow-definition", http.StatusConflict, "conflict", trustedTestIdentity{ID: "codex-storage", Role: "database"})
+	latestWorkflow := requestData[domain.WorkflowDefinition](t, client, http.MethodGet, server.URL+"/api/v1/definitions/workflows/delivery", nil, "", http.StatusOK)
+	if latestWorkflow.ID != "delivery" || latestWorkflow.Version != 2 {
+		t.Fatalf("latest Workflow = %#v", latestWorkflow)
+	}
+	workflowCatalog := requestPage[domain.WorkflowDefinition](t, client, server.URL+"/api/v1/definitions/workflows")
+	if len(workflowCatalog.Data) != 1 || workflowCatalog.Data[0].ID != "delivery" || workflowCatalog.Data[0].Version != 2 {
+		t.Fatalf("Workflow catalog = %#v", workflowCatalog)
+	}
+	workflowVersions := requestPage[domain.WorkflowDefinition](t, client, server.URL+"/api/v1/definitions/workflows/delivery/versions?limit=1")
+	if len(workflowVersions.Data) != 1 || workflowVersions.Data[0].Version != 2 || workflowVersions.NextCursor == nil {
+		t.Fatalf("Workflow version page = %#v", workflowVersions)
+	}
+	requestErrorAs(t, client, http.MethodGet, server.URL+"/api/v1/definitions/workflows/missing/versions", nil,
+		"", http.StatusNotFound, "not_found", trustedTestIdentity{ID: "codex-storage", Role: "database"})
+	secondBlackboard := requestData[domain.BlackboardDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/blackboards/operations/versions", map[string]any{
+		"name": "Operations", "suggested_tags": []string{},
+	}, "create-second-blackboard-definition", http.StatusCreated)
+	firstDefinitionPage := requestPage[domain.BlackboardDefinition](t, client, server.URL+"/api/v1/definitions/blackboards?limit=1")
+	if len(firstDefinitionPage.Data) != 1 || firstDefinitionPage.NextCursor == nil {
+		t.Fatalf("first Definition page = %#v", firstDefinitionPage)
+	}
+	secondDefinitionPage := requestPage[domain.BlackboardDefinition](t, client, server.URL+"/api/v1/definitions/blackboards?limit=1&cursor="+*firstDefinitionPage.NextCursor)
+	if len(secondDefinitionPage.Data) != 1 || secondDefinitionPage.NextCursor != nil || secondDefinitionPage.Data[0].ID == firstDefinitionPage.Data[0].ID ||
+		(secondDefinitionPage.Data[0].ID != blackboardDefinition.ID && secondDefinitionPage.Data[0].ID != secondBlackboard.ID) {
+		t.Fatalf("second Definition page = %#v after %#v", secondDefinitionPage, firstDefinitionPage)
+	}
+	requestErrorAs(t, client, http.MethodGet, server.URL+"/api/v1/definitions/workflows?cursor="+*firstDefinitionPage.NextCursor, nil,
+		"", http.StatusBadRequest, "invalid_request", trustedTestIdentity{ID: "codex-storage", Role: "database"})
 	retrievedWorkflow := requestData[domain.WorkflowDefinition](t, client, http.MethodGet, server.URL+"/api/v1/definitions/workflows/delivery/versions/1", nil, "", http.StatusOK)
 	retrievedBlackboard := requestData[domain.BlackboardDefinition](t, client, http.MethodGet, server.URL+"/api/v1/definitions/blackboards/engineering/versions/1", nil, "", http.StatusOK)
 	if retrievedWorkflow.ID != workflowDefinition.ID || retrievedBlackboard.ID != blackboardDefinition.ID {
@@ -177,6 +227,18 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		"definition_id": "engineering", "mode": "blackboard",
 		"title": "Superseded work", "goal": "Exercise cancellation", "tags": []string{"cancel-test"},
 	}, "create-cancel-target", http.StatusCreated)
+	firstWorkItemPage := requestPage[domain.WorkItem](t, client, server.URL+"/api/v1/work-items?limit=1")
+	if len(firstWorkItemPage.Data) != 1 || firstWorkItemPage.NextCursor == nil {
+		t.Fatalf("first WorkItem page = %#v", firstWorkItemPage)
+	}
+	secondWorkItemPage := requestPage[domain.WorkItem](t, client, server.URL+"/api/v1/work-items?limit=1&cursor="+*firstWorkItemPage.NextCursor)
+	if len(secondWorkItemPage.Data) != 1 || secondWorkItemPage.Data[0].ID == firstWorkItemPage.Data[0].ID {
+		t.Fatalf("second WorkItem page = %#v after %#v", secondWorkItemPage, firstWorkItemPage)
+	}
+	requestErrorAs(t, client, http.MethodGet, server.URL+"/api/v1/work-items?limit=0", nil, "", http.StatusBadRequest, "invalid_request",
+		trustedTestIdentity{ID: "codex-storage", Role: "database"})
+	requestErrorAs(t, client, http.MethodGet, server.URL+"/api/v1/work-items?cursor=not-a-cursor", nil, "", http.StatusBadRequest, "invalid_request",
+		trustedTestIdentity{ID: "codex-storage", Role: "database"})
 	cancelTask := requestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(cancelTarget.ID)+"/tasks", map[string]any{
 		"title": "Obsolete task", "executor": "agent", "allowed_roles": []string{"database"}, "tags": []string{},
 	}, "create-cancel-task", http.StatusCreated)
@@ -243,6 +305,10 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if managedArtifact.URI[:len("kairos://")] != "kairos://" {
 		t.Fatalf("managed Artifact URI = %q", managedArtifact.URI)
 	}
+	stagedArtifactPage := requestPage[domain.Artifact](t, client, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/artifacts?limit=1")
+	if len(stagedArtifactPage.Data) != 0 || stagedArtifactPage.Data == nil || stagedArtifactPage.NextCursor != nil {
+		t.Fatalf("staged Artifact page = %#v, want an empty terminal page", stagedArtifactPage)
+	}
 	executionContext = requestData[application.TaskExecutionContext](t, client, http.MethodGet, server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, "", http.StatusOK)
 	if len(executionContext.Artifacts) != 2 || executionContext.Artifacts[0].ID != artifact.ID {
 		t.Fatalf("task context Artifacts = %#v", executionContext.Artifacts)
@@ -253,6 +319,14 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	}, "submit-task", http.StatusCreated)
 	if submission.Result != "Migration implemented and tested" {
 		t.Fatalf("submission result = %q", submission.Result)
+	}
+	firstArtifactPage := requestPage[domain.Artifact](t, client, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/artifacts?limit=1")
+	if len(firstArtifactPage.Data) != 1 || firstArtifactPage.NextCursor == nil {
+		t.Fatalf("first Artifact page = %#v", firstArtifactPage)
+	}
+	secondArtifactPage := requestPage[domain.Artifact](t, client, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/artifacts?limit=1&cursor="+*firstArtifactPage.NextCursor)
+	if len(secondArtifactPage.Data) != 1 || secondArtifactPage.NextCursor != nil || secondArtifactPage.Data[0].ID == firstArtifactPage.Data[0].ID {
+		t.Fatalf("second Artifact page = %#v after %#v", secondArtifactPage, firstArtifactPage)
 	}
 	taskDetail := requestData[application.TaskDetail](t, client, http.MethodGet,
 		server.URL+"/api/v1/tasks/"+string(task.ID), nil, "", http.StatusOK)
@@ -373,7 +447,7 @@ func TestHTTPAPIRejectsMissingTrustedIdentity(t *testing.T) {
 	}
 }
 
-func TestHTTPAPIRejectsPublishedWorkflowWithoutGraph(t *testing.T) {
+func TestHTTPAPIRejectsWorkflowWithoutValidGraph(t *testing.T) {
 	repo, err := repository.OpenSQLite(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -388,8 +462,8 @@ func TestHTTPAPIRejectsPublishedWorkflowWithoutGraph(t *testing.T) {
 		t.Fatalf("new HTTP API: %v", err)
 	}
 
-	body := bytes.NewBufferString(`{"id":"invalid","version":1,"name":"Invalid","status":"published","graph":{}}`)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/definitions/workflows", body)
+	body := bytes.NewBufferString(`{"name":"Invalid","graph":{}}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/definitions/workflows/invalid/versions", body)
 	request.Header.Set(identity.HeaderActorID, "planner")
 	request.Header.Set(identity.HeaderActorRole, "architect")
 	response := httptest.NewRecorder()
@@ -433,8 +507,8 @@ func TestTrustedHTTPIdentityEnforcementEndToEnd(t *testing.T) {
 	otherActor := trustedTestIdentity{ID: "codex-other", Role: "database"}
 	humanReviewer := trustedTestIdentity{ID: "reviewer", Kind: domain.ActorHuman}
 
-	requestDataAs[domain.BlackboardDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/blackboards", map[string]any{
-		"id": "identity-test", "version": 1, "name": "Identity test", "status": "published",
+	requestDataAs[domain.BlackboardDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/blackboards/identity-test/versions", map[string]any{
+		"name": "Identity test",
 	}, "create-definition", http.StatusCreated, owner)
 	workItem := requestDataAs[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
 		"definition_id": "identity-test", "mode": "blackboard",
@@ -593,6 +667,30 @@ func requestDataAs[T any](
 		t.Fatalf("decode response %s: %v", content, err)
 	}
 	return envelope.Data
+}
+
+type testPage[T any] struct {
+	Data       []T     `json:"data"`
+	NextCursor *string `json:"next_cursor"`
+}
+
+func requestPage[T any](t *testing.T, client *http.Client, url string) testPage[T] {
+	t.Helper()
+	request := newTrustedRequest(t, http.MethodGet, url, nil, "", trustedTestIdentity{ID: "codex-storage", Role: "database"})
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("send paginated request: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		content, _ := io.ReadAll(response.Body)
+		t.Fatalf("GET %s status = %d: %s", url, response.StatusCode, content)
+	}
+	var page testPage[T]
+	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+		t.Fatalf("decode paginated response: %v", err)
+	}
+	return page
 }
 
 func requestErrorAs(

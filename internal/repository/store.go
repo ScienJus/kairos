@@ -88,11 +88,20 @@ func (s *sqlStore) ListWorkItems(filter application.WorkItemFilter) ([]domain.Wo
 		}
 		args = append(args, tag)
 	}
+	if filter.Page.After != nil {
+		conditions = append(conditions, "(updated_at < ? OR (updated_at = ? AND id > ?))")
+		updatedAt := databaseTime(filter.Page.After.UpdatedAt)
+		args = append(args, updatedAt, updatedAt, filter.Page.After.ID)
+	}
 	query := "SELECT payload FROM work_items"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	query += " ORDER BY updated_at DESC, id"
+	if filter.Page.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, filter.Page.Limit+1)
+	}
 	rows, err := s.query(query, args...)
 	if err != nil {
 		return nil, err
@@ -109,6 +118,80 @@ func (s *sqlStore) ListWorkItems(filter application.WorkItemFilter) ([]domain.Wo
 			return nil, err
 		}
 		result = append(result, value)
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) ListHumanAttention(page application.PageRequest[application.HumanAttentionCursor]) ([]application.HumanAttentionItem, error) {
+	query := `
+		SELECT kind, work_item_payload, task_payload
+		FROM (
+			SELECT 'review' AS kind, 0 AS priority, t.updated_at AS item_updated,
+				w.id AS work_item_id, t.id AS task_id, w.payload AS work_item_payload, t.payload AS task_payload
+			FROM tasks t
+			JOIN work_items w ON w.id = t.work_item_id
+			WHERE w.status = ? AND t.status = ?
+			UNION ALL
+			SELECT 'human_task' AS kind, 1 AS priority, t.updated_at AS item_updated,
+				w.id AS work_item_id, t.id AS task_id, w.payload AS work_item_payload, t.payload AS task_payload
+			FROM tasks t
+			JOIN work_items w ON w.id = t.work_item_id
+			WHERE w.status = ? AND t.status = ? AND t.executor = ? AND t.active_claim_id IS NULL
+			UNION ALL
+			SELECT 'work_item_acceptance' AS kind, 1 AS priority, w.updated_at AS item_updated,
+				w.id AS work_item_id, '' AS task_id, w.payload AS work_item_payload, NULL AS task_payload
+			FROM work_items w
+			WHERE w.status = ?
+		) attention`
+	args := []any{
+		domain.WorkItemStatusOpen, domain.TaskStatusInReview,
+		domain.WorkItemStatusOpen, domain.TaskStatusPending, domain.ExecutorHuman,
+		domain.WorkItemStatusAwaitingHumanAcceptance,
+	}
+	if page.After != nil {
+		query += ` WHERE priority > ? OR (priority = ? AND (
+			item_updated < ? OR (item_updated = ? AND (
+				work_item_id > ? OR (work_item_id = ? AND task_id > ?)
+			))
+		))`
+		updatedAt := databaseTime(page.After.UpdatedAt)
+		args = append(args,
+			page.After.Priority, page.After.Priority,
+			updatedAt, updatedAt,
+			page.After.WorkItemID, page.After.WorkItemID, page.After.TaskID,
+		)
+	}
+	query += " ORDER BY priority, item_updated DESC, work_item_id, task_id"
+	if page.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, page.Limit+1)
+	}
+	rows, err := s.query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]application.HumanAttentionItem, 0)
+	for rows.Next() {
+		var kind string
+		var workItemPayload string
+		var taskPayload sql.NullString
+		if err := rows.Scan(&kind, &workItemPayload, &taskPayload); err != nil {
+			return nil, normalizeError(err)
+		}
+		workItem, err := decodeJSON[domain.WorkItem](workItemPayload)
+		if err != nil {
+			return nil, err
+		}
+		item := application.HumanAttentionItem{Kind: application.HumanAttentionKind(kind), WorkItem: workItem}
+		if taskPayload.Valid {
+			task, err := decodeJSON[domain.Task](taskPayload.String)
+			if err != nil {
+				return nil, err
+			}
+			item.Task = &task
+		}
+		result = append(result, item)
 	}
 	return result, normalizeError(rows.Err())
 }
@@ -236,10 +319,29 @@ func (s *sqlStore) GetArtifact(id domain.ArtifactID) (domain.Artifact, error) {
 	return artifact, nil
 }
 
-func (s *sqlStore) ListArtifacts(workItemID domain.WorkItemID) ([]domain.Artifact, error) {
-	rows, err := s.query(`
+func (s *sqlStore) ListArtifacts(filter application.ArtifactFilter) ([]domain.Artifact, error) {
+	conditions := []string{"work_item_id = ?"}
+	args := []any{filter.WorkItemID}
+	if filter.SubmittedOnly {
+		conditions = append(conditions, "submission_id IS NOT NULL")
+	}
+	if filter.TaskID != "" {
+		conditions = append(conditions, "task_id = ?")
+		args = append(args, filter.TaskID)
+	}
+	if filter.Page.After != nil {
+		conditions = append(conditions, "(created_at > ? OR (created_at = ? AND id > ?))")
+		createdAt := databaseTime(filter.Page.After.CreatedAt)
+		args = append(args, createdAt, createdAt, filter.Page.After.ID)
+	}
+	query := `
 		SELECT id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at
-		FROM artifacts WHERE work_item_id = ? ORDER BY created_at, id`, workItemID)
+		FROM artifacts WHERE ` + strings.Join(conditions, " AND ") + " ORDER BY created_at, id"
+	if filter.Page.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, filter.Page.Limit+1)
+	}
+	rows, err := s.query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -640,20 +742,20 @@ func (s *sqlStore) GetBlackboardDefinition(
 	return decodeJSON[domain.BlackboardDefinition](payload)
 }
 
-func (s *sqlStore) GetLatestPublishedWorkflowDefinition(id domain.DefinitionID) (domain.WorkflowDefinition, error) {
-	return latestPublishedDefinition[domain.WorkflowDefinition](s, id, domain.CoordinationModeWorkflow)
+func (s *sqlStore) GetLatestWorkflowDefinition(id domain.DefinitionID) (domain.WorkflowDefinition, error) {
+	return latestDefinition[domain.WorkflowDefinition](s, id, domain.CoordinationModeWorkflow)
 }
 
-func (s *sqlStore) GetLatestPublishedBlackboardDefinition(id domain.DefinitionID) (domain.BlackboardDefinition, error) {
-	return latestPublishedDefinition[domain.BlackboardDefinition](s, id, domain.CoordinationModeBlackboard)
+func (s *sqlStore) GetLatestBlackboardDefinition(id domain.DefinitionID) (domain.BlackboardDefinition, error) {
+	return latestDefinition[domain.BlackboardDefinition](s, id, domain.CoordinationModeBlackboard)
 }
 
-func latestPublishedDefinition[T any](s *sqlStore, id domain.DefinitionID, mode domain.CoordinationMode) (T, error) {
+func latestDefinition[T any](s *sqlStore, id domain.DefinitionID, mode domain.CoordinationMode) (T, error) {
 	var payload string
 	if err := s.queryRow(`
 		SELECT payload FROM definitions
-		WHERE id = ? AND mode = ? AND status = ?
-		ORDER BY version DESC LIMIT 1`, id, mode, domain.DefinitionStatusPublished,
+		WHERE id = ? AND mode = ?
+		ORDER BY version DESC LIMIT 1`, id, mode,
 	).Scan(&payload); err != nil {
 		var zero T
 		return zero, normalizeError(err)
@@ -661,16 +763,58 @@ func latestPublishedDefinition[T any](s *sqlStore, id domain.DefinitionID, mode 
 	return decodeJSON[T](payload)
 }
 
-func (s *sqlStore) ListWorkflowDefinitions() ([]domain.WorkflowDefinition, error) {
-	return listDefinitions[domain.WorkflowDefinition](s, domain.CoordinationModeWorkflow)
+func (s *sqlStore) ListWorkflowDefinitionCatalog(filter application.DefinitionCatalogFilter) ([]domain.WorkflowDefinition, error) {
+	return listDefinitionCatalog[domain.WorkflowDefinition](s, domain.CoordinationModeWorkflow, filter)
 }
 
-func (s *sqlStore) ListBlackboardDefinitions() ([]domain.BlackboardDefinition, error) {
-	return listDefinitions[domain.BlackboardDefinition](s, domain.CoordinationModeBlackboard)
+func (s *sqlStore) ListBlackboardDefinitionCatalog(filter application.DefinitionCatalogFilter) ([]domain.BlackboardDefinition, error) {
+	return listDefinitionCatalog[domain.BlackboardDefinition](s, domain.CoordinationModeBlackboard, filter)
 }
 
-func listDefinitions[T any](s *sqlStore, mode domain.CoordinationMode) ([]T, error) {
-	rows, err := s.query("SELECT payload FROM definitions WHERE mode = ? ORDER BY id, version", mode)
+func listDefinitionCatalog[T any](s *sqlStore, mode domain.CoordinationMode, filter application.DefinitionCatalogFilter) ([]T, error) {
+	query := `SELECT d.payload FROM definitions d
+		WHERE d.mode = ?`
+	args := []any{mode}
+	if filter.Page.After != nil {
+		query += " AND d.id > ?"
+		args = append(args, filter.Page.After.ID)
+	}
+	query += ` AND d.version = (
+		SELECT MAX(candidate.version) FROM definitions candidate
+		WHERE candidate.mode = d.mode AND candidate.id = d.id`
+	query += ") ORDER BY d.id"
+	if filter.Page.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, filter.Page.Limit+1)
+	}
+	return queryDefinitions[T](s, query, args)
+}
+
+func (s *sqlStore) ListWorkflowDefinitionVersions(filter application.DefinitionVersionFilter) ([]domain.WorkflowDefinition, error) {
+	return listDefinitionVersions[domain.WorkflowDefinition](s, domain.CoordinationModeWorkflow, filter)
+}
+
+func (s *sqlStore) ListBlackboardDefinitionVersions(filter application.DefinitionVersionFilter) ([]domain.BlackboardDefinition, error) {
+	return listDefinitionVersions[domain.BlackboardDefinition](s, domain.CoordinationModeBlackboard, filter)
+}
+
+func listDefinitionVersions[T any](s *sqlStore, mode domain.CoordinationMode, filter application.DefinitionVersionFilter) ([]T, error) {
+	query := "SELECT payload FROM definitions WHERE mode = ? AND id = ?"
+	args := []any{mode, filter.ID}
+	if filter.Page.After != nil {
+		query += " AND version < ?"
+		args = append(args, filter.Page.After.Version)
+	}
+	query += " ORDER BY version DESC"
+	if filter.Page.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, filter.Page.Limit+1)
+	}
+	return queryDefinitions[T](s, query, args)
+}
+
+func queryDefinitions[T any](s *sqlStore, query string, args []any) ([]T, error) {
+	rows, err := s.query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -764,6 +908,15 @@ func (s *sqlStore) CreateWorkflowDefinition(value domain.WorkflowDefinition) err
 	return s.createDefinition(value.DefinitionMetadata, domain.CoordinationModeWorkflow, value)
 }
 
+func (s *sqlStore) LockDefinitionVersion(mode domain.CoordinationMode, id domain.DefinitionID) error {
+	if s.dialect != dialectPostgres {
+		return nil
+	}
+	key := "definition-version:" + string(mode) + ":" + string(id)
+	_, err := s.exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", key)
+	return err
+}
+
 func (s *sqlStore) CreateBlackboardDefinition(value domain.BlackboardDefinition) error {
 	value.DefinitionMetadata = normalizeDefinitionTimes(value.DefinitionMetadata)
 	if err := value.Validate(); err != nil {
@@ -782,8 +935,8 @@ func (s *sqlStore) createDefinition(
 		return err
 	}
 	_, err = s.exec(
-		"INSERT INTO definitions (id, version, mode, status, created_at, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		metadata.ID, metadata.Version, mode, metadata.Status,
+		"INSERT INTO definitions (id, version, mode, created_at, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?)",
+		metadata.ID, metadata.Version, mode,
 		databaseTime(metadata.CreatedAt), databaseTime(metadata.UpdatedAt), payload,
 	)
 	return err

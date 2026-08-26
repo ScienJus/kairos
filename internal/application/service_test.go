@@ -164,11 +164,11 @@ func TestWorkflowArtifactsGuideAndGateSubmission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("submit artifacts: %v", err)
 	}
-	artifacts, err := service.ListArtifacts(context.Background(), workItem.ID, agent)
-	if err != nil || len(artifacts) != 2 {
+	artifacts, err := service.ListArtifacts(context.Background(), workItem.ID, agent, PageRequest[ArtifactCursor]{Limit: 50})
+	if err != nil || len(artifacts.Items) != 2 {
 		t.Fatalf("list committed artifacts: %v %#v", err, artifacts)
 	}
-	for _, artifact := range artifacts {
+	for _, artifact := range artifacts.Items {
 		if artifact.SubmissionID == nil || *artifact.SubmissionID != submission.ID {
 			t.Fatalf("artifact was not bound to submission: %#v", artifact)
 		}
@@ -748,7 +748,7 @@ func TestGetBlackboardTaskExecutionContext(t *testing.T) {
 	}
 }
 
-func TestCreateWorkItemBindsLatestPublishedDefinition(t *testing.T) {
+func TestCreateWorkItemBindsLatestDefinition(t *testing.T) {
 	t.Parallel()
 
 	repository := newTestRepository()
@@ -758,7 +758,6 @@ func TestCreateWorkItemBindsLatestPublishedDefinition(t *testing.T) {
 	v2.Name = "Current collaboration"
 	v3 := v2
 	v3.Version = 3
-	v3.Status = domain.DefinitionStatusArchived
 	repository.blackboards[definitionKey(v1.ID, v1.Version)] = v1
 	repository.blackboards[definitionKey(v2.ID, v2.Version)] = v2
 	repository.blackboards[definitionKey(v3.ID, v3.Version)] = v3
@@ -772,8 +771,8 @@ func TestCreateWorkItemBindsLatestPublishedDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	if created.Definition != v2.Binding() {
-		t.Fatalf("definition binding = %#v, want %#v", created.Definition, v2.Binding())
+	if created.Definition != v3.Binding() {
+		t.Fatalf("definition binding = %#v, want %#v", created.Definition, v3.Binding())
 	}
 }
 
@@ -1222,8 +1221,8 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 				if got.Status != domain.WorkItemStatusAwaitingHumanAcceptance {
 					t.Fatalf("status = %s", got.Status)
 				}
-				attention, err := service.ListHumanAttention(ctx, Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}})
-				if err != nil || len(attention) != 1 || attention[0].Kind != HumanAttentionAcceptance || attention[0].WorkItem.ID != workItem.ID {
+				attention, err := service.ListHumanAttention(ctx, Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}, PageRequest[HumanAttentionCursor]{Limit: 50})
+				if err != nil || len(attention.Items) != 1 || attention.Items[0].Kind != HumanAttentionAcceptance || attention.Items[0].WorkItem.ID != workItem.ID {
 					t.Fatalf("human acceptance attention = %#v, err=%v", attention, err)
 				}
 				candidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent})
@@ -1417,10 +1416,11 @@ func TestListHumanAttentionAggregatesHumanTasksAndReviews(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create human task: %v", err)
 	}
-	items, err := service.ListHumanAttention(context.Background(), human)
+	page, err := service.ListHumanAttention(context.Background(), human, PageRequest[HumanAttentionCursor]{Limit: 50})
 	if err != nil {
 		t.Fatalf("list human attention: %v", err)
 	}
+	items := page.Items
 	if len(items) != 1 || items[0].Kind != HumanAttentionTask || items[0].Task.ID != task.ID {
 		t.Fatalf("pending human attention = %+v", items)
 	}
@@ -1428,21 +1428,62 @@ func TestListHumanAttentionAggregatesHumanTasksAndReviews(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim human task: %v", err)
 	}
-	items, err = service.ListHumanAttention(context.Background(), human)
-	if err != nil || len(items) != 0 {
-		t.Fatalf("claimed human attention = %+v, err = %v", items, err)
+	page, err = service.ListHumanAttention(context.Background(), human, PageRequest[HumanAttentionCursor]{Limit: 50})
+	if err != nil || len(page.Items) != 0 {
+		t.Fatalf("claimed human attention = %+v, err = %v", page.Items, err)
 	}
 	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
 		TaskID: task.ID, ClaimID: claim.ID, Identity: human, Result: "Ready for review", RequestReview: true,
 	}); err != nil {
 		t.Fatalf("submit for review: %v", err)
 	}
-	items, err = service.ListHumanAttention(context.Background(), human)
+	page, err = service.ListHumanAttention(context.Background(), human, PageRequest[HumanAttentionCursor]{Limit: 50})
 	if err != nil {
 		t.Fatalf("list review attention: %v", err)
 	}
+	items = page.Items
 	if len(items) != 1 || items[0].Kind != HumanAttentionReview || items[0].Task.ID != task.ID {
 		t.Fatalf("review attention = %+v", items)
+	}
+}
+
+func TestListHumanAttentionPaginatesWithStableCursor(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	repository.blackboards[definitionKey("blackboard", 1)] = blackboardDefinition()
+	service := newTestService(t, repository)
+	planner := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "generalist"}
+	human := Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "reviewer"}}
+	for _, title := range []string{"First attention item", "Second attention item"} {
+		workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+			Definition: domain.DefinitionBinding{ID: "blackboard", Version: 1, Mode: domain.CoordinationModeBlackboard},
+			Identity:   planner, Title: title, Goal: "Exercise Human Attention pagination",
+		})
+		if err != nil {
+			t.Fatalf("create WorkItem: %v", err)
+		}
+		if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+			WorkItemID: workItem.ID, Identity: planner, Title: title, Executor: domain.ExecutorHuman,
+		}); err != nil {
+			t.Fatalf("create human Task: %v", err)
+		}
+	}
+
+	first, err := service.ListHumanAttention(context.Background(), human, PageRequest[HumanAttentionCursor]{Limit: 1})
+	if err != nil {
+		t.Fatalf("list first Human Attention page: %v", err)
+	}
+	if len(first.Items) != 1 || !first.HasMore {
+		t.Fatalf("first Human Attention page = %#v, want one item and more", first)
+	}
+	cursor := first.Items[0].Cursor()
+	second, err := service.ListHumanAttention(context.Background(), human, PageRequest[HumanAttentionCursor]{Limit: 1, After: &cursor})
+	if err != nil {
+		t.Fatalf("list second Human Attention page: %v", err)
+	}
+	if len(second.Items) != 1 || second.HasMore || second.Items[0].Cursor() == cursor {
+		t.Fatalf("second Human Attention page = %#v after %#v", second, first)
 	}
 }
 
@@ -2377,7 +2418,7 @@ func newTestService(t *testing.T, repository Repository) *Service {
 func workflowDefinition() domain.WorkflowDefinition {
 	return domain.WorkflowDefinition{
 		DefinitionMetadata: domain.DefinitionMetadata{
-			ID: "workflow", Version: 1, Name: "Development", Status: domain.DefinitionStatusPublished,
+			ID: "workflow", Version: 1, Name: "Development",
 			CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
 		},
 		Graph: domain.WorkflowGraph{
@@ -2396,7 +2437,7 @@ func workflowDefinition() domain.WorkflowDefinition {
 func reviewedWorkflowDefinition() domain.WorkflowDefinition {
 	return domain.WorkflowDefinition{
 		DefinitionMetadata: domain.DefinitionMetadata{
-			ID: "reviewed-workflow", Version: 1, Name: "Reviewed development", Status: domain.DefinitionStatusPublished,
+			ID: "reviewed-workflow", Version: 1, Name: "Reviewed development",
 			CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
 		},
 		Graph: domain.WorkflowGraph{
@@ -2415,7 +2456,7 @@ func reviewedWorkflowDefinition() domain.WorkflowDefinition {
 func joiningWorkflowDefinition() domain.WorkflowDefinition {
 	return domain.WorkflowDefinition{
 		DefinitionMetadata: domain.DefinitionMetadata{
-			ID: "joining-workflow", Version: 1, Name: "Joining workflow", Status: domain.DefinitionStatusPublished,
+			ID: "joining-workflow", Version: 1, Name: "Joining workflow",
 			CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
 		},
 		Graph: domain.WorkflowGraph{
@@ -2439,7 +2480,7 @@ func joiningWorkflowDefinition() domain.WorkflowDefinition {
 func optionalReviewWorkflowDefinition() domain.WorkflowDefinition {
 	return domain.WorkflowDefinition{
 		DefinitionMetadata: domain.DefinitionMetadata{
-			ID: "optional-review-workflow", Version: 1, Name: "Optional review", Status: domain.DefinitionStatusPublished,
+			ID: "optional-review-workflow", Version: 1, Name: "Optional review",
 			CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
 		},
 		Graph: domain.WorkflowGraph{
@@ -2458,7 +2499,7 @@ func optionalReviewWorkflowDefinition() domain.WorkflowDefinition {
 func consecutiveOptionalWorkflowDefinition() domain.WorkflowDefinition {
 	return domain.WorkflowDefinition{
 		DefinitionMetadata: domain.DefinitionMetadata{
-			ID: "consecutive-optional-workflow", Version: 1, Name: "Consecutive optional tasks", Status: domain.DefinitionStatusPublished,
+			ID: "consecutive-optional-workflow", Version: 1, Name: "Consecutive optional tasks",
 			CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
 		},
 		Graph: domain.WorkflowGraph{
@@ -2481,7 +2522,7 @@ func consecutiveOptionalWorkflowDefinition() domain.WorkflowDefinition {
 func branchingOptionalWorkflowDefinition() domain.WorkflowDefinition {
 	return domain.WorkflowDefinition{
 		DefinitionMetadata: domain.DefinitionMetadata{
-			ID: "branching-optional-workflow", Version: 1, Name: "Branching optional tasks", Status: domain.DefinitionStatusPublished,
+			ID: "branching-optional-workflow", Version: 1, Name: "Branching optional tasks",
 			CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
 		},
 		Graph: domain.WorkflowGraph{
@@ -2506,7 +2547,7 @@ func branchingOptionalWorkflowDefinition() domain.WorkflowDefinition {
 func joiningOptionalWorkflowDefinition() domain.WorkflowDefinition {
 	return domain.WorkflowDefinition{
 		DefinitionMetadata: domain.DefinitionMetadata{
-			ID: "joining-optional-workflow", Version: 1, Name: "Joining optional workflow", Status: domain.DefinitionStatusPublished,
+			ID: "joining-optional-workflow", Version: 1, Name: "Joining optional workflow",
 			CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
 		},
 		Graph: domain.WorkflowGraph{
@@ -2531,7 +2572,7 @@ func joiningOptionalWorkflowDefinition() domain.WorkflowDefinition {
 
 func blackboardDefinition() domain.BlackboardDefinition {
 	return domain.BlackboardDefinition{DefinitionMetadata: domain.DefinitionMetadata{
-		ID: "blackboard", Version: 1, Name: "Open collaboration", Status: domain.DefinitionStatusPublished,
+		ID: "blackboard", Version: 1, Name: "Open collaboration",
 		CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
 	}}
 }
@@ -2605,6 +2646,15 @@ func (r *testRepository) ListWorkItems(filter WorkItemFilter) ([]domain.WorkItem
 		}
 		return result[i].UpdatedAt.After(result[j].UpdatedAt)
 	})
+	if filter.Page.After != nil {
+		result = slices.DeleteFunc(result, func(item domain.WorkItem) bool {
+			return item.UpdatedAt.After(filter.Page.After.UpdatedAt) ||
+				(item.UpdatedAt.Equal(filter.Page.After.UpdatedAt) && item.ID <= filter.Page.After.ID)
+		})
+	}
+	if filter.Page.Limit > 0 && len(result) > filter.Page.Limit+1 {
+		result = result[:filter.Page.Limit+1]
+	}
 	return result, nil
 }
 
@@ -2618,6 +2668,56 @@ func (r *testRepository) GetTask(id domain.TaskID) (domain.Task, error) {
 
 func (r *testRepository) ListTasks(workItemID domain.WorkItemID) ([]domain.Task, error) {
 	return r.tasksFor(workItemID), nil
+}
+
+func (r *testRepository) ListHumanAttention(page PageRequest[HumanAttentionCursor]) ([]HumanAttentionItem, error) {
+	result := make([]HumanAttentionItem, 0)
+	for _, workItem := range r.workItems {
+		if workItem.Status == domain.WorkItemStatusAwaitingHumanAcceptance {
+			result = append(result, HumanAttentionItem{Kind: HumanAttentionAcceptance, WorkItem: workItem})
+			continue
+		}
+		if workItem.Status != domain.WorkItemStatusOpen {
+			continue
+		}
+		for _, task := range r.tasksFor(workItem.ID) {
+			kind := HumanAttentionKind("")
+			if task.Status == domain.TaskStatusInReview {
+				kind = HumanAttentionReview
+			} else if task.Status == domain.TaskStatusPending && task.ActiveClaimID == nil && task.Executor == domain.ExecutorHuman {
+				kind = HumanAttentionTask
+			}
+			if kind != "" {
+				taskCopy := task
+				result = append(result, HumanAttentionItem{Kind: kind, WorkItem: workItem, Task: &taskCopy})
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return humanAttentionCursorLess(result[i].Cursor(), result[j].Cursor())
+	})
+	if page.After != nil {
+		result = slices.DeleteFunc(result, func(item HumanAttentionItem) bool {
+			return !humanAttentionCursorLess(*page.After, item.Cursor())
+		})
+	}
+	if page.Limit > 0 && len(result) > page.Limit+1 {
+		result = result[:page.Limit+1]
+	}
+	return result, nil
+}
+
+func humanAttentionCursorLess(left, right HumanAttentionCursor) bool {
+	if left.Priority != right.Priority {
+		return left.Priority < right.Priority
+	}
+	if !left.UpdatedAt.Equal(right.UpdatedAt) {
+		return left.UpdatedAt.After(right.UpdatedAt)
+	}
+	if left.WorkItemID != right.WorkItemID {
+		return left.WorkItemID < right.WorkItemID
+	}
+	return left.TaskID < right.TaskID
 }
 
 func (r *testRepository) tasksFor(workItemID domain.WorkItemID) []domain.Task {
@@ -2660,14 +2760,30 @@ func (r *testRepository) GetArtifact(id domain.ArtifactID) (domain.Artifact, err
 	return value, nil
 }
 
-func (r *testRepository) ListArtifacts(workItemID domain.WorkItemID) ([]domain.Artifact, error) {
+func (r *testRepository) ListArtifacts(filter ArtifactFilter) ([]domain.Artifact, error) {
 	result := make([]domain.Artifact, 0)
 	for _, artifact := range r.artifacts {
-		if artifact.WorkItemID == workItemID {
+		if artifact.WorkItemID == filter.WorkItemID &&
+			(filter.TaskID == "" || artifact.TaskID == filter.TaskID) &&
+			(!filter.SubmittedOnly || artifact.SubmissionID != nil) {
 			result = append(result, artifact)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAt.Before(result[j].CreatedAt) })
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID < result[j].ID
+		}
+		return result[i].CreatedAt.Before(result[j].CreatedAt)
+	})
+	if filter.Page.After != nil {
+		result = slices.DeleteFunc(result, func(item domain.Artifact) bool {
+			return item.CreatedAt.Before(filter.Page.After.CreatedAt) ||
+				(item.CreatedAt.Equal(filter.Page.After.CreatedAt) && item.ID <= filter.Page.After.ID)
+		})
+	}
+	if filter.Page.Limit > 0 && len(result) > filter.Page.Limit+1 {
+		result = result[:filter.Page.Limit+1]
+	}
 	return result, nil
 }
 
@@ -2833,62 +2949,134 @@ func (r *testRepository) GetBlackboardDefinition(id domain.DefinitionID, version
 	return value, nil
 }
 
-func (r *testRepository) ListWorkflowDefinitions() ([]domain.WorkflowDefinition, error) {
+func (r *testRepository) GetLatestWorkflowDefinition(id domain.DefinitionID) (domain.WorkflowDefinition, error) {
+	return latestTestDefinition(r.workflows, id)
+}
+
+func (r *testRepository) ListWorkflowDefinitionCatalog(filter DefinitionCatalogFilter) ([]domain.WorkflowDefinition, error) {
 	result := make([]domain.WorkflowDefinition, 0, len(r.workflows))
 	for _, definition := range r.workflows {
 		result = append(result, definition)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].ID == result[j].ID {
-			return result[i].Version < result[j].Version
-		}
-		return result[i].ID < result[j].ID
-	})
+	result = latestTestDefinitions(result)
+	if filter.Page.After != nil {
+		result = slices.DeleteFunc(result, func(item domain.WorkflowDefinition) bool {
+			return item.ID <= filter.Page.After.ID
+		})
+	}
+	if filter.Page.Limit > 0 && len(result) > filter.Page.Limit+1 {
+		result = result[:filter.Page.Limit+1]
+	}
 	return result, nil
 }
 
-func (r *testRepository) GetLatestPublishedWorkflowDefinition(id domain.DefinitionID) (domain.WorkflowDefinition, error) {
-	var result domain.WorkflowDefinition
-	found := false
+func (r *testRepository) ListWorkflowDefinitionVersions(filter DefinitionVersionFilter) ([]domain.WorkflowDefinition, error) {
+	result := make([]domain.WorkflowDefinition, 0, len(r.workflows))
 	for _, definition := range r.workflows {
-		if definition.ID == id && definition.Status == domain.DefinitionStatusPublished && (!found || definition.Version > result.Version) {
-			result = definition
-			found = true
+		if definition.ID == filter.ID {
+			result = append(result, definition)
 		}
 	}
-	if !found {
-		return domain.WorkflowDefinition{}, ErrNotFound
+	sort.Slice(result, func(i, j int) bool { return result[i].Version > result[j].Version })
+	if filter.Page.After != nil {
+		result = slices.DeleteFunc(result, func(item domain.WorkflowDefinition) bool {
+			return item.Version >= filter.Page.After.Version
+		})
+	}
+	if filter.Page.Limit > 0 && len(result) > filter.Page.Limit+1 {
+		result = result[:filter.Page.Limit+1]
 	}
 	return result, nil
 }
 
-func (r *testRepository) ListBlackboardDefinitions() ([]domain.BlackboardDefinition, error) {
+func (r *testRepository) GetLatestBlackboardDefinition(id domain.DefinitionID) (domain.BlackboardDefinition, error) {
+	return latestTestDefinition(r.blackboards, id)
+}
+
+func (r *testRepository) ListBlackboardDefinitionCatalog(filter DefinitionCatalogFilter) ([]domain.BlackboardDefinition, error) {
 	result := make([]domain.BlackboardDefinition, 0, len(r.blackboards))
 	for _, definition := range r.blackboards {
 		result = append(result, definition)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].ID == result[j].ID {
-			return result[i].Version < result[j].Version
-		}
-		return result[i].ID < result[j].ID
-	})
+	result = latestTestDefinitions(result)
+	if filter.Page.After != nil {
+		result = slices.DeleteFunc(result, func(item domain.BlackboardDefinition) bool {
+			return item.ID <= filter.Page.After.ID
+		})
+	}
+	if filter.Page.Limit > 0 && len(result) > filter.Page.Limit+1 {
+		result = result[:filter.Page.Limit+1]
+	}
 	return result, nil
 }
 
-func (r *testRepository) GetLatestPublishedBlackboardDefinition(id domain.DefinitionID) (domain.BlackboardDefinition, error) {
-	var result domain.BlackboardDefinition
-	found := false
+func (r *testRepository) ListBlackboardDefinitionVersions(filter DefinitionVersionFilter) ([]domain.BlackboardDefinition, error) {
+	result := make([]domain.BlackboardDefinition, 0, len(r.blackboards))
 	for _, definition := range r.blackboards {
-		if definition.ID == id && definition.Status == domain.DefinitionStatusPublished && (!found || definition.Version > result.Version) {
+		if definition.ID == filter.ID {
+			result = append(result, definition)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Version > result[j].Version })
+	if filter.Page.After != nil {
+		result = slices.DeleteFunc(result, func(item domain.BlackboardDefinition) bool {
+			return item.Version >= filter.Page.After.Version
+		})
+	}
+	if filter.Page.Limit > 0 && len(result) > filter.Page.Limit+1 {
+		result = result[:filter.Page.Limit+1]
+	}
+	return result, nil
+}
+
+type testDefinition interface {
+	domain.WorkflowDefinition | domain.BlackboardDefinition
+}
+
+func latestTestDefinition[T testDefinition](definitions map[string]T, id domain.DefinitionID) (T, error) {
+	var result T
+	found := false
+	for _, definition := range definitions {
+		metadata := definitionMetadataForTest(definition)
+		if metadata.ID == id && (!found || metadata.Version > definitionMetadataForTest(result).Version) {
 			result = definition
 			found = true
 		}
 	}
 	if !found {
-		return domain.BlackboardDefinition{}, ErrNotFound
+		return result, ErrNotFound
 	}
 	return result, nil
+}
+
+func latestTestDefinitions[T testDefinition](definitions []T) []T {
+	latest := make(map[domain.DefinitionID]T)
+	for _, definition := range definitions {
+		metadata := definitionMetadataForTest(definition)
+		current, exists := latest[metadata.ID]
+		if !exists || metadata.Version > definitionMetadataForTest(current).Version {
+			latest[metadata.ID] = definition
+		}
+	}
+	result := make([]T, 0, len(latest))
+	for _, definition := range latest {
+		result = append(result, definition)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return definitionMetadataForTest(result[i]).ID < definitionMetadataForTest(result[j]).ID
+	})
+	return result
+}
+
+func definitionMetadataForTest[T testDefinition](definition T) domain.DefinitionMetadata {
+	switch value := any(definition).(type) {
+	case domain.WorkflowDefinition:
+		return value.DefinitionMetadata
+	case domain.BlackboardDefinition:
+		return value.DefinitionMetadata
+	default:
+		return domain.DefinitionMetadata{}
+	}
 }
 
 func (r *testRepository) LastWorkItemEventSequence(workItemID domain.WorkItemID) (int64, error) {
@@ -3056,6 +3244,10 @@ func (r *testRepository) DeleteArtifactBlob(uri string) error {
 
 func (r *testRepository) AppendWorkItemEvent(value domain.WorkItemEvent) error {
 	r.events = append(r.events, value)
+	return nil
+}
+
+func (r *testRepository) LockDefinitionVersion(domain.CoordinationMode, domain.DefinitionID) error {
 	return nil
 }
 

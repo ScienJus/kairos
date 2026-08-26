@@ -65,7 +65,6 @@ func TestDefinitionsShareSuggestedTagGuidance(t *testing.T) {
 		Name:              "Kairos Development",
 		AgentInstructions: "Read the design documents before changing the model.",
 		SuggestedTags:     []string{"module:*", "kind:*", "testing"},
-		Status:            DefinitionStatusPublished,
 		CreatedAt:         testTime,
 		UpdatedAt:         testTime,
 	}

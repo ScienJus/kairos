@@ -10,7 +10,7 @@ Workflow 也可以显式保留执行者的判断空间。每个 Task 可以配�
 
 ## 1. Workflow 结构
 
-WorkItem 创建时绑定一个已发布的 Workflow Definition ID 与 Version。这个绑定在 WorkItem 生命周期内保持不变，Workflow 后续发布的新版本不会改变已经开始的工作。
+WorkItem 创建时绑定最新已存储的 Workflow Definition ID 与 Version。这个绑定在 WorkItem 生命周期内保持不变，Workflow 后续创建的新版本不会改变已经开始的工作。
 
 Workflow Definition 还可以提供作用于全部运行时 Task 的 Agent Instructions 与 Suggested Tags。Suggested Tags 由执行者用于动态标注具体 Task，不参与 Workflow 前置关系和候选资格计算。
 
@@ -48,7 +48,7 @@ Workflow Definition 可以包含循环：
 实现 #1 → 测试 #1 → 实现 #2 → 测试 #2
 ```
 
-Workflow 发布时，系统根据图结构为每个 Task 推导推进选择：每条留在当前循环中的出边分别形成一个 Continue Group，离开循环的出边合并为一个 Exit Group。多个 Continue Group 与 Exit Group 互斥；执行者选择其中一个组。循环内出边不表达并行或前置关系。普通无环节点只有一个 Exit Group。
+Workflow 版本创建时，系统根据图结构为每个 Task 推导推进选择：每条留在当前循环中的出边分别形成一个 Continue Group，离开循环的出边合并为一个 Exit Group。多个 Continue Group 与 Exit Group 互斥；执行者选择其中一个组。循环内出边不表达并行或前置关系。普通无环节点只有一个 Exit Group。
 
 选择 Continue Group 即表示保留并产生其目标 Task，该次激活不再应用目标 Task 的 optional 配置。未选择的 Continue Group 不产生 Task。
 

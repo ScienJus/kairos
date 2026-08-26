@@ -19,6 +19,22 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+server_is_running() {
+	if ! kill -0 "$server_pid" 2>/dev/null; then
+		return 1
+	fi
+	server_state=$(ps -o stat= -p "$server_pid" 2>/dev/null || true)
+	case "$server_state" in
+	"" | *Z*) return 1 ;;
+	*) return 0 ;;
+	esac
+}
+
+if curl --fail --silent --show-error "$base_url/healthz" >/dev/null 2>&1; then
+	printf 'Kairos is already responding at %s; choose another KAIROS_QUICKSTART_ADDR.\n' "$base_url" >&2
+	exit 1
+fi
+
 KAIROS_LISTEN_ADDR="$listen_addr" \
 KAIROS_SQLITE_PATH="$demo_dir/kairos.db" \
 KAIROS_ARTIFACT_DIR="$demo_dir/artifacts" \
@@ -28,7 +44,7 @@ server_pid=$!
 attempt=0
 until curl --fail --silent --show-error "$base_url/healthz" >/dev/null 2>&1; do
 	attempt=$((attempt + 1))
-	if ! kill -0 "$server_pid" 2>/dev/null; then
+	if ! server_is_running; then
 		printf 'Kairos failed to start:\n' >&2
 		cat "$demo_dir/server.log" >&2
 		exit 1
@@ -39,6 +55,14 @@ until curl --fail --silent --show-error "$base_url/healthz" >/dev/null 2>&1; do
 	fi
 	sleep 0.1
 done
+
+# Confirm that the process serving the health check is the one started above.
+sleep 0.1
+if ! server_is_running; then
+	printf 'Kairos failed to start:\n' >&2
+	cat "$demo_dir/server.log" >&2
+	exit 1
+fi
 
 request() {
 	operation_id=$1
@@ -53,7 +77,7 @@ request() {
 		--data-binary "@$payload" >/dev/null
 }
 
-request quickstart-create-definition /api/v1/definitions/workflows "$script_dir/workflow.json"
+request quickstart-create-definition /api/v1/definitions/workflows/open-source-readiness/versions "$script_dir/workflow.json"
 request quickstart-create-work-item /api/v1/work-items "$script_dir/work-item.json"
 
 if [ "${KAIROS_QUICKSTART_SMOKE_TEST:-}" = "1" ]; then

@@ -1,11 +1,33 @@
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { api } from './api'
 import type { Identity } from './types'
 
+const activeWorkItemStatuses = ['open', 'awaiting_agent_acceptance', 'awaiting_human_acceptance'] as const
+const settledWorkItemStatuses = ['completed', 'cancelled', 'failed'] as const
+
 export function useHomeData(identity: Identity, active: boolean) {
-  const workItems = useQuery({ queryKey: ['work-items', identity], queryFn: () => api.listWorkItems(identity), enabled: active })
-  const attention = useQuery({ queryKey: ['human-attention', identity], queryFn: () => api.listHumanAttention(identity), enabled: active })
-  return { workItems, attention }
+  const activeWorkItems = useInfiniteQuery({
+    queryKey: ['work-items', identity, 'active'],
+    queryFn: ({ pageParam }) => api.listWorkItems(identity, pageParam, { statuses: [...activeWorkItemStatuses] }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: page => page.next_cursor ?? undefined,
+    enabled: active,
+  })
+  const settledWorkItems = useInfiniteQuery({
+    queryKey: ['work-items', identity, 'settled'],
+    queryFn: ({ pageParam }) => api.listWorkItems(identity, pageParam, { statuses: [...settledWorkItemStatuses] }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: page => page.next_cursor ?? undefined,
+    enabled: active,
+  })
+  const attention = useInfiniteQuery({
+    queryKey: ['human-attention', identity],
+    queryFn: ({ pageParam }) => api.listHumanAttention(identity, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: page => page.next_cursor ?? undefined,
+    enabled: active,
+  })
+  return { activeWorkItems, settledWorkItems, attention }
 }
 
 export function useWorkItemData(identity: Identity, workItemID: string | null) {

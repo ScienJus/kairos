@@ -86,8 +86,8 @@ The operations console discovers the configured mode through the public `GET /ap
 | Resource | Routes |
 | --- | --- |
 | Authentication and session | `GET /api/v1/auth/config`, `GET /api/v1/session` |
-| Workflow Definitions | `GET/POST /api/v1/definitions/workflows`, `GET /api/v1/definitions/workflows/{id}/versions/{version}` |
-| Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`, `GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
+| Workflow Definitions | catalog `GET /api/v1/definitions/workflows`; latest `GET /{id}`; history and append `GET/POST /{id}/versions`; exact version `GET /{id}/versions/{version}` |
+| Blackboard Definitions | catalog `GET /api/v1/definitions/blackboards`; latest `GET /{id}`; history and append `GET/POST /{id}/versions`; exact version `GET /{id}/versions/{version}` |
 | WorkItems | `GET/POST /api/v1/work-items`, `GET /api/v1/work-items/{id}/context`, `POST /completion`, `POST /acceptance`, `POST /cancellation` |
 | Artifacts | `GET /api/v1/work-items/{id}/artifacts`, `POST /api/v1/tasks/{id}/artifacts`, `POST /api/v1/tasks/{id}/artifact-uploads`, `GET /api/v1/artifacts/{id}/content` |
 | Discovery | `GET /api/v1/work` |
@@ -95,6 +95,16 @@ The operations console discovers the configured mode through the public `GET /ap
 | Blackboard planning | WorkItem Tasks, relations, completion; Task decomposition, children, and skipping |
 | Human attention | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities`, token rotation and revocation routes |
+
+The WorkItem, Human Attention, Definition catalog, Definition version-history, and submitted Artifact list routes use cursor pagination. `limit` defaults to 50 and accepts 1-200. A page returns `{ "data": [...], "next_cursor": string | null }`; pass a non-null value back as `cursor` on the same collection route, preserving any filters. Cursors are opaque and collection-specific. An invalid cursor or limit returns `400 invalid_request`. WorkItems are ordered by `updated_at DESC, id ASC`, Human Attention puts Reviews first and otherwise orders by item update time, Definition catalogs by `id ASC`, version histories by `version DESC`, and Artifacts by `created_at ASC, id ASC`.
+
+The operations console loads active and settled WorkItems through separate status-filtered cursors, so loading older history does not affect the active-work queue.
+
+Each Definition catalog returns the maximum stored version for every ID. `GET /definitions/{mode}/{id}` returns that latest version, while `GET /definitions/{mode}/{id}/versions` pages that ID's immutable history. The console resolves an unknown ID or version directly and does not scan unrelated catalog pages.
+
+Creating a new Definition ID omits `base_version` and receives version 1. Appending a version must send the latest version the editor was based on as `base_version`. The server compares it under the Definition lock and assigns `max(version) + 1`; a missing or stale base for an existing ID returns `409 conflict`.
+
+Creating a WorkItem intentionally accepts a Definition ID and mode rather than a version. At creation time the server resolves and binds the maximum stored version for that ID.
 
 Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. After Blackboard Tasks converge, `find_work` returns `blackboard_completion`; a collaborator either creates more Tasks or posts a durable completion result. That submission then applies `acceptance_mode`: `none` (default) completes immediately, `agent` returns `work_item_acceptance`, and `human` enters human acceptance. Acceptance is a separate `POST /acceptance` action. Agent acceptance candidates are visible only to Agent identities. Lifecycle decisions are returned before executable or planning candidates, and `limit` applies globally across those candidate kinds.
 

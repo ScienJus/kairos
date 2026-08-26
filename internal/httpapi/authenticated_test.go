@@ -83,8 +83,8 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 	requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/work", nil, "", http.StatusUnauthorized, "unauthenticated")
 	requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/identities", nil, "wrong-admin-token", http.StatusUnauthorized, "unauthenticated")
 
-	authenticatedRequestData[domain.BlackboardDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/blackboards", map[string]any{
-		"id": "authenticated", "version": 1, "name": "Authenticated", "status": "published",
+	authenticatedRequestData[domain.BlackboardDefinition](t, client, http.MethodPost, server.URL+"/api/v1/definitions/blackboards/authenticated/versions", map[string]any{
+		"name": "Authenticated",
 	}, agent.Token, http.StatusCreated)
 	workItem := authenticatedRequestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
 		"definition_id": "authenticated", "mode": "blackboard",

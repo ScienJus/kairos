@@ -89,7 +89,7 @@ Workflow 和 Blackboard 使用相同的运行时 Task Graph。上层组织语义
 
 ## 3. Workflow
 
-`Workflow` 使用带版本的正式定义组织 WorkItem 内部的工作。WorkItem 创建时绑定一个已发布的 Workflow Definition ID 与 Version，此后不会随 Workflow 的新版本变化。
+`Workflow` 使用带版本的正式定义组织 WorkItem 内部的工作。WorkItem 创建时绑定最新已存储的 Workflow Definition ID 与 Version，此后不会随 Workflow 的新版本变化。
 
 ```text
 设计 ──→ 实现 ──→ 测试

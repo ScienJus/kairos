@@ -41,6 +41,48 @@ describe('API authentication transport', () => {
     expect(headers.has('Authorization')).toBe(false)
   })
 
+  it('encodes Definition pagination parameters', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [], next_cursor: null }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await api.listWorkflowDefinitions(trustedIdentity, 'next page', { limit: 1 })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/definitions/workflows?cursor=next+page&limit=1')
+  })
+
+  it('uses ID-scoped Definition version routes and omits the path ID from JSON', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ data: {} }), {
+      status: 201, headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await api.createDefinition(trustedIdentity, {
+      id: 'release/board', name: 'Release', description: '', agent_instructions: '', suggested_tags: [],
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/definitions/blackboards/release%2Fboard/versions')
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      name: 'Release', description: '', agent_instructions: '', suggested_tags: [],
+    })
+
+    await api.createDefinition(trustedIdentity, {
+      id: 'release/board', base_version: 2, name: 'Release v3', description: '', agent_instructions: '', suggested_tags: [],
+    })
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      base_version: 2, name: 'Release v3', description: '', agent_instructions: '', suggested_tags: [],
+    })
+  })
+
+  it('encodes repeated WorkItem status filters with its cursor', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [], next_cursor: null }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await api.listWorkItems(trustedIdentity, 'active-page', { statuses: ['open', 'awaiting_human_acceptance'] })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/work-items?cursor=active-page&status=open&status=awaiting_human_acceptance')
+  })
+
   it('does not access Token storage in Trusted Mode', async () => {
     configureAuthenticationMode('trusted')
     const originalGetItem = Storage.prototype.getItem

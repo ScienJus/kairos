@@ -450,9 +450,9 @@ func newMCPFixture(t *testing.T, acceptanceModes ...domain.WorkItemAcceptanceMod
 	definition, err := service.CreateBlackboardDefinition(ctx, application.CreateBlackboardDefinitionCommand{
 		Identity: setup,
 		Metadata: application.DefinitionMetadataCommand{
-			ID: "mcp-blackboard", Version: 1, Name: "MCP Blackboard",
+			ID: "mcp-blackboard", Name: "MCP Blackboard",
 			AgentInstructions: "Plan missing tasks, then claim and complete executable work.",
-			SuggestedTags:     []string{"mcp"}, Status: domain.DefinitionStatusPublished,
+			SuggestedTags:     []string{"mcp"},
 		},
 	})
 	if err != nil {

@@ -130,19 +130,59 @@ paths:
       - $ref: '#/components/parameters/TrustedActorRoleHeader'
     get:
       operationId: listWorkflowDefinitions
-      summary: List Workflow Definitions
+      summary: List Workflow Definition Catalog
+      description: Returns the maximum stored version for each Definition ID.
+      parameters:
+        - $ref: '#/components/parameters/PageLimitQuery'
+        - $ref: '#/components/parameters/PageCursorQuery'
       responses:
         '200':
-          description: Workflow Definition versions
+          description: Workflow Definition catalog entries
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WorkflowDefinitionListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/definitions/workflows/{definition_id}:
+    parameters:
+      - $ref: '#/components/parameters/DefinitionIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getLatestWorkflowDefinition
+      summary: Get Latest Stored Workflow Definition
+      responses:
+        '200': { $ref: '#/components/responses/WorkflowDefinition' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/definitions/workflows/{definition_id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/DefinitionIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: listWorkflowDefinitionVersions
+      summary: List Workflow Definition Versions
+      parameters:
+        - $ref: '#/components/parameters/PageLimitQuery'
+        - $ref: '#/components/parameters/PageCursorQuery'
+      responses:
+        '200':
+          description: Workflow Definition versions, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkflowDefinitionListResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
     post:
-      operationId: createWorkflowDefinition
-      summary: Create Workflow Definition
+      operationId: createWorkflowDefinitionVersion
+      summary: Append Workflow Definition Version
+      description: Workflow Definitions are immutable and append-only. Omit `base_version` to create version 1 for a new ID. For an existing ID, `base_version` must equal the latest stored version; the server atomically assigns the next version or returns `409` if another edit was accepted first.
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
@@ -176,19 +216,59 @@ paths:
       - $ref: '#/components/parameters/TrustedActorRoleHeader'
     get:
       operationId: listBlackboardDefinitions
-      summary: List Blackboard Definitions
+      summary: List Blackboard Definition Catalog
+      description: Returns the maximum stored version for each Definition ID.
+      parameters:
+        - $ref: '#/components/parameters/PageLimitQuery'
+        - $ref: '#/components/parameters/PageCursorQuery'
       responses:
         '200':
-          description: Blackboard Definition versions
+          description: Blackboard Definition catalog entries
           content:
             application/json:
               schema: { $ref: '#/components/schemas/BlackboardDefinitionListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/definitions/blackboards/{definition_id}:
+    parameters:
+      - $ref: '#/components/parameters/DefinitionIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getLatestBlackboardDefinition
+      summary: Get Latest Stored Blackboard Definition
+      responses:
+        '200': { $ref: '#/components/responses/BlackboardDefinition' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/definitions/blackboards/{definition_id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/DefinitionIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: listBlackboardDefinitionVersions
+      summary: List Blackboard Definition Versions
+      parameters:
+        - $ref: '#/components/parameters/PageLimitQuery'
+        - $ref: '#/components/parameters/PageCursorQuery'
+      responses:
+        '200':
+          description: Blackboard Definition versions, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlackboardDefinitionListResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
     post:
-      operationId: createBlackboardDefinition
-      summary: Create Blackboard Definition
+      operationId: createBlackboardDefinitionVersion
+      summary: Append Blackboard Definition Version
+      description: Blackboard Definitions are immutable and append-only. Omit `base_version` to create version 1 for a new ID. For an existing ID, `base_version` must equal the latest stored version; the server atomically assigns the next version or returns `409` if another edit was accepted first.
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
@@ -245,6 +325,9 @@ paths:
     get:
       operationId: listHumanAttention
       summary: List Human Attention
+      parameters:
+        - $ref: '#/components/parameters/PageLimitQuery'
+        - $ref: '#/components/parameters/PageCursorQuery'
       responses:
         '200':
           description: Items requiring human attention
@@ -275,6 +358,8 @@ paths:
           style: form
           explode: true
         - $ref: '#/components/parameters/TagQuery'
+        - $ref: '#/components/parameters/PageLimitQuery'
+        - $ref: '#/components/parameters/PageCursorQuery'
       responses:
         '200':
           description: WorkItems, newest first
@@ -326,6 +411,9 @@ paths:
     get:
       operationId: listArtifacts
       summary: List Artifacts
+      parameters:
+        - $ref: '#/components/parameters/PageLimitQuery'
+        - $ref: '#/components/parameters/PageCursorQuery'
       responses:
         '200':
           description: Submitted Artifacts
@@ -873,6 +961,16 @@ components:
       schema: { type: array, items: { type: string } }
       style: form
       explode: true
+    PageLimitQuery:
+      name: limit
+      in: query
+      description: Maximum number of collection items to return.
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    PageCursorQuery:
+      name: cursor
+      in: query
+      description: Opaque `next_cursor` from the preceding page of the same collection.
+      schema: { type: string, minLength: 1, maxLength: 2048 }
   responses:
     BadRequest:
       description: Invalid request (`invalid_request`)
@@ -957,6 +1055,7 @@ components:
     DateTime: { type: string, format: date-time }
     NullableDateTime: { type: [string, 'null'], format: date-time }
     NullableString: { type: [string, 'null'] }
+    NullableCursor: { type: [string, 'null'], minLength: 1, maxLength: 2048 }
     StringArray: { type: array, items: { type: string } }
     ErrorResponse:
       type: object
@@ -1036,7 +1135,7 @@ components:
         role: { type: string }
     DefinitionMetadata:
       type: object
-      required: [id, version, name, description, agent_instructions, suggested_tags, status, created_at, updated_at]
+      required: [id, version, name, description, agent_instructions, suggested_tags, created_at, updated_at]
       properties:
         id: { type: string }
         version: { type: integer, format: int64, minimum: 1 }
@@ -1044,21 +1143,22 @@ components:
         description: { type: string }
         agent_instructions: { type: string }
         suggested_tags: { $ref: '#/components/schemas/StringArray' }
-        status: { type: string, enum: [draft, published, archived] }
         created_at: { $ref: '#/components/schemas/DateTime' }
         updated_at: { $ref: '#/components/schemas/DateTime' }
     CreateDefinitionRequest:
       type: object
       additionalProperties: false
-      required: [id, version, name, status]
+      required: [name]
       properties:
-        id: { type: string }
-        version: { type: integer, format: int64, minimum: 1 }
+        base_version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Required when appending to an existing Definition and must equal its latest stored version; omit for a new Definition ID.
         name: { type: string }
         description: { type: string }
         agent_instructions: { type: string }
         suggested_tags: { $ref: '#/components/schemas/StringArray' }
-        status: { type: string, enum: [draft, published, archived] }
     ArtifactDefinition:
       type: object
       additionalProperties: false
@@ -1107,25 +1207,27 @@ components:
     CreateWorkflowDefinitionRequest:
       type: object
       additionalProperties: false
-      required: [id, version, name, status]
+      required: [name, graph]
       properties:
-        id: { type: string }
-        version: { type: integer, format: int64, minimum: 1 }
+        base_version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Required when appending to an existing Definition and must equal its latest stored version; omit for a new Definition ID.
         name: { type: string }
         description: { type: string }
         agent_instructions: { type: string }
         suggested_tags: { $ref: '#/components/schemas/StringArray' }
-        status: { type: string, enum: [draft, published, archived] }
         graph: { $ref: '#/components/schemas/WorkflowGraphRequest' }
     WorkflowGraphRequest:
       type: object
       additionalProperties: false
+      required: [start_task_ids, tasks]
       properties:
         start_task_ids: { $ref: '#/components/schemas/StringArray' }
         tasks: { type: array, items: { $ref: '#/components/schemas/WorkflowTaskDefinitionRequest' } }
         relations: { type: array, items: { $ref: '#/components/schemas/WorkflowRelationDefinitionRequest' } }
         max_task_executions: { type: integer, minimum: 0, default: 0 }
-      description: A published Definition requires a valid graph; a draft may omit it.
     WorkflowTaskDefinitionRequest:
       type: object
       additionalProperties: false
@@ -1157,16 +1259,20 @@ components:
       properties: { data: { $ref: '#/components/schemas/WorkflowDefinition' } }
     WorkflowDefinitionListResponse:
       type: object
-      required: [data]
-      properties: { data: { type: array, items: { $ref: '#/components/schemas/WorkflowDefinition' } } }
+      required: [data, next_cursor]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/WorkflowDefinition' } }
+        next_cursor: { $ref: '#/components/schemas/NullableCursor' }
     BlackboardDefinitionResponse:
       type: object
       required: [data]
       properties: { data: { $ref: '#/components/schemas/BlackboardDefinition' } }
     BlackboardDefinitionListResponse:
       type: object
-      required: [data]
-      properties: { data: { type: array, items: { $ref: '#/components/schemas/BlackboardDefinition' } } }
+      required: [data, next_cursor]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/BlackboardDefinition' } }
+        next_cursor: { $ref: '#/components/schemas/NullableCursor' }
     DefinitionBinding:
       type: object
       required: [id, version, mode]
@@ -1528,8 +1634,10 @@ components:
       properties: { data: { $ref: '#/components/schemas/WorkItem' } }
     WorkItemListResponse:
       type: object
-      required: [data]
-      properties: { data: { type: array, items: { $ref: '#/components/schemas/WorkItem' } } }
+      required: [data, next_cursor]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/WorkItem' } }
+        next_cursor: { $ref: '#/components/schemas/NullableCursor' }
     TaskResponse:
       type: object
       required: [data]
@@ -1552,8 +1660,10 @@ components:
       properties: { data: { $ref: '#/components/schemas/Artifact' } }
     ArtifactListResponse:
       type: object
-      required: [data]
-      properties: { data: { type: array, items: { $ref: '#/components/schemas/Artifact' } } }
+      required: [data, next_cursor]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
+        next_cursor: { $ref: '#/components/schemas/NullableCursor' }
     FailureResponse:
       type: object
       required: [data]
@@ -1580,8 +1690,10 @@ components:
       properties: { data: { type: array, items: { $ref: '#/components/schemas/WorkCandidate' } } }
     HumanAttentionListResponse:
       type: object
-      required: [data]
-      properties: { data: { type: array, items: { $ref: '#/components/schemas/HumanAttentionItem' } } }
+      required: [data, next_cursor]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/HumanAttentionItem' } }
+        next_cursor: { $ref: '#/components/schemas/NullableCursor' }
     DecompositionResponse:
       type: object
       required: [data]

@@ -16,7 +16,7 @@ func TestCreateDefinitionsKeepsWorkflowGraphSeparateFromBlackboard(t *testing.T)
 	blackboard, err := service.CreateBlackboardDefinition(context.Background(), CreateBlackboardDefinitionCommand{
 		Identity: actor, OperationID: "blackboard-v1",
 		Metadata: DefinitionMetadataCommand{
-			ID: "engineering", Version: 1, Name: "Engineering", Status: domain.DefinitionStatusPublished,
+			ID: "engineering", Name: "Engineering",
 		},
 	})
 	if err != nil {
@@ -25,11 +25,25 @@ func TestCreateDefinitionsKeepsWorkflowGraphSeparateFromBlackboard(t *testing.T)
 	if blackboard.CreatedAt != applicationTestTime || blackboard.UpdatedAt != applicationTestTime {
 		t.Fatalf("Blackboard timestamps = %v, %v", blackboard.CreatedAt, blackboard.UpdatedAt)
 	}
+	blackboardBase := blackboard.Version
+	blackboardV2, err := service.CreateBlackboardDefinition(context.Background(), CreateBlackboardDefinitionCommand{
+		Identity: actor, OperationID: "blackboard-v2", BaseVersion: &blackboardBase,
+		Metadata: DefinitionMetadataCommand{ID: blackboard.ID, Name: "Engineering v2"},
+	})
+	if err != nil || blackboardV2.Version != 2 {
+		t.Fatalf("create next Blackboard version: %#v, err=%v", blackboardV2, err)
+	}
+	if _, err := service.CreateBlackboardDefinition(context.Background(), CreateBlackboardDefinitionCommand{
+		Identity: actor, OperationID: "blackboard-stale", BaseVersion: &blackboardBase,
+		Metadata: DefinitionMetadataCommand{ID: blackboard.ID, Name: "Stale Engineering edit"},
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale Blackboard base error = %v, want conflict", err)
+	}
 
 	workflowCommand := CreateWorkflowDefinitionCommand{
 		Identity: actor, OperationID: "workflow-v1",
 		Metadata: DefinitionMetadataCommand{
-			ID: "delivery", Version: 1, Name: "Delivery", Status: domain.DefinitionStatusPublished,
+			ID: "delivery", Name: "Delivery",
 		},
 		Graph: domain.WorkflowGraph{
 			StartTaskIDs: []domain.WorkflowTaskID{"implement"},
@@ -54,44 +68,53 @@ func TestCreateDefinitionsKeepsWorkflowGraphSeparateFromBlackboard(t *testing.T)
 	if retried.ID != workflow.ID || retried.Version != workflow.Version {
 		t.Fatalf("retried Workflow = %+v, want %+v", retried, workflow)
 	}
+	workflowV2Command := workflowCommand
+	workflowV2Command.OperationID = "workflow-v2"
+	workflowV2Command.BaseVersion = &workflow.Version
+	workflowV2Command.Metadata.Name = "Delivery v2"
+	workflowV2, err := service.CreateWorkflowDefinition(context.Background(), workflowV2Command)
+	if err != nil {
+		t.Fatalf("create next Workflow version: %v", err)
+	}
+	if workflowV2.Version != 2 {
+		t.Fatalf("next Workflow version = %d, want 2", workflowV2.Version)
+	}
+	missingBaseCommand := workflowCommand
+	missingBaseCommand.OperationID = "workflow-missing-base"
+	if _, err := service.CreateWorkflowDefinition(context.Background(), missingBaseCommand); !errors.Is(err, ErrConflict) {
+		t.Fatalf("missing Workflow base error = %v, want conflict", err)
+	}
+	staleBaseCommand := workflowCommand
+	staleBaseCommand.OperationID = "workflow-stale-base"
+	staleBaseCommand.BaseVersion = &workflow.Version
+	if _, err := service.CreateWorkflowDefinition(context.Background(), staleBaseCommand); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale Workflow base error = %v, want conflict", err)
+	}
 
-	workflows, err := service.ListWorkflowDefinitions(context.Background(), actor)
+	workflows, err := service.ListWorkflowDefinitionCatalog(context.Background(), actor, DefinitionCatalogFilter{Page: PageRequest[DefinitionCatalogCursor]{Limit: 50}})
 	if err != nil {
 		t.Fatalf("list Workflow definitions: %v", err)
 	}
-	blackboards, err := service.ListBlackboardDefinitions(context.Background(), actor)
+	blackboards, err := service.ListBlackboardDefinitionCatalog(context.Background(), actor, DefinitionCatalogFilter{Page: PageRequest[DefinitionCatalogCursor]{Limit: 50}})
 	if err != nil {
 		t.Fatalf("list Blackboard definitions: %v", err)
 	}
-	if len(workflows) != 1 || len(blackboards) != 1 {
-		t.Fatalf("listed %d Workflows and %d Blackboards", len(workflows), len(blackboards))
+	if len(workflows.Items) != 1 || len(blackboards.Items) != 1 {
+		t.Fatalf("listed %d Workflows and %d Blackboards", len(workflows.Items), len(blackboards.Items))
 	}
 }
 
-func TestPublishedWorkflowDefinitionRequiresValidGraph(t *testing.T) {
+func TestWorkflowDefinitionRequiresValidGraph(t *testing.T) {
 	service := newTestService(t, newTestRepository())
 	actor := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "planner"}, Role: "architect"}
 
 	_, err := service.CreateWorkflowDefinition(context.Background(), CreateWorkflowDefinitionCommand{
 		Identity: actor,
 		Metadata: DefinitionMetadataCommand{
-			ID: "invalid", Version: 1, Name: "Invalid", Status: domain.DefinitionStatusPublished,
+			ID: "invalid", Name: "Invalid",
 		},
 	})
 	if !errors.Is(err, domain.ErrInvalidModel) {
 		t.Fatalf("error = %v, want invalid domain model", err)
-	}
-
-	draft, err := service.CreateWorkflowDefinition(context.Background(), CreateWorkflowDefinitionCommand{
-		Identity: actor,
-		Metadata: DefinitionMetadataCommand{
-			ID: "draft", Version: 1, Name: "Draft", Status: domain.DefinitionStatusDraft,
-		},
-	})
-	if err != nil {
-		t.Fatalf("create draft Workflow without graph: %v", err)
-	}
-	if draft.Status != domain.DefinitionStatusDraft {
-		t.Fatalf("draft status = %q", draft.Status)
 	}
 }

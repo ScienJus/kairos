@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,7 +9,7 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-// CreateWorkItemCommand creates one concrete unit of work using the latest published Definition.
+// CreateWorkItemCommand creates one concrete unit of work using the latest Definition.
 type CreateWorkItemCommand struct {
 	Definition  domain.DefinitionBinding
 	Identity    Identity
@@ -25,7 +24,7 @@ type CreateWorkItemCommand struct {
 	Tags               []string
 }
 
-// CreateWorkItem resolves the latest published version and binds the WorkItem to it.
+// CreateWorkItem resolves the latest version and binds the WorkItem to it.
 // Workflow start Tasks are created in the same transaction.
 func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemCommand) (domain.WorkItem, error) {
 	if err := command.Identity.Validate(); err != nil {
@@ -50,12 +49,9 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 		var binding domain.DefinitionBinding
 		switch command.Definition.Mode {
 		case domain.CoordinationModeWorkflow:
-			definition, err := store.GetLatestPublishedWorkflowDefinition(command.Definition.ID)
-			if errors.Is(err, ErrNotFound) {
-				return fmt.Errorf("%w: published workflow definition %q", ErrNotFound, command.Definition.ID)
-			}
+			definition, err := store.GetLatestWorkflowDefinition(command.Definition.ID)
 			if err != nil {
-				return fmt.Errorf("get published workflow definition: %w", err)
+				return fmt.Errorf("get latest workflow definition: %w", err)
 			}
 			if err := definition.Validate(); err != nil {
 				return fmt.Errorf("validate workflow definition: %w", err)
@@ -63,12 +59,9 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 			workflow = &definition
 			binding = definition.Binding()
 		case domain.CoordinationModeBlackboard:
-			definition, err := store.GetLatestPublishedBlackboardDefinition(command.Definition.ID)
-			if errors.Is(err, ErrNotFound) {
-				return fmt.Errorf("%w: published blackboard definition %q", ErrNotFound, command.Definition.ID)
-			}
+			definition, err := store.GetLatestBlackboardDefinition(command.Definition.ID)
 			if err != nil {
-				return fmt.Errorf("get published blackboard definition: %w", err)
+				return fmt.Errorf("get latest blackboard definition: %w", err)
 			}
 			if err := definition.Validate(); err != nil {
 				return fmt.Errorf("validate blackboard definition: %w", err)

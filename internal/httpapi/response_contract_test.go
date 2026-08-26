@@ -35,13 +35,23 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	empty := rawTrustedResponse(t, server.Client(), http.MethodGet, server.URL+"/api/v1/work-items", http.StatusOK)
-	if string(empty) != "{\"data\":[]}\n" {
+	if string(empty) != "{\"data\":[],\"next_cursor\":null}\n" {
 		t.Fatalf("empty collection response = %s", empty)
 	}
+	emptyAttention := rawTrustedResponse(t, server.Client(), http.MethodGet, server.URL+"/api/v1/human-attention", http.StatusOK)
+	if string(emptyAttention) != "{\"data\":[],\"next_cursor\":null}\n" {
+		t.Fatalf("empty Human Attention response = %s", emptyAttention)
+	}
 
-	requestData[domain.BlackboardDefinition](t, server.Client(), http.MethodPost, server.URL+"/api/v1/definitions/blackboards", map[string]any{
-		"id": "contract", "version": 1, "name": "Contract", "status": "published", "suggested_tags": []string{},
+	requestData[domain.BlackboardDefinition](t, server.Client(), http.MethodPost, server.URL+"/api/v1/definitions/blackboards/contract/versions", map[string]any{
+		"name": "Contract", "suggested_tags": []string{},
 	}, "create-contract-definition", http.StatusCreated)
+	rawTrustedJSONResponse(t, server.Client(), http.MethodPost,
+		server.URL+"/api/v1/definitions/blackboards/contract/versions",
+		map[string]any{"name": "Old client", "suggested_tags": []string{}, "version": 2},
+		"reject-client-definition-version", http.StatusBadRequest,
+		trustedTestIdentity{ID: "contract-reviewer", Kind: domain.ActorHuman},
+	)
 	workItem := requestData[domain.WorkItem](t, server.Client(), http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
 		"definition_id": "contract", "mode": "blackboard", "title": "Check contract", "goal": "Keep the API stable", "tags": []string{},
 	}, "create-contract-work-item", http.StatusCreated)

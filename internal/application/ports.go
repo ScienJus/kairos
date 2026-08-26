@@ -95,6 +95,62 @@ type WorkItemFilter struct {
 	Statuses []domain.WorkItemStatus
 	Modes    []domain.CoordinationMode
 	Tags     []string
+	Page     PageRequest[WorkItemCursor]
+}
+
+// PageRequest describes a bounded keyset page. A zero Limit is reserved for
+// internal aggregate reads that intentionally need the complete collection.
+type PageRequest[T any] struct {
+	Limit int
+	After *T
+}
+
+const MaxPageLimit = 200
+
+type Page[T any] struct {
+	Items   []T
+	HasMore bool
+}
+
+type WorkItemCursor struct {
+	UpdatedAt time.Time
+	ID        domain.WorkItemID
+}
+
+type DefinitionCatalogCursor struct {
+	ID domain.DefinitionID
+}
+
+type DefinitionCatalogFilter struct {
+	Page PageRequest[DefinitionCatalogCursor]
+}
+
+type DefinitionVersionCursor struct {
+	Version int64
+}
+
+type DefinitionVersionFilter struct {
+	ID   domain.DefinitionID
+	Page PageRequest[DefinitionVersionCursor]
+}
+
+type ArtifactCursor struct {
+	CreatedAt time.Time
+	ID        domain.ArtifactID
+}
+
+type ArtifactFilter struct {
+	WorkItemID    domain.WorkItemID
+	TaskID        domain.TaskID
+	SubmittedOnly bool
+	Page          PageRequest[ArtifactCursor]
+}
+
+type HumanAttentionCursor struct {
+	Priority   int
+	UpdatedAt  time.Time
+	WorkItemID domain.WorkItemID
+	TaskID     domain.TaskID
 }
 
 // OpenTaskFilter narrows discovery candidates before application-level checks.
@@ -112,8 +168,9 @@ type ReadStore interface {
 	ListTasks(domain.WorkItemID) ([]domain.Task, error)
 	ListTaskRelations(domain.WorkItemID) ([]domain.TaskRelation, error)
 	ListClaims(domain.TaskID) ([]domain.Claim, error)
+	ListHumanAttention(PageRequest[HumanAttentionCursor]) ([]HumanAttentionItem, error)
 	GetArtifact(domain.ArtifactID) (domain.Artifact, error)
-	ListArtifacts(domain.WorkItemID) ([]domain.Artifact, error)
+	ListArtifacts(ArtifactFilter) ([]domain.Artifact, error)
 	GetArtifactBlob(string) (domain.ArtifactBlob, error)
 	ListArtifactGarbage(time.Time) ([]domain.Artifact, error)
 	ListUnreferencedArtifactBlobs(time.Time) ([]domain.ArtifactBlob, error)
@@ -128,10 +185,12 @@ type ReadStore interface {
 	GetDefinitionMetadata([]domain.DefinitionBinding) (map[domain.DefinitionBinding]domain.DefinitionMetadata, error)
 	GetWorkflowDefinition(domain.DefinitionID, int64) (domain.WorkflowDefinition, error)
 	GetBlackboardDefinition(domain.DefinitionID, int64) (domain.BlackboardDefinition, error)
-	GetLatestPublishedWorkflowDefinition(domain.DefinitionID) (domain.WorkflowDefinition, error)
-	GetLatestPublishedBlackboardDefinition(domain.DefinitionID) (domain.BlackboardDefinition, error)
-	ListWorkflowDefinitions() ([]domain.WorkflowDefinition, error)
-	ListBlackboardDefinitions() ([]domain.BlackboardDefinition, error)
+	GetLatestWorkflowDefinition(domain.DefinitionID) (domain.WorkflowDefinition, error)
+	GetLatestBlackboardDefinition(domain.DefinitionID) (domain.BlackboardDefinition, error)
+	ListWorkflowDefinitionCatalog(DefinitionCatalogFilter) ([]domain.WorkflowDefinition, error)
+	ListBlackboardDefinitionCatalog(DefinitionCatalogFilter) ([]domain.BlackboardDefinition, error)
+	ListWorkflowDefinitionVersions(DefinitionVersionFilter) ([]domain.WorkflowDefinition, error)
+	ListBlackboardDefinitionVersions(DefinitionVersionFilter) ([]domain.BlackboardDefinition, error)
 
 	LastWorkItemEventSequence(domain.WorkItemID) (int64, error)
 	GetIdempotencyRecord(domain.ActorRef, string) (IdempotencyRecord, error)
@@ -141,6 +200,7 @@ type ReadStore interface {
 // WriteStore exposes mutations performed inside one repository transaction.
 type WriteStore interface {
 	ReadStore
+	LockDefinitionVersion(domain.CoordinationMode, domain.DefinitionID) error
 	CreateWorkflowDefinition(domain.WorkflowDefinition) error
 	CreateBlackboardDefinition(domain.BlackboardDefinition) error
 

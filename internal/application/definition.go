@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,18 +13,19 @@ import (
 // DefinitionMetadataCommand contains fields shared by immutable Definition versions.
 type DefinitionMetadataCommand struct {
 	ID                domain.DefinitionID
-	Version           int64
 	Name              string
 	Description       string
 	AgentInstructions string
 	SuggestedTags     []string
-	Status            domain.DefinitionStatus
 }
 
 // CreateWorkflowDefinitionCommand creates one immutable Workflow Definition version.
 type CreateWorkflowDefinitionCommand struct {
 	Identity    Identity
 	OperationID string
+	// BaseVersion is nil only when creating version 1. Appends must name the
+	// latest stored version so concurrent edits cannot overwrite each other.
+	BaseVersion *int64
 	Metadata    DefinitionMetadataCommand
 	Graph       domain.WorkflowGraph
 }
@@ -39,11 +41,21 @@ func (s *Service) CreateWorkflowDefinition(
 	if err := validateDefinitionMetadataCommand(command.Metadata); err != nil {
 		return domain.WorkflowDefinition{}, err
 	}
+	if err := validateDefinitionBaseVersion(command.BaseVersion); err != nil {
+		return domain.WorkflowDefinition{}, err
+	}
 	var created domain.WorkflowDefinition
 	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_workflow_definition", command, &created, func(store WriteStore) error {
+		if err := store.LockDefinitionVersion(domain.CoordinationModeWorkflow, command.Metadata.ID); err != nil {
+			return fmt.Errorf("lock workflow definition version: %w", err)
+		}
+		version, err := nextWorkflowDefinitionVersion(store, command.Metadata.ID, command.BaseVersion)
+		if err != nil {
+			return err
+		}
 		now := s.clock.Now()
 		definition := domain.WorkflowDefinition{
-			DefinitionMetadata: definitionMetadata(command.Metadata, now),
+			DefinitionMetadata: definitionMetadata(command.Metadata, version, now),
 			Graph:              command.Graph,
 		}
 		if err := definition.Validate(); err != nil {
@@ -65,6 +77,9 @@ func (s *Service) CreateWorkflowDefinition(
 type CreateBlackboardDefinitionCommand struct {
 	Identity    Identity
 	OperationID string
+	// BaseVersion is nil only when creating version 1. Appends must name the
+	// latest stored version so concurrent edits cannot overwrite each other.
+	BaseVersion *int64
 	Metadata    DefinitionMetadataCommand
 }
 
@@ -79,10 +94,20 @@ func (s *Service) CreateBlackboardDefinition(
 	if err := validateDefinitionMetadataCommand(command.Metadata); err != nil {
 		return domain.BlackboardDefinition{}, err
 	}
+	if err := validateDefinitionBaseVersion(command.BaseVersion); err != nil {
+		return domain.BlackboardDefinition{}, err
+	}
 	var created domain.BlackboardDefinition
 	err := s.idempotentUpdate(ctx, command.Identity, command.OperationID, "create_blackboard_definition", command, &created, func(store WriteStore) error {
+		if err := store.LockDefinitionVersion(domain.CoordinationModeBlackboard, command.Metadata.ID); err != nil {
+			return fmt.Errorf("lock blackboard definition version: %w", err)
+		}
+		version, err := nextBlackboardDefinitionVersion(store, command.Metadata.ID, command.BaseVersion)
+		if err != nil {
+			return err
+		}
 		now := s.clock.Now()
-		definition := domain.BlackboardDefinition{DefinitionMetadata: definitionMetadata(command.Metadata, now)}
+		definition := domain.BlackboardDefinition{DefinitionMetadata: definitionMetadata(command.Metadata, version, now)}
 		if err := definition.Validate(); err != nil {
 			return err
 		}
@@ -139,48 +164,195 @@ func (s *Service) GetBlackboardDefinition(ctx context.Context, query GetDefiniti
 	return normalizeBlackboardDefinition(result), err
 }
 
-// ListWorkflowDefinitions returns every stored Workflow Definition version.
-func (s *Service) ListWorkflowDefinitions(ctx context.Context, actor Identity) ([]domain.WorkflowDefinition, error) {
+// GetLatestWorkflowDefinition returns the latest stored version for one Workflow Definition ID.
+func (s *Service) GetLatestWorkflowDefinition(ctx context.Context, actor Identity, id domain.DefinitionID) (domain.WorkflowDefinition, error) {
+	if err := validateDefinitionID(actor, id); err != nil {
+		return domain.WorkflowDefinition{}, err
+	}
+	var result domain.WorkflowDefinition
+	err := s.repository.View(ctx, func(store ReadStore) error {
+		definition, err := store.GetLatestWorkflowDefinition(id)
+		if err != nil {
+			return fmt.Errorf("get latest workflow definition: %w", err)
+		}
+		result = definition
+		return nil
+	})
+	return normalizeWorkflowDefinition(result), err
+}
+
+// GetLatestBlackboardDefinition returns the latest stored version for one Blackboard Definition ID.
+func (s *Service) GetLatestBlackboardDefinition(ctx context.Context, actor Identity, id domain.DefinitionID) (domain.BlackboardDefinition, error) {
+	if err := validateDefinitionID(actor, id); err != nil {
+		return domain.BlackboardDefinition{}, err
+	}
+	var result domain.BlackboardDefinition
+	err := s.repository.View(ctx, func(store ReadStore) error {
+		definition, err := store.GetLatestBlackboardDefinition(id)
+		if err != nil {
+			return fmt.Errorf("get latest blackboard definition: %w", err)
+		}
+		result = definition
+		return nil
+	})
+	return normalizeBlackboardDefinition(result), err
+}
+
+// ListWorkflowDefinitionCatalog returns the latest version per Workflow Definition ID.
+func (s *Service) ListWorkflowDefinitionCatalog(ctx context.Context, actor Identity, filter DefinitionCatalogFilter) (Page[domain.WorkflowDefinition], error) {
 	if err := actor.Validate(); err != nil {
-		return nil, err
+		return Page[domain.WorkflowDefinition]{}, err
+	}
+	if err := validatePageRequest(filter.Page.Limit); err != nil {
+		return Page[domain.WorkflowDefinition]{}, err
 	}
 	var result []domain.WorkflowDefinition
 	err := s.repository.View(ctx, func(store ReadStore) error {
-		definitions, err := store.ListWorkflowDefinitions()
+		definitions, err := store.ListWorkflowDefinitionCatalog(filter)
 		if err != nil {
-			return fmt.Errorf("list workflow definitions: %w", err)
+			return fmt.Errorf("list workflow definition catalog: %w", err)
 		}
 		result = definitions
 		return nil
 	})
-	return normalizeWorkflowDefinitions(result), err
+	if err != nil {
+		return Page[domain.WorkflowDefinition]{}, err
+	}
+	return boundedPage(normalizeWorkflowDefinitions(result), filter.Page.Limit), nil
 }
 
-// ListBlackboardDefinitions returns every stored Blackboard Definition version.
-func (s *Service) ListBlackboardDefinitions(ctx context.Context, actor Identity) ([]domain.BlackboardDefinition, error) {
+// ListBlackboardDefinitionCatalog returns the latest version per Blackboard Definition ID.
+func (s *Service) ListBlackboardDefinitionCatalog(ctx context.Context, actor Identity, filter DefinitionCatalogFilter) (Page[domain.BlackboardDefinition], error) {
 	if err := actor.Validate(); err != nil {
-		return nil, err
+		return Page[domain.BlackboardDefinition]{}, err
+	}
+	if err := validatePageRequest(filter.Page.Limit); err != nil {
+		return Page[domain.BlackboardDefinition]{}, err
 	}
 	var result []domain.BlackboardDefinition
 	err := s.repository.View(ctx, func(store ReadStore) error {
-		definitions, err := store.ListBlackboardDefinitions()
+		definitions, err := store.ListBlackboardDefinitionCatalog(filter)
 		if err != nil {
-			return fmt.Errorf("list blackboard definitions: %w", err)
+			return fmt.Errorf("list blackboard definition catalog: %w", err)
 		}
 		result = definitions
 		return nil
 	})
-	return normalizeBlackboardDefinitions(result), err
+	if err != nil {
+		return Page[domain.BlackboardDefinition]{}, err
+	}
+	return boundedPage(normalizeBlackboardDefinitions(result), filter.Page.Limit), nil
+}
+
+// ListWorkflowDefinitionVersions returns one Definition ID's versions newest first.
+func (s *Service) ListWorkflowDefinitionVersions(ctx context.Context, actor Identity, filter DefinitionVersionFilter) (Page[domain.WorkflowDefinition], error) {
+	if err := validateDefinitionVersionFilter(actor, filter.ID, filter.Page.Limit); err != nil {
+		return Page[domain.WorkflowDefinition]{}, err
+	}
+	var result []domain.WorkflowDefinition
+	err := s.repository.View(ctx, func(store ReadStore) error {
+		if _, err := store.GetLatestWorkflowDefinition(filter.ID); err != nil {
+			return fmt.Errorf("get workflow definition: %w", err)
+		}
+		definitions, err := store.ListWorkflowDefinitionVersions(filter)
+		if err != nil {
+			return fmt.Errorf("list workflow definition versions: %w", err)
+		}
+		result = definitions
+		return nil
+	})
+	if err != nil {
+		return Page[domain.WorkflowDefinition]{}, err
+	}
+	return boundedPage(normalizeWorkflowDefinitions(result), filter.Page.Limit), nil
+}
+
+// ListBlackboardDefinitionVersions returns one Definition ID's versions newest first.
+func (s *Service) ListBlackboardDefinitionVersions(ctx context.Context, actor Identity, filter DefinitionVersionFilter) (Page[domain.BlackboardDefinition], error) {
+	if err := validateDefinitionVersionFilter(actor, filter.ID, filter.Page.Limit); err != nil {
+		return Page[domain.BlackboardDefinition]{}, err
+	}
+	var result []domain.BlackboardDefinition
+	err := s.repository.View(ctx, func(store ReadStore) error {
+		if _, err := store.GetLatestBlackboardDefinition(filter.ID); err != nil {
+			return fmt.Errorf("get blackboard definition: %w", err)
+		}
+		definitions, err := store.ListBlackboardDefinitionVersions(filter)
+		if err != nil {
+			return fmt.Errorf("list blackboard definition versions: %w", err)
+		}
+		result = definitions
+		return nil
+	})
+	if err != nil {
+		return Page[domain.BlackboardDefinition]{}, err
+	}
+	return boundedPage(normalizeBlackboardDefinitions(result), filter.Page.Limit), nil
 }
 
 func validateDefinitionMetadataCommand(command DefinitionMetadataCommand) error {
 	if strings.TrimSpace(string(command.ID)) == "" {
 		return invalidCommand("definition id is required")
 	}
-	if command.Version <= 0 {
-		return invalidCommand("definition version must be greater than zero")
+	return nil
+}
+
+func validateDefinitionBaseVersion(version *int64) error {
+	if version != nil && *version <= 0 {
+		return invalidCommand("definition base version must be greater than zero")
 	}
 	return nil
+}
+
+// Workflow and Blackboard Definitions use the same append-only update model:
+// each accepted edit creates latest+1, and the base check runs while the
+// Definition lock is held. A concurrent editor based on an older version gets
+// a conflict instead of silently replacing changes accepted before it.
+func nextWorkflowDefinitionVersion(store ReadStore, id domain.DefinitionID, baseVersion *int64) (int64, error) {
+	latest, err := store.GetLatestWorkflowDefinition(id)
+	if errors.Is(err, ErrNotFound) {
+		if baseVersion != nil {
+			return 0, conflict("workflow definition %q does not have base version %d", id, *baseVersion)
+		}
+		return 1, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get latest workflow definition: %w", err)
+	}
+	if baseVersion == nil {
+		return 0, conflict("base_version is required to append workflow definition %q", id)
+	}
+	if *baseVersion != latest.Version {
+		return 0, conflict("workflow definition %q advanced from version %d to %d", id, *baseVersion, latest.Version)
+	}
+	return incrementDefinitionVersion(latest.Version)
+}
+
+func nextBlackboardDefinitionVersion(store ReadStore, id domain.DefinitionID, baseVersion *int64) (int64, error) {
+	latest, err := store.GetLatestBlackboardDefinition(id)
+	if errors.Is(err, ErrNotFound) {
+		if baseVersion != nil {
+			return 0, conflict("blackboard definition %q does not have base version %d", id, *baseVersion)
+		}
+		return 1, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get latest blackboard definition: %w", err)
+	}
+	if baseVersion == nil {
+		return 0, conflict("base_version is required to append blackboard definition %q", id)
+	}
+	if *baseVersion != latest.Version {
+		return 0, conflict("blackboard definition %q advanced from version %d to %d", id, *baseVersion, latest.Version)
+	}
+	return incrementDefinitionVersion(latest.Version)
+}
+
+func incrementDefinitionVersion(version int64) (int64, error) {
+	if version == int64(^uint64(0)>>1) {
+		return 0, invalidCommand("definition version limit reached")
+	}
+	return version + 1, nil
 }
 
 func validateGetDefinitionQuery(query GetDefinitionQuery) error {
@@ -193,11 +365,28 @@ func validateGetDefinitionQuery(query GetDefinitionQuery) error {
 	return nil
 }
 
-func definitionMetadata(command DefinitionMetadataCommand, now time.Time) domain.DefinitionMetadata {
+func validateDefinitionID(actor Identity, id domain.DefinitionID) error {
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(id)) == "" {
+		return invalidCommand("definition id is required")
+	}
+	return nil
+}
+
+func validateDefinitionVersionFilter(actor Identity, id domain.DefinitionID, limit int) error {
+	if err := validateDefinitionID(actor, id); err != nil {
+		return err
+	}
+	return validatePageRequest(limit)
+}
+
+func definitionMetadata(command DefinitionMetadataCommand, version int64, now time.Time) domain.DefinitionMetadata {
 	return domain.DefinitionMetadata{
-		ID: command.ID, Version: command.Version, Name: strings.TrimSpace(command.Name),
+		ID: command.ID, Version: version, Name: strings.TrimSpace(command.Name),
 		Description: strings.TrimSpace(command.Description), AgentInstructions: strings.TrimSpace(command.AgentInstructions),
-		SuggestedTags: append([]string(nil), command.SuggestedTags...), Status: command.Status,
-		CreatedAt: now, UpdatedAt: now,
+		SuggestedTags: append([]string(nil), command.SuggestedTags...),
+		CreatedAt:     now, UpdatedAt: now,
 	}
 }

@@ -89,7 +89,7 @@ Workflow and Blackboard use the same runtime Task Graph. Their organizational se
 
 ## 3. Workflow
 
-`Workflow` organizes the work inside a WorkItem with a versioned formal definition. A WorkItem is bound to a published Workflow Definition ID and Version when created and is unaffected by later Workflow versions.
+`Workflow` organizes the work inside a WorkItem with a versioned formal definition. A WorkItem is bound to the latest stored Workflow Definition ID and Version when created and is unaffected by later Workflow versions.
 
 ```text
 Design ──→ Implement ──→ Test

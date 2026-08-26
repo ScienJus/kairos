@@ -15,21 +15,25 @@ type ListWorkItemsQuery struct {
 	Statuses []domain.WorkItemStatus
 	Modes    []domain.CoordinationMode
 	Tags     []string
+	Page     PageRequest[WorkItemCursor]
 }
 
 // ListWorkItems returns durable WorkItems, including terminal items, newest first.
-func (s *Service) ListWorkItems(ctx context.Context, query ListWorkItemsQuery) ([]domain.WorkItem, error) {
+func (s *Service) ListWorkItems(ctx context.Context, query ListWorkItemsQuery) (Page[domain.WorkItem], error) {
 	if err := query.Identity.Validate(); err != nil {
-		return nil, err
+		return Page[domain.WorkItem]{}, err
+	}
+	if err := validatePageRequest(query.Page.Limit); err != nil {
+		return Page[domain.WorkItem]{}, err
 	}
 	for _, status := range query.Statuses {
 		if !status.Valid() {
-			return nil, invalidCommand("unsupported work item status %q", status)
+			return Page[domain.WorkItem]{}, invalidCommand("unsupported work item status %q", status)
 		}
 	}
 	for _, mode := range query.Modes {
 		if !mode.Valid() {
-			return nil, invalidCommand("unsupported coordination mode %q", mode)
+			return Page[domain.WorkItem]{}, invalidCommand("unsupported coordination mode %q", mode)
 		}
 	}
 
@@ -39,6 +43,7 @@ func (s *Service) ListWorkItems(ctx context.Context, query ListWorkItemsQuery) (
 			Statuses: query.Statuses,
 			Modes:    query.Modes,
 			Tags:     query.Tags,
+			Page:     query.Page,
 		})
 		if err != nil {
 			return fmt.Errorf("list work items: %w", err)
@@ -49,12 +54,27 @@ func (s *Service) ListWorkItems(ctx context.Context, query ListWorkItemsQuery) (
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return Page[domain.WorkItem]{}, err
 	}
-	if result == nil {
-		result = []domain.WorkItem{}
+	return boundedPage(result, query.Page.Limit), nil
+}
+
+func validatePageRequest(limit int) error {
+	if limit < 1 || limit > MaxPageLimit {
+		return invalidCommand("limit must be between 1 and %d", MaxPageLimit)
 	}
-	return result, nil
+	return nil
+}
+
+func boundedPage[T any](items []T, limit int) Page[T] {
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	if items == nil {
+		items = []T{}
+	}
+	return Page[T]{Items: items, HasMore: hasMore}
 }
 
 func containsAllStrings(values, required []string) bool {
@@ -121,7 +141,7 @@ func (s *Service) GetWorkItemExecutionContext(
 		if relations == nil {
 			relations = []domain.TaskRelation{}
 		}
-		artifacts, err := store.ListArtifacts(workItem.ID)
+		artifacts, err := store.ListArtifacts(ArtifactFilter{WorkItemID: workItem.ID})
 		if err != nil {
 			return fmt.Errorf("list artifacts for work item %q: %w", workItem.ID, err)
 		}

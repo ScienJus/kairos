@@ -567,7 +567,6 @@ func simulationWorkflowDefinition() domain.WorkflowDefinition {
 			Name:              "Login delivery workflow",
 			AgentInstructions: "Choose legal work and use prior task results.",
 			SuggestedTags:     []string{"module:*", "test"},
-			Status:            domain.DefinitionStatusPublished,
 			CreatedAt:         repositoryTestTime,
 			UpdatedAt:         repositoryTestTime,
 		},
@@ -595,7 +594,6 @@ func simulationBlackboardDefinition() domain.BlackboardDefinition {
 		Name:              "Login collaboration blackboard",
 		AgentInstructions: "Plan useful tasks, respect suggested dependencies, and create follow-up tasks before ending the current task.",
 		SuggestedTags:     []string{"planning", "module:*", "docs", "test"},
-		Status:            domain.DefinitionStatusPublished,
 		CreatedAt:         repositoryTestTime,
 		UpdatedAt:         repositoryTestTime,
 	}}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ArrowLeft, ArrowRight, BookOpen, Plus, Tag, XCircle } from 'lucide-react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowDown, ArrowLeft, ArrowRight, BookOpen, Plus, Tag, XCircle } from 'lucide-react'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, APIError } from './api'
 import type { WorkDefinitionTarget } from './AppModals'
 import { useI18n } from './i18n'
@@ -17,29 +17,55 @@ export function BlackboardsPage({ identity, blackboardID, blackboardVersion, nav
 }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
-  const definitions = useQuery({ queryKey: ['blackboard-definitions', identity], queryFn: () => api.listBlackboardDefinitions(identity) })
+  const definitions = useInfiniteQuery({
+    queryKey: ['blackboard-definitions', identity], queryFn: ({ pageParam }) => api.listBlackboardDefinitions(identity, pageParam),
+    initialPageParam: undefined as string | undefined, getNextPageParam: page => page.next_cursor ?? undefined,
+  })
+  const loadedDefinitions = useMemo(() => definitions.data?.pages.flatMap(page => page.data) ?? [], [definitions.data])
+  const addressedDefinitions = useInfiniteQuery({
+    queryKey: ['blackboard-definition-versions', identity, blackboardID],
+    queryFn: ({ pageParam }) => api.listBlackboardDefinitionVersions(identity, blackboardID!, pageParam),
+    initialPageParam: undefined as string | undefined, getNextPageParam: page => page.next_cursor ?? undefined,
+    enabled: Boolean(blackboardID),
+  })
+  const requestedDefinition = useQuery({
+    queryKey: ['blackboard-definition', identity, blackboardID, blackboardVersion],
+    queryFn: () => api.getBlackboardDefinition(identity, blackboardID!, blackboardVersion!),
+    enabled: Boolean(blackboardID && blackboardVersion),
+  })
+  const addressedVersions = useMemo(() => {
+    const versions = addressedDefinitions.data?.pages.flatMap(page => page.data) ?? []
+    const byVersion = new Map(versions.map(definition => [definition.version, definition]))
+    if (requestedDefinition.data) byVersion.set(requestedDefinition.data.version, requestedDefinition.data)
+    return [...byVersion.values()].sort((left, right) => right.version - left.version)
+  }, [addressedDefinitions.data, requestedDefinition.data])
   const [editing, setEditing] = useState(false)
   const versionsByID = useMemo(() => {
     const groups = new Map<string, Definition[]>()
-    for (const definition of definitions.data ?? []) groups.set(definition.id, [...(groups.get(definition.id) ?? []), definition])
+    for (const definition of [...loadedDefinitions, ...addressedVersions]) {
+      const versions = groups.get(definition.id) ?? []
+      if (!versions.some(version => version.version === definition.version)) groups.set(definition.id, [...versions, definition])
+    }
     for (const versions of groups.values()) versions.sort((left, right) => right.version - left.version)
     return [...groups.values()].sort((left, right) => left[0].name.localeCompare(right[0].name))
-  }, [definitions.data])
-  const selectedVersions = blackboardID ? versionsByID.find(versions => versions[0].id === blackboardID) ?? [] : []
-  const selected = selectedVersions.find(item => item.version === blackboardVersion) ?? selectedVersions[0] ?? null
-  const selectedIsLatest = selected !== null && selected.version === selectedVersions[0]?.version
+  }, [loadedDefinitions, addressedVersions])
+  const selected = blackboardVersion ? requestedDefinition.data ?? null : addressedVersions[0] ?? null
+  const selectedIsLatest = selected !== null && selected.version === addressedVersions[0]?.version
+  const selectionLoading = Boolean(blackboardID && (addressedDefinitions.isLoading || (blackboardVersion && requestedDefinition.isLoading)))
+  const selectionError = requestedDefinition.error ?? addressedDefinitions.error
+  const selectionMissing = Boolean(blackboardID && !selectionLoading && !selectionError && !selected)
 
   useEffect(() => {
-    if (!blackboardID || !selected || blackboardVersion === selected.version) return
+    if (!blackboardID || !selected || blackboardVersion) return
     navigate({ workItemID: null, taskID: null, homeView: 'all', blackboardID, blackboardVersion: selected.version }, true)
-  }, [blackboardID, blackboardVersion, selected])
+  }, [blackboardID, blackboardVersion, selected, navigate])
 
   const create = useMutation({
     mutationFn: (input: CreateDefinitionInput) => api.createDefinition(identity, input),
     onSuccess: async definition => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['blackboard-definitions', identity] }),
-        queryClient.invalidateQueries({ queryKey: ['definitions', identity] }),
+        queryClient.invalidateQueries({ queryKey: ['blackboard-definition-versions', identity, definition.id] }),
       ])
       setEditing(false)
       navigate({ workItemID: null, taskID: null, homeView: 'all', blackboardID: definition.id, blackboardVersion: definition.version })
@@ -50,9 +76,9 @@ export function BlackboardsPage({ identity, blackboardID, blackboardVersion, nav
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     create.mutate({
-      id: selected?.id ?? formValue(data, 'id'), version: selected ? selectedVersions[0].version + 1 : 1,
+      id: selected?.id ?? formValue(data, 'id'), base_version: selected?.version,
       name: formValue(data, 'name'), description: formValue(data, 'description'),
-      agent_instructions: formValue(data, 'instructions'), suggested_tags: splitValues(data.get('tags')), status: 'published',
+      agent_instructions: formValue(data, 'instructions'), suggested_tags: splitValues(data.get('tags')),
     })
   }
 
@@ -65,19 +91,22 @@ export function BlackboardsPage({ identity, blackboardID, blackboardVersion, nav
         {!definitions.isLoading && versionsByID.length === 0 && <div className="library-empty"><BookOpen size={22} /><p>{t('noBlackboards')}</p></div>}
         {versionsByID.map(versions => {
           const latest = versions[0]
-          return <button key={latest.id} className={latest.id === blackboardID ? 'selected' : ''} onClick={() => { setEditing(false); navigate({ workItemID: null, taskID: null, homeView: 'all', blackboardID: latest.id, blackboardVersion: latest.version }) }}><strong>{latest.name}</strong><span>{latest.description || t('noDescription')}</span><small>v{latest.version} · {t(latest.status === 'published' ? 'published' : latest.status === 'draft' ? 'draft' : 'archived')}</small></button>
+          return <button key={latest.id} className={latest.id === blackboardID ? 'selected' : ''} onClick={() => { setEditing(false); navigate({ workItemID: null, taskID: null, homeView: 'all', blackboardID: latest.id, blackboardVersion: latest.version }) }}><strong>{latest.name}</strong><span>{latest.description || t('noDescription')}</span><small>v{latest.version}</small></button>
         })}
+        {definitions.hasNextPage && <button className="load-more-button" disabled={definitions.isFetchingNextPage} onClick={() => definitions.fetchNextPage()}><ArrowDown size={15} />{t(definitions.isFetchingNextPage ? 'loadingMore' : 'loadMore')}</button>}
       </nav>
 
       <article className="definition-page">
-        {editing && <DefinitionEditor source={selected} nextVersion={selected ? selectedVersions[0].version + 1 : 1} pending={create.isPending} error={create.error} onSubmit={submit} onCancel={() => setEditing(false)} />}
-        {!editing && selected && <>
-          <div className="definition-title"><div><span>{selected.id} · v{selected.version}</span><h2>{selected.name}</h2><p>{selected.description || t('noDescription')}</p></div>{selectedIsLatest && selected.status === 'published' && <div className="definition-actions"><button className="quiet-button" onClick={() => setEditing(true)}>{t('createNextVersion')}</button><button className="primary-button" onClick={() => onStartWork({ id: selected.id, mode: 'blackboard', name: selected.name, version: selected.version })}>{t('useThisBlackboard')}<ArrowRight size={15} /></button></div>}</div>
+        {editing && <DefinitionEditor source={selected} nextVersion={selected ? addressedVersions[0].version + 1 : 1} pending={create.isPending} error={create.error} onSubmit={submit} onCancel={() => setEditing(false)} />}
+        {!editing && selectionLoading && <div className="definition-welcome">{t('loadingBlackboards')}</div>}
+        {!editing && (selectionError || selectionMissing) && <div className="definition-welcome"><XCircle size={26} /><h2>{t(selectionMissing ? 'definitionNotFound' : 'definitionUnavailable')}</h2>{selectionError && <p>{selectionError instanceof APIError ? selectionError.message : t('unreachable')}</p>}</div>}
+        {!editing && !selectionLoading && !selectionError && selected && <>
+          <div className="definition-title"><div><span>{selected.id} · v{selected.version}</span><h2>{selected.name}</h2><p>{selected.description || t('noDescription')}</p></div>{selectedIsLatest && <div className="definition-actions"><button className="quiet-button" onClick={() => setEditing(true)}>{t('createNextVersion')}</button><button className="primary-button" onClick={() => onStartWork({ id: selected.id, mode: 'blackboard', name: selected.name, version: selected.version })}>{t('useThisBlackboard')}<ArrowRight size={15} /></button></div>}</div>
           <DefinitionSection title={t('agentInstructions')} value={selected.agent_instructions || t('noAgentInstructions')} />
           <section className="definition-section"><h3>{t('suggestedTags')}</h3>{selected.suggested_tags.length > 0 ? <div className="definition-tags">{selected.suggested_tags.map(tag => <span key={tag}><Tag size={12} />{tag}</span>)}</div> : <p>{t('noSuggestedTags')}</p>}</section>
-          <section className="version-history"><h3>{t('versionHistory')}</h3>{selectedVersions.map(version => <button key={version.version} className={version.version === selected.version ? 'selected' : ''} onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', blackboardID: version.id, blackboardVersion: version.version })}><span>v{version.version}</span><strong>{t(version.status === 'published' ? 'published' : version.status === 'draft' ? 'draft' : 'archived')}</strong></button>)}</section>
+          <section className="version-history"><h3>{t('versionHistory')}</h3>{addressedVersions.map(version => <button key={version.version} className={version.version === selected.version ? 'selected' : ''} onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', blackboardID: version.id, blackboardVersion: version.version })}><span>v{version.version}</span></button>)}{addressedDefinitions.hasNextPage && <button className="load-more-button" disabled={addressedDefinitions.isFetchingNextPage} onClick={() => addressedDefinitions.fetchNextPage()}><ArrowDown size={15} />{t(addressedDefinitions.isFetchingNextPage ? 'loadingMore' : 'loadMore')}</button>}</section>
         </>}
-        {!editing && !selected && <div className="definition-welcome"><BookOpen size={26} /><h2>{t('chooseBlackboard')}</h2><p>{t('chooseBlackboardBody')}</p></div>}
+        {!editing && !blackboardID && <div className="definition-welcome"><BookOpen size={26} /><h2>{t('chooseBlackboard')}</h2><p>{t('chooseBlackboardBody')}</p></div>}
       </article>
     </div>
   </section>

@@ -86,8 +86,8 @@ Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式�
 | 资源 | 路由 |
 | --- | --- |
 | 认证与会话 | `GET /api/v1/auth/config`、`GET /api/v1/session` |
-| Workflow Definitions | `GET/POST /api/v1/definitions/workflows`、`GET /api/v1/definitions/workflows/{id}/versions/{version}` |
-| Blackboard Definitions | `GET/POST /api/v1/definitions/blackboards`、`GET /api/v1/definitions/blackboards/{id}/versions/{version}` |
+| Workflow Definitions | 目录 `GET /api/v1/definitions/workflows`；最新版本 `GET /{id}`；历史与追加 `GET/POST /{id}/versions`；精确版本 `GET /{id}/versions/{version}` |
+| Blackboard Definitions | 目录 `GET /api/v1/definitions/blackboards`；最新版本 `GET /{id}`；历史与追加 `GET/POST /{id}/versions`；精确版本 `GET /{id}/versions/{version}` |
 | WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance`、`POST /cancellation` |
 | Artifacts | `GET /api/v1/work-items/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifact-uploads`、`GET /api/v1/artifacts/{id}/content` |
 | 工作发现 | `GET /api/v1/work` |
@@ -95,6 +95,16 @@ Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式�
 | Blackboard 规划 | WorkItem Task、relation、completion；Task decomposition、children 与 skipping |
 | 人工关注 | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities` 及 Token 轮换、撤销路由 |
+
+WorkItem、Human Attention、Definition 目录、Definition 版本历史和已提交 Artifact 的列表路由使用 cursor 分页。`limit` 默认为 50，允许范围为 1-200。每页返回 `{ "data": [...], "next_cursor": string | null }`；当该值非空时，将其作为 `cursor` 传回同一集合路由，并保留原有过滤参数。Cursor 是不透明且与集合绑定的；无效 cursor 或 limit 返回 `400 invalid_request`。WorkItem 按 `updated_at DESC, id ASC` 排序，Human Attention 优先返回 Review，其余按条目更新时间排序；Definition 目录按 `id ASC` 排序，版本历史按 `version DESC` 排序，Artifact 按 `created_at ASC, id ASC` 排序。
+
+Operations console 使用两套按状态过滤的 cursor 分别加载进行中和已结束 WorkItem，因此加载更早历史不会影响进行中工作队列。
+
+每个 Definition 目录对每个 ID 返回最大的已存储版本。`GET /definitions/{mode}/{id}` 返回该最新版本，`GET /definitions/{mode}/{id}/versions` 分页返回该 ID 的不可变版本历史。控制台会直接解析未知 ID 或版本，不扫描无关目录页。
+
+创建新的 Definition ID 时省略 `base_version`，服务端分配版本 1。追加版本时必须通过 `base_version` 提交编辑所基于的最新版本；服务端在 Definition 锁内比较后分配 `max(version) + 1`。已有 ID 缺少基线或基线过期时返回 `409 conflict`。
+
+创建 WorkItem 时有意只提交 Definition ID 和 mode，不提交版本。服务端会在创建时解析并绑定该 ID 最大的已存储版本。
 
 Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。Blackboard Task 收敛后，`find_work` 返回 `blackboard_completion`；协作者可以继续创建 Task，也可以提交持久完成结果。提交后才应用 `acceptance_mode`：`none`（默认）立即完成，`agent` 返回 `work_item_acceptance`，`human` 进入人工验收；验收通过独立的 `POST /acceptance` 动作完成。Agent 验收候选仅对 Agent identity 可见。生命周期决策候选优先于可执行或待规划候选返回，`limit` 对所有候选类型全局生效。
 

@@ -129,7 +129,7 @@ func (s *Service) GetTaskExecutionContext(
 			return err
 		}
 
-		artifacts, err := store.ListArtifacts(workItem.ID)
+		artifacts, err := store.ListArtifacts(ArtifactFilter{WorkItemID: workItem.ID})
 		if err != nil {
 			return fmt.Errorf("list artifacts for work item %q: %w", workItem.ID, err)
 		}

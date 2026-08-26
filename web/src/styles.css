@@ -157,6 +157,9 @@ input, select { height: 37px; padding: 0 10px; } textarea { padding: 10px; resiz
 .definition-shelf strong { font-size: 14px; font-weight: 590; }
 .definition-shelf span { display: -webkit-box; margin-top: 8px; overflow: hidden; color: #758481; font-size: 11px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .definition-shelf small { margin-top: auto; padding-top: 10px; color: #8a9794; font-size: 9px; }
+.load-more-button, .definition-shelf > .load-more-button { display: flex; width: max-content; min-height: 36px; flex-direction: row; align-items: center; align-self: center; justify-content: center; gap: 7px; margin: 12px auto; padding: 8px 13px; color: #536764; background: transparent; border: 1px solid #cdd8d4; border-radius: 6px; cursor: pointer; }
+.load-more-button:hover, .definition-shelf > .load-more-button:hover { background: #f5f8f7; border-color: #aebfba; }
+.load-more-button:disabled { cursor: wait; opacity: .65; }
 .library-empty { min-height: 190px; display: grid; place-items: center; align-content: center; gap: 8px; color: #899693; text-align: center; border: 1px dashed #d5ded9; border-radius: 9px; font-size: 12px; }
 .library-empty p { margin: 0; }
 .definition-page { min-width: 0; padding: 10px 8px 40px; }
@@ -761,7 +764,6 @@ body { background: #f6f7f4; }
 .home-tabs { display: flex; align-items: center; gap: 4px; width: fit-content; margin: 0 6px 24px; padding: 3px; background: #e9eeeb; border-radius: 9px; }
 .home-tabs button { min-height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; color: #71807e; background: transparent; border: 0; border-radius: 7px; font-size: 12px; cursor: pointer; }
 .home-tabs button.active { color: #355a61; background: #fff; box-shadow: 0 1px 4px rgba(47, 69, 64, .09); }
-.home-tabs button span { min-width: 18px; height: 18px; display: grid; place-items: center; padding: 0 5px; color: #fff; background: #6699a1; border-radius: 999px; font-size: 10px; }
 .work-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; overflow-y: auto; }
 .work-row, .work-row:last-child { min-height: 190px; margin: 0; padding: 0; background: #fff; border: 1px solid #e3e7e3; border-radius: 10px; box-shadow: 0 5px 20px rgba(47, 69, 64, .035); }
 .work-row:hover { background: #fff; border-color: #bfd2d1; box-shadow: 0 9px 26px rgba(47, 69, 64, .08); transform: translateY(-1px); }
