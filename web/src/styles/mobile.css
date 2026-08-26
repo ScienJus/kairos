@@ -1,0 +1,46 @@
+@media (max-width: 760px) {
+  .topbar { height: 56px; margin: 0 auto; }
+  .language-button { width: 34px; padding: 0; justify-content: center; }
+  .language-button span { display: none; }
+  .workspace { padding-top: 18px; }
+  .welcome { padding: 20px 3px 30px; }
+  .welcome h1 { font-size: 26px; }
+  .welcome p { font-size: 13px; }
+  .home-tabs { margin-inline: 3px; }
+  .work-list { grid-template-columns: 1fr; gap: 10px; }
+  .attention-entry { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding-inline: 8px; }
+  .attention-entry > svg { display: none; }
+  .checklist-toolbar { align-items: flex-start; }
+  .checklist-controls { flex-wrap: wrap; justify-content: flex-end; }
+  .checklist-controls > button span { display: none; }
+  .checklist-controls .switch-control { margin-left: 4px; }
+  .check-row { grid-template-columns: 20px 22px minmax(0, 1fr); }
+  .check-row > .status { grid-column: 3; }
+  .show-queue.workspace, .show-work.workspace { min-height: calc(100vh - 56px); }
+  .work-history { margin-top: 50px; }
+  .history-entry { gap: 15px; }
+  .history-content > div:first-child { align-items: flex-start; }
+  .history-content > p { white-space: normal; }
+  .history-content dl { gap: 8px 18px; flex-wrap: wrap; }
+  .work-row, .work-row:last-child { min-height: 164px; }
+  .row-main { padding: 19px; }
+  .work-hero { padding-top: 8px; }
+  .back-button { margin-bottom: 32px; }
+  .hero-title h1 { font-size: 26px; }
+  .goal { font-size: 14px; }
+  .section-heading { align-items: flex-start; }
+  .task-panel, .task-panel.mobile-task { top: 64px; right: 8px; bottom: 8px; left: 8px; width: auto; }
+  .empty-planning > div { width: 100%; flex-direction: column; align-items: stretch; }
+  .empty-planning details { width: 100%; }
+  .empty-planning textarea { min-width: 0; width: 100%; }
+  .task-draft-row { grid-template-columns: 1fr; }
+  .task-draft-row label + label { margin-top: 2px; }
+  .auth-header { width: calc(100% - 28px); }
+  .auth-main { align-items: start; padding: 56px 16px 30px; }
+  .token-login { padding: 24px 20px; }
+  .topbar .brand { flex: 0 0 auto; }
+  .top-nav { gap: 0; margin-left: auto; }
+  .top-actions { margin-left: 4px; padding: 0; }
+  .top-actions > .icon-button { display: grid; }
+  .account-popover { position: fixed; top: 60px; right: 12px; }
+}

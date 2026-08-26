@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { GitBranch, KeyRound, Languages, Library, LoaderCircle, LogOut, Plus, RefreshCw, UserRound } from 'lucide-react'
 import { APIError, api, authenticationRequiredEvent, clearBearerToken, configureAuthenticationMode, loadBearerToken, loadIdentity, saveBearerToken, saveIdentity, tokenStorageUnavailableEvent, TokenStorageError } from './api'
@@ -211,12 +211,12 @@ function ConsoleApp({ identity: initialIdentity, authenticationMode, onLogout }:
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const accountTriggerRef = useRef<HTMLButtonElement>(null)
 
-  function navigate(next: RouteState, replace = false) {
+  const navigate = useCallback((next: RouteState, replace = false) => {
     setAccountOpen(false)
     const path = routePath(next)
     if (window.location.pathname !== path) window.history[replace ? 'replaceState' : 'pushState']({}, '', path)
     setRoute(next)
-  }
+  }, [])
 
   useEffect(() => {
     const restoreRoute = () => {

@@ -6,7 +6,8 @@ import { api } from './api'
 import { useI18n } from './i18n'
 import { useWorkItemData, useWorkflowDefinitionData } from './pageData'
 import type { HomeView, RouteState } from './route'
-import { TaskDetail, BlackboardCompletionActions, CreateTask, EmptyBlackboardActions } from './TaskDetail'
+import { BlackboardCompletionActions, CreateTask, EmptyBlackboardActions } from './BlackboardWorkItemActions'
+import { TaskDetail } from './TaskDetail'
 import { TaskMap } from './TaskMap'
 import type { Identity, Task, WorkItem } from './types'
 import { FormError, Modal, Status } from './ui'
@@ -27,7 +28,6 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
     ? context.data?.tasks.filter(task => task.workflow_task_id === selectedTask.workflow_task_id).sort((left, right) => left.position - right.position) ?? []
     : []
   const selectedTaskClaim = selectedTask ? context.data?.active_claims.find(claim => claim.task_id === selectedTask.id) ?? null : null
-  const selectedTaskExecutionClaim = selectedTask?.submissions.at(-1)?.claim_id ? context.data?.claims.find(claim => claim.id === selectedTask.submissions.at(-1)?.claim_id) ?? null : null
   const pendingReviews = context.data?.tasks.flatMap(task => (task.reviews ?? []).filter(review => review.status === 'pending')) ?? []
   const queryClient = useQueryClient()
   const accept = useMutation({ mutationFn: () => api.acceptBlackboardCompletion(identity, workItemID), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['work-item', identity, workItemID] }); queryClient.invalidateQueries({ queryKey: ['human-attention', identity] }) } })
@@ -35,7 +35,7 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
 
   useEffect(() => {
     if (context.data && selectedTaskID && !selectedTask) navigate({ workItemID, taskID: null, homeView }, true)
-  }, [context.data, selectedTask, selectedTaskID, workItemID, homeView])
+  }, [context.data, selectedTask, selectedTaskID, workItemID, homeView, navigate])
 
   useEffect(() => {
     if (!selectedTaskID) return
@@ -44,7 +44,7 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [selectedTaskID, workItemID, homeView])
+  }, [selectedTaskID, workItemID, homeView, navigate])
 
   if (context.error) return <div className="error-banner"><XCircle size={16} /><span>{context.error instanceof APIError ? context.error.message : t('unreachable')}</span></div>
 
@@ -69,7 +69,7 @@ export function WorkItemPage({ identity, workItemID, selectedTaskID, homeView, n
     {selectedTask && <><button className="inspector-backdrop" aria-label={t('closeTask')} onClick={() => navigate({ workItemID, taskID: null, homeView })} /><aside className="task-panel mobile-task">
       <div className="panel-header"><div><span className="eyebrow">{t('selectedTask')}</span><h2>{t(selectedTask.workflow_task_id ? 'workflowNodeDetails' : 'taskDetails')}</h2></div><div className="panel-actions">{selectedTask.executor === 'agent' ? <Bot size={20} /> : <UserRound size={20} />}<button className="icon-button" onClick={() => navigate({ workItemID, taskID: null, homeView })} aria-label={t('closeTask')}><X size={17} /></button></div></div>
       <WorkflowInstancePager tasks={selectedWorkflowNodeTasks} selectedTaskID={selectedTask.id} onSelect={taskID => navigate({ workItemID, taskID, homeView })} />
-      <TaskDetail key={selectedTask.id} task={selectedTask} activeClaim={selectedTaskClaim} executionClaim={selectedTaskExecutionClaim} identity={identity} mode={context.data!.work_item.definition.mode} />
+      <TaskDetail key={selectedTask.id} task={selectedTask} activeClaim={selectedTaskClaim} identity={identity} mode={context.data!.work_item.definition.mode} />
     </aside></>}
   </>
 }

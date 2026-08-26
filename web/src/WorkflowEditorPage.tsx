@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { ArrowLeft, Check, GitBranch, Plus, Trash2, XCircle } from 'lucide-react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { ArrowLeft, Check, Plus, Trash2, XCircle } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, APIError } from './api'
 import { useI18n } from './i18n'

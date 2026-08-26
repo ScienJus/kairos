@@ -143,6 +143,8 @@ cd web && npm test && npm run build && npm run lint
 git diff --check
 ```
 
+`npm run build` 负责 TypeScript 类型检查和生产构建；`npm run lint` 独立运行 ESLint，检查 JavaScript/TypeScript 正确性与 React Hooks 依赖，不承担代码格式化。
+
 编译和单元测试通过只是底线。涉及交互状态时，还要按上述矩阵完成真实浏览器路径检查。
 
 ## 10. 评审时从共性边界向外检查

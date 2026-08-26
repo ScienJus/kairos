@@ -4,7 +4,7 @@ import { ArrowDown, ShieldCheck } from 'lucide-react'
 import { api } from './api'
 import { useI18n } from './i18n'
 import { refreshHomeState } from './taskOperations'
-import type { CreateWorkItemInput, Definition, Identity, Mode, WorkflowDefinition, WorkItem } from './types'
+import type { CreateWorkItemInput, Identity, Mode, WorkItem } from './types'
 import { FormError, Modal, formValue, splitValues } from './ui'
 
 export type WorkDefinitionTarget = { id: string; mode: Mode; name: string; version: number }

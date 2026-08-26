@@ -61,7 +61,7 @@ function renderTask(task: Task, activeClaim: Claim | null = null, mode = 'blackb
   vi.spyOn(api, 'getTaskDetail').mockResolvedValue(detail(task, activeClaim ? [activeClaim] : executionClaim ? [executionClaim] : []))
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return Object.assign(
-    render(<QueryClientProvider client={queryClient}><I18nProvider><TaskDetail task={task} activeClaim={activeClaim} executionClaim={executionClaim} identity={identity} mode={mode} /></I18nProvider></QueryClientProvider>),
+    render(<QueryClientProvider client={queryClient}><I18nProvider><TaskDetail task={task} activeClaim={activeClaim} identity={identity} mode={mode} /></I18nProvider></QueryClientProvider>),
     { queryClient },
   )
 }
