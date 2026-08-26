@@ -624,12 +624,17 @@ func testQueryableDomainColumns(
 	relation := domain.TaskRelation{
 		WorkItemID: older.ID, FromTaskID: "queryable-agent-match", ToTaskID: "queryable-unrestricted", CreatedAt: olderTime,
 	}
+	workflowRelation := domain.TaskRelation{
+		WorkItemID: workflowItem.ID, FromTaskID: "queryable-workflow-blocker", ToTaskID: "queryable-workflow-blocked", CreatedAt: newerTime,
+	}
 	tasks := []domain.Task{
 		{ID: "queryable-agent-match", WorkItemID: older.ID, Status: domain.TaskStatusPending, Title: "Agent match", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Tags: []string{"osr05-task", "auth"}, CreatedAt: olderTime, UpdatedAt: olderTime},
 		{ID: "queryable-agent-other-role", WorkItemID: older.ID, Status: domain.TaskStatusPending, Title: "Agent other role", Executor: domain.ExecutorAgent, AllowedRoles: []string{"frontend"}, Tags: []string{"osr05-task", "auth"}, Position: 1, CreatedAt: olderTime, UpdatedAt: olderTime},
 		{ID: "queryable-human", WorkItemID: older.ID, Status: domain.TaskStatusPending, Title: "Human", Executor: domain.ExecutorHuman, Tags: []string{"osr05-task", "auth"}, Position: 2, CreatedAt: olderTime, UpdatedAt: olderTime},
 		{ID: "queryable-unrestricted", WorkItemID: older.ID, Status: domain.TaskStatusPending, Title: "Unrestricted", Executor: domain.ExecutorAgent, Tags: []string{"osr05-task", "other"}, Position: 3, CreatedAt: olderTime, UpdatedAt: olderTime},
-		{ID: "queryable-workflow-task", WorkItemID: workflowItem.ID, WorkflowTaskID: &workflowTaskID, WorkflowActivationID: &workflowActivationID, Status: domain.TaskStatusPending, Title: "Workflow tags are descriptive", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Tags: []string{"workflow-label"}, Execution: &workflowExecution, ReviewPolicy: &workflowReview, CreatedAt: newerTime, UpdatedAt: newerTime},
+		{ID: "queryable-workflow-blocked", WorkItemID: workflowItem.ID, WorkflowTaskID: &workflowTaskID, WorkflowActivationID: &workflowActivationID, Status: domain.TaskStatusPending, Title: "Blocked Workflow task", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Position: 0, Execution: &workflowExecution, ReviewPolicy: &workflowReview, CreatedAt: newerTime, UpdatedAt: newerTime},
+		{ID: "queryable-workflow-blocker", WorkItemID: workflowItem.ID, WorkflowTaskID: &workflowTaskID, WorkflowActivationID: &workflowActivationID, Status: domain.TaskStatusPending, Title: "Unfinished Human predecessor", Executor: domain.ExecutorHuman, Position: 1, Execution: &workflowExecution, ReviewPolicy: &workflowReview, CreatedAt: newerTime, UpdatedAt: newerTime},
+		{ID: "queryable-workflow-task", WorkItemID: workflowItem.ID, WorkflowTaskID: &workflowTaskID, WorkflowActivationID: &workflowActivationID, Status: domain.TaskStatusPending, Title: "Workflow tags are descriptive", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Tags: []string{"workflow-label"}, Position: 2, Execution: &workflowExecution, ReviewPolicy: &workflowReview, CreatedAt: newerTime, UpdatedAt: newerTime},
 	}
 	if err := repository.Update(ctx, func(store application.WriteStore) error {
 		if err := store.CreateWorkflowDefinition(workflowV2); err != nil {
@@ -649,6 +654,9 @@ func testQueryableDomainColumns(
 			}
 		}
 		if err := store.CreateTaskRelation(relation); err != nil {
+			return err
+		}
+		if err := store.CreateTaskRelation(workflowRelation); err != nil {
 			return err
 		}
 		return nil
@@ -691,33 +699,56 @@ func testQueryableDomainColumns(
 			return fmt.Errorf("contains-all work items = %v, want only %q", workItemIDs(matching), older.ID)
 		}
 
-		agentCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "backend", Tags: []string{"osr05-task", "auth"}})
+		agentCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "backend", Tags: []string{"osr05-task", "auth"}, Limit: 50})
 		if err != nil {
 			return err
 		}
 		if !candidateContains(agentCandidates, "queryable-agent-match") || candidateContains(agentCandidates, "queryable-agent-other-role") || candidateContains(agentCandidates, "queryable-human") {
 			return fmt.Errorf("backend candidates = %v", candidateTaskIDs(agentCandidates))
 		}
-		humanCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorHuman, Tags: []string{"osr05-task", "auth"}})
+		humanCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorHuman, Tags: []string{"osr05-task", "auth"}, Limit: 50})
 		if err != nil {
 			return err
 		}
 		if !candidateContains(humanCandidates, "queryable-human") || candidateContains(humanCandidates, "queryable-agent-match") {
 			return fmt.Errorf("human candidates = %v", candidateTaskIDs(humanCandidates))
 		}
-		unrestricted, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "any-role", Tags: []string{"osr05-task", "other"}})
+		unrestricted, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "any-role", Tags: []string{"osr05-task", "other"}, Limit: 50})
 		if err != nil {
 			return err
 		}
 		if !candidateContains(unrestricted, "queryable-unrestricted") {
 			return fmt.Errorf("unrestricted candidates = %v", candidateTaskIDs(unrestricted))
 		}
-		workflowCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "backend", Tags: []string{"not-a-workflow-label"}})
+		workflowCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "backend", Tags: []string{"not-a-workflow-label"}, Limit: 50})
 		if err != nil {
 			return err
 		}
-		if !candidateContains(workflowCandidates, "queryable-workflow-task") {
+		if !candidateContains(workflowCandidates, "queryable-workflow-task") || candidateContains(workflowCandidates, "queryable-workflow-blocked") {
 			return fmt.Errorf("Workflow candidates filtered by descriptive tags: %v", candidateTaskIDs(workflowCandidates))
+		}
+		limitedWorkflowCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{
+			ActorKind: domain.ActorAgent, Role: "backend", Tags: []string{"not-a-workflow-label"}, Limit: 1,
+		})
+		if err != nil {
+			return err
+		}
+		if len(limitedWorkflowCandidates) != 1 || limitedWorkflowCandidates[0].Task.ID != "queryable-workflow-task" {
+			return fmt.Errorf("limited Workflow candidates = %v, want eligible task after blocked task", candidateTaskIDs(limitedWorkflowCandidates))
+		}
+		limitedCandidates, err := store.ListOpenTasks(application.OpenTaskFilter{ActorKind: domain.ActorAgent, Role: "backend", Limit: 1})
+		if err != nil {
+			return err
+		}
+		if len(limitedCandidates) != 1 {
+			return fmt.Errorf("limited Task candidates = %v, want one", candidateTaskIDs(limitedCandidates))
+		}
+		emptyBlackboards, err := store.ListEmptyBlackboards(nil, 1)
+		if err != nil {
+			return err
+		}
+		if len(emptyBlackboards) != 1 {
+			return fmt.Errorf("limited empty Blackboards = %d, want one", len(emptyBlackboards))
 		}
 		return nil
 	}); err != nil {
@@ -975,25 +1006,45 @@ func testBlackboardLifecycleCandidates(t *testing.T, repository *SQLRepository, 
 		t.Fatalf("submit human completion: %v", err)
 	}
 
-	var candidates []domain.WorkItem
+	var completionCandidates, acceptanceCandidates []domain.WorkItem
 	if err := repository.View(ctx, func(store application.ReadStore) error {
 		var err error
-		candidates, err = store.ListBlackboardsAwaitingLifecycleDecision(nil)
+		completionCandidates, err = store.ListBlackboardsAwaitingCompletion(nil, 50)
+		if err != nil {
+			return err
+		}
+		acceptanceCandidates, err = store.ListBlackboardsAwaitingAgentAcceptance(nil, 50)
 		return err
 	}); err != nil {
 		t.Fatalf("list lifecycle candidates: %v", err)
 	}
-	found := make(map[domain.WorkItemID]bool, len(candidates))
-	for _, candidate := range candidates {
+	found := make(map[domain.WorkItemID]bool, len(completionCandidates)+len(acceptanceCandidates))
+	for _, candidate := range append(completionCandidates, acceptanceCandidates...) {
 		found[candidate.ID] = true
 	}
 	if !found[converged.ID] || !found[skipped.ID] || !found[agentAcceptance.ID] {
-		t.Fatalf("lifecycle candidates = %+v, want completed %q, skipped %q, and agent acceptance %q", candidates, converged.ID, skipped.ID, agentAcceptance.ID)
+		t.Fatalf("lifecycle candidates = %+v/%+v, want completed %q, skipped %q, and agent acceptance %q", completionCandidates, acceptanceCandidates, converged.ID, skipped.ID, agentAcceptance.ID)
 	}
 	for _, excluded := range []domain.WorkItemID{empty.ID, pending.ID, humanAcceptance.ID} {
 		if found[excluded] {
-			t.Fatalf("lifecycle candidates unexpectedly include %q: %+v", excluded, candidates)
+			t.Fatalf("lifecycle candidates unexpectedly include %q: %+v/%+v", excluded, completionCandidates, acceptanceCandidates)
 		}
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		limitedCompletion, err := store.ListBlackboardsAwaitingCompletion(nil, 1)
+		if err != nil {
+			return err
+		}
+		limitedAcceptance, err := store.ListBlackboardsAwaitingAgentAcceptance(nil, 1)
+		if err != nil {
+			return err
+		}
+		if len(limitedCompletion) != 1 || len(limitedAcceptance) != 1 {
+			return fmt.Errorf("limited lifecycle groups = %d completion/%d acceptance, want 1/1", len(limitedCompletion), len(limitedAcceptance))
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("limit lifecycle candidates: %v", err)
 	}
 }
 

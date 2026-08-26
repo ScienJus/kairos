@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,13 +17,21 @@ type FindWorkQuery struct {
 	Limit    int
 }
 
+const (
+	DefaultFindWorkLimit = 5
+	MaxFindWorkLimit     = 50
+)
+
 // FindWork returns visible Tasks and Blackboards that need planning or a lifecycle decision.
 func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCandidate, error) {
 	if err := query.Identity.Validate(); err != nil {
 		return nil, err
 	}
-	if query.Limit < 0 {
-		return nil, invalidCommand("limit must not be negative")
+	if query.Limit < 0 || query.Limit > MaxFindWorkLimit {
+		return nil, invalidCommand("limit must be between 0 and %d", MaxFindWorkLimit)
+	}
+	if query.Limit == 0 {
+		query.Limit = DefaultFindWorkLimit
 	}
 	for _, tag := range query.Tags {
 		if strings.TrimSpace(tag) == "" {
@@ -32,91 +39,43 @@ func (s *Service) FindWork(ctx context.Context, query FindWorkQuery) ([]WorkCand
 		}
 	}
 
-	result := make([]WorkCandidate, 0)
+	result := make([]WorkCandidate, 0, query.Limit*4)
 	err := s.repository.View(ctx, func(store ReadStore) error {
-		atLimit := func() bool { return query.Limit > 0 && len(result) >= query.Limit }
-
-		workItems, err := store.ListBlackboardsAwaitingLifecycleDecision(query.Tags)
-		if err != nil {
-			return fmt.Errorf("list blackboards for completion or acceptance: %w", err)
-		}
-	lifecyclePriority:
-		for _, status := range []domain.WorkItemStatus{
-			domain.WorkItemStatusAwaitingAgentAcceptance,
-			domain.WorkItemStatusOpen,
-		} {
+		if query.Identity.Actor.Kind == domain.ActorAgent {
+			workItems, err := store.ListBlackboardsAwaitingAgentAcceptance(query.Tags, query.Limit)
+			if err != nil {
+				return fmt.Errorf("list blackboards awaiting agent acceptance: %w", err)
+			}
 			for _, workItem := range workItems {
-				if workItem.Status != status {
-					continue
-				}
-				kind := WorkCandidateBlackboardCompletion
-				if status == domain.WorkItemStatusAwaitingAgentAcceptance {
-					if query.Identity.Actor.Kind != domain.ActorAgent {
-						continue
-					}
-					kind = WorkCandidateWorkItemAcceptance
-				}
-				result = append(result, WorkCandidate{Kind: kind, WorkItem: workItem})
-				if atLimit() {
-					break lifecyclePriority
-				}
+				result = append(result, WorkCandidate{Kind: WorkCandidateWorkItemAcceptance, WorkItem: workItem})
 			}
 		}
 
-		if !atLimit() {
-			candidates, err := store.ListOpenTasks(OpenTaskFilter{
-				ActorKind: query.Identity.Actor.Kind,
-				Role:      query.Identity.Role,
-				Tags:      query.Tags,
-			})
-			if err != nil {
-				return fmt.Errorf("list open tasks: %w", err)
-			}
-			for _, candidate := range candidates {
-				if candidate.Kind != WorkCandidateTask {
-					continue
-				}
-				if candidate.WorkItem.Status != domain.WorkItemStatusOpen || candidate.Task == nil || candidate.Task.Status != domain.TaskStatusPending {
-					continue
-				}
-				if candidate.WorkItem.CoordinationMode() == domain.CoordinationModeWorkflow {
-					eligible, err := workflowTaskEligible(store, candidate.WorkItem, *candidate.Task)
-					if err != nil {
-						return err
-					}
-					if !eligible {
-						continue
-					}
-				}
-				if err := identityCanExecute(query.Identity, *candidate.Task); err != nil {
-					if errorsIsForbidden(err) {
-						continue
-					}
-					return err
-				}
-				// Workflow eligibility is determined by graph state and role. Tags are
-				// descriptive metadata for Workflow tasks, not an execution filter.
-				if candidate.WorkItem.CoordinationMode() != domain.CoordinationModeWorkflow && !containsAll(candidate.Task.Tags, query.Tags) {
-					continue
-				}
-				result = append(result, candidate)
-				if atLimit() {
-					break
-				}
-			}
+		workItems, err := store.ListBlackboardsAwaitingCompletion(query.Tags, query.Limit)
+		if err != nil {
+			return fmt.Errorf("list blackboards awaiting completion: %w", err)
+		}
+		for _, workItem := range workItems {
+			result = append(result, WorkCandidate{Kind: WorkCandidateBlackboardCompletion, WorkItem: workItem})
 		}
 
-		if !atLimit() {
-			emptyBlackboards, err := store.ListEmptyBlackboards(query.Tags)
-			if err != nil {
-				return fmt.Errorf("list empty blackboards: %w", err)
-			}
-			for _, workItem := range emptyBlackboards {
-				result = append(result, WorkCandidate{Kind: WorkCandidateEmptyBlackboard, WorkItem: workItem})
-				if atLimit() {
-					break
-				}
-			}
+		candidates, err := store.ListOpenTasks(OpenTaskFilter{
+			ActorKind: query.Identity.Actor.Kind,
+			Role:      query.Identity.Role,
+			Tags:      query.Tags,
+			Limit:     query.Limit,
+		})
+		if err != nil {
+			return fmt.Errorf("list open tasks: %w", err)
+		}
+		result = append(result, candidates...)
+
+		emptyBlackboards, err := store.ListEmptyBlackboards(query.Tags, query.Limit)
+		if err != nil {
+			return fmt.Errorf("list empty blackboards: %w", err)
+		}
+		for _, workItem := range emptyBlackboards {
+			result = append(result, WorkCandidate{Kind: WorkCandidateEmptyBlackboard, WorkItem: workItem})
 		}
 
 		bindings := make([]domain.DefinitionBinding, 0, len(result))
@@ -170,10 +129,6 @@ func containsAll(values, required []string) bool {
 		}
 	}
 	return true
-}
-
-func errorsIsForbidden(err error) bool {
-	return errors.Is(err, ErrForbidden)
 }
 
 // ClaimTaskCommand establishes execution responsibility for one pending Task.

@@ -116,7 +116,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "find_work",
 		Title:       "Find Kairos work",
-		Description: "Find executable tasks and Blackboard planning, completion, or acceptance decisions for this actor.",
+		Description: "Find executable tasks and Blackboard planning, completion, or acceptance decisions for this actor, with an independent limit for each candidate kind.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input findWorkInput) (*mcp.CallToolResult, findWorkOutput, error) {
 		candidates, err := service.FindWork(ctx, application.FindWorkQuery{
@@ -348,7 +348,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 
 type findWorkInput struct {
 	Tags  []string `json:"tags,omitempty" jsonschema:"Require candidates to contain all of these tags."`
-	Limit int      `json:"limit,omitempty" jsonschema:"Maximum number of candidates to return; zero means no limit."`
+	Limit int      `json:"limit,omitempty" jsonschema:"Maximum candidates per kind, from 1 to 50; zero or omission uses 5."`
 }
 
 type taskContextInput struct {

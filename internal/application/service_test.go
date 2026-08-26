@@ -1043,7 +1043,7 @@ func TestFindWorkDiscoversEmptyBlackboard(t *testing.T) {
 	}
 }
 
-func TestFindWorkPrioritizesLifecycleDecisionsAndFiltersAgentAcceptanceFromHumans(t *testing.T) {
+func TestFindWorkLimitsEachCandidateKindAndFiltersAgentAcceptanceFromHumans(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -1071,81 +1071,118 @@ func TestFindWorkPrioritizesLifecycleDecisionsAndFiltersAgentAcceptanceFromHuman
 	}); err != nil {
 		t.Fatalf("submit completion for acceptance: %v", err)
 	}
-
-	converged := createWorkItem("Converged", domain.WorkItemAcceptanceNone)
-	completedTask, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
-		WorkItemID: converged.ID, Identity: agent, Title: "Completed task", Executor: domain.ExecutorAgent,
-	})
-	if err != nil {
-		t.Fatalf("create completed task: %v", err)
-	}
-	claim, err := service.ClaimTask(ctx, ClaimTaskCommand{TaskID: completedTask.ID, Identity: agent})
-	if err != nil {
-		t.Fatalf("claim completed task: %v", err)
-	}
-	if _, err := service.SubmitTask(ctx, SubmitTaskCommand{TaskID: completedTask.ID, ClaimID: claim.ID, Identity: agent, Result: "done"}); err != nil {
-		t.Fatalf("submit completed task: %v", err)
-	}
-
-	pending := createWorkItem("Executable task", domain.WorkItemAcceptanceNone)
-	if _, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
-		WorkItemID: pending.ID, Identity: agent, Title: "Pending task", Executor: domain.ExecutorAgent,
+	secondAcceptance := createWorkItem("Second awaiting acceptance", domain.WorkItemAcceptanceAgent)
+	if _, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+		WorkItemID: secondAcceptance.ID, Identity: agent, Result: "also ready",
 	}); err != nil {
-		t.Fatalf("create pending task: %v", err)
+		t.Fatalf("submit second completion for acceptance: %v", err)
 	}
-	createWorkItem("Empty board", domain.WorkItemAcceptanceNone)
+
+	createConverged := func(title string) domain.WorkItem {
+		t.Helper()
+		workItem := createWorkItem(title, domain.WorkItemAcceptanceNone)
+		task, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+			WorkItemID: workItem.ID, Identity: agent, Title: "Completed task", Executor: domain.ExecutorAgent,
+		})
+		if err != nil {
+			t.Fatalf("create completed task: %v", err)
+		}
+		claim, err := service.ClaimTask(ctx, ClaimTaskCommand{TaskID: task.ID, Identity: agent})
+		if err != nil {
+			t.Fatalf("claim completed task: %v", err)
+		}
+		if _, err := service.SubmitTask(ctx, SubmitTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Result: "done"}); err != nil {
+			t.Fatalf("submit completed task: %v", err)
+		}
+		return workItem
+	}
+	converged := createConverged("Converged")
+	secondConverged := createConverged("Second converged")
+
+	createPending := func(title string) domain.WorkItem {
+		t.Helper()
+		workItem := createWorkItem(title, domain.WorkItemAcceptanceNone)
+		if _, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+			WorkItemID: workItem.ID, Identity: agent, Title: "Pending task", Executor: domain.ExecutorEither,
+		}); err != nil {
+			t.Fatalf("create pending task: %v", err)
+		}
+		return workItem
+	}
+	pending := createPending("Executable task")
+	secondPending := createPending("Second executable task")
+	empty := createWorkItem("Empty board", domain.WorkItemAcceptanceNone)
+	secondEmpty := createWorkItem("Second empty board", domain.WorkItemAcceptanceNone)
 
 	agentCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent, Limit: 1})
 	if err != nil {
 		t.Fatalf("find agent work: %v", err)
 	}
-	if len(agentCandidates) != 1 || agentCandidates[0].Kind != WorkCandidateWorkItemAcceptance || agentCandidates[0].WorkItem.ID != awaitingAcceptance.ID {
-		t.Fatalf("agent candidates = %#v, want acceptance first", agentCandidates)
+	if len(agentCandidates) != 4 {
+		t.Fatalf("agent candidate count = %d, want one from each of four groups: %#v", len(agentCandidates), agentCandidates)
 	}
-	if agentCandidates[0].WorkItem.Tags == nil || agentCandidates[0].Definition.SuggestedTags == nil {
-		t.Fatalf("lifecycle candidate contains nil collections: %#v", agentCandidates[0])
+	wantKinds := []WorkCandidateKind{
+		WorkCandidateWorkItemAcceptance,
+		WorkCandidateBlackboardCompletion,
+		WorkCandidateTask,
+		WorkCandidateEmptyBlackboard,
+	}
+	wantWorkItems := [][]domain.WorkItemID{
+		{awaitingAcceptance.ID, secondAcceptance.ID},
+		{converged.ID, secondConverged.ID},
+		{pending.ID, secondPending.ID},
+		{empty.ID, secondEmpty.ID},
+	}
+	for index, candidate := range agentCandidates {
+		if candidate.Kind != wantKinds[index] || !slices.Contains(wantWorkItems[index], candidate.WorkItem.ID) {
+			t.Fatalf("candidate %d = %s/%s, want %s from %v", index, candidate.Kind, candidate.WorkItem.ID, wantKinds[index], wantWorkItems[index])
+		}
+		if candidate.WorkItem.Tags == nil || candidate.Definition.SuggestedTags == nil {
+			t.Fatalf("candidate contains nil collections: %#v", candidate)
+		}
 	}
 
-	humanCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: human})
+	humanCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: human, Limit: 1})
 	if err != nil {
 		t.Fatalf("find human work: %v", err)
 	}
-	if len(humanCandidates) == 0 || humanCandidates[0].Kind != WorkCandidateBlackboardCompletion || humanCandidates[0].WorkItem.ID != converged.ID {
-		t.Fatalf("human candidates = %#v, want completion first", humanCandidates)
+	if len(humanCandidates) != 3 || humanCandidates[0].Kind != WorkCandidateBlackboardCompletion ||
+		humanCandidates[1].Kind != WorkCandidateTask || humanCandidates[2].Kind != WorkCandidateEmptyBlackboard {
+		t.Fatalf("human candidates = %#v, want one completion, task, and empty Blackboard", humanCandidates)
 	}
 	for _, candidate := range humanCandidates {
 		if candidate.Kind == WorkCandidateWorkItemAcceptance {
 			t.Fatalf("human candidates include agent acceptance: %#v", humanCandidates)
 		}
 	}
+	for index := 0; index < 4; index++ {
+		createWorkItem(fmt.Sprintf("Additional empty board %d", index), domain.WorkItemAcceptanceNone)
+	}
+	defaultCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent})
+	if err != nil {
+		t.Fatalf("find work with default limit: %v", err)
+	}
+	emptyCount := 0
+	for _, candidate := range defaultCandidates {
+		if candidate.Kind == WorkCandidateEmptyBlackboard {
+			emptyCount++
+		}
+	}
+	if emptyCount != DefaultFindWorkLimit {
+		t.Fatalf("default empty Blackboard count = %d, want %d", emptyCount, DefaultFindWorkLimit)
+	}
 
-	if _, err := service.AcceptBlackboardCompletion(ctx, AcceptBlackboardCompletionCommand{WorkItemID: awaitingAcceptance.ID, Identity: agent}); err != nil {
-		t.Fatalf("accept completion: %v", err)
+	taskCandidate := agentCandidates[2]
+	if taskCandidate.Task == nil {
+		t.Fatalf("task candidate has no Task: %#v", taskCandidate)
 	}
-	nextCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent, Limit: 1})
-	if err != nil {
-		t.Fatalf("find work after acceptance: %v", err)
-	}
-	if len(nextCandidates) != 1 || nextCandidates[0].Kind != WorkCandidateBlackboardCompletion || nextCandidates[0].WorkItem.ID != converged.ID {
-		t.Fatalf("next candidates = %#v, want completion before task or planning", nextCandidates)
-	}
-	if _, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
-		WorkItemID: converged.ID, Identity: agent, Result: "completed",
-	}); err != nil {
-		t.Fatalf("submit converged completion: %v", err)
-	}
-	taskCandidates, err := service.FindWork(ctx, FindWorkQuery{Identity: agent, Limit: 1})
-	if err != nil {
-		t.Fatalf("find task work: %v", err)
-	}
-	if len(taskCandidates) != 1 || taskCandidates[0].Kind != WorkCandidateTask || taskCandidates[0].Task == nil {
-		t.Fatalf("task candidates = %#v", taskCandidates)
-	}
-	taskCandidate := taskCandidates[0]
 	if taskCandidate.WorkItem.Tags == nil || taskCandidate.Definition.SuggestedTags == nil ||
 		taskCandidate.Task.AllowedRoles == nil || taskCandidate.Task.Tags == nil || taskCandidate.Task.Reviews == nil ||
 		taskCandidate.Task.Submissions == nil || taskCandidate.Task.Failures == nil || taskCandidate.Task.TransitionDecisions == nil {
 		t.Fatalf("task candidate contains nil collections: %#v", taskCandidate)
+	}
+	if _, err := service.FindWork(ctx, FindWorkQuery{Identity: agent, Limit: MaxFindWorkLimit + 1}); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("oversized find_work limit error = %v, want ErrInvalidCommand", err)
 	}
 }
 
@@ -2908,15 +2945,31 @@ func (r *testRepository) ListOpenTasks(filter OpenTaskFilter) ([]WorkCandidate, 
 		workItem := r.workItems[task.WorkItemID]
 		identity := Identity{Actor: domain.ActorRef{Kind: filter.ActorKind, ID: "repository-filter"}, Role: filter.Role}
 		if workItem.Status == domain.WorkItemStatusOpen &&
+			task.Status == domain.TaskStatusPending &&
 			identityCanExecute(identity, task) == nil &&
 			(workItem.CoordinationMode() == domain.CoordinationModeWorkflow || containsAll(task.Tags, filter.Tags)) {
+			if workItem.CoordinationMode() == domain.CoordinationModeWorkflow {
+				eligible, err := workflowTaskEligible(r, workItem, task)
+				if err != nil {
+					return nil, err
+				}
+				if !eligible {
+					continue
+				}
+			}
 			result = append(result, WorkCandidate{Kind: WorkCandidateTask, WorkItem: workItem, Task: &task})
 		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Task.ID < result[j].Task.ID
+	})
+	if len(result) > filter.Limit {
+		result = result[:filter.Limit]
 	}
 	return result, nil
 }
 
-func (r *testRepository) ListEmptyBlackboards(tags []string) ([]domain.WorkItem, error) {
+func (r *testRepository) ListEmptyBlackboards(tags []string, limit int) ([]domain.WorkItem, error) {
 	var result []domain.WorkItem
 	for _, workItem := range r.workItems {
 		if workItem.Status == domain.WorkItemStatusOpen &&
@@ -2926,25 +2979,58 @@ func (r *testRepository) ListEmptyBlackboards(tags []string) ([]domain.WorkItem,
 			result = append(result, workItem)
 		}
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+			return result[i].UpdatedAt.Before(result[j].UpdatedAt)
+		}
+		return result[i].ID < result[j].ID
+	})
+	if len(result) > limit {
+		result = result[:limit]
+	}
 	return result, nil
 }
 
-func (r *testRepository) ListBlackboardsAwaitingLifecycleDecision(tags []string) ([]domain.WorkItem, error) {
+func (r *testRepository) ListBlackboardsAwaitingAgentAcceptance(tags []string, limit int) ([]domain.WorkItem, error) {
 	var result []domain.WorkItem
 	for _, workItem := range r.workItems {
-		if workItem.CoordinationMode() != domain.CoordinationModeBlackboard {
-			continue
-		}
-		if !containsAll(workItem.Tags, tags) {
-			continue
-		}
-		tasks := r.tasksFor(workItem.ID)
-		if workItem.Status == domain.WorkItemStatusAwaitingAgentAcceptance ||
-			(workItem.Status == domain.WorkItemStatusOpen && len(tasks) > 0 && blackboardTasksConverged(tasks)) {
+		if workItem.CoordinationMode() == domain.CoordinationModeBlackboard &&
+			workItem.Status == domain.WorkItemStatusAwaitingAgentAcceptance &&
+			containsAll(workItem.Tags, tags) {
 			result = append(result, workItem)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+			return result[i].UpdatedAt.Before(result[j].UpdatedAt)
+		}
+		return result[i].ID < result[j].ID
+	})
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
+func (r *testRepository) ListBlackboardsAwaitingCompletion(tags []string, limit int) ([]domain.WorkItem, error) {
+	var result []domain.WorkItem
+	for _, workItem := range r.workItems {
+		tasks := r.tasksFor(workItem.ID)
+		if workItem.CoordinationMode() == domain.CoordinationModeBlackboard &&
+			workItem.Status == domain.WorkItemStatusOpen &&
+			containsAll(workItem.Tags, tags) && len(tasks) > 0 && blackboardTasksConverged(tasks) {
+			result = append(result, workItem)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+			return result[i].UpdatedAt.Before(result[j].UpdatedAt)
+		}
+		return result[i].ID < result[j].ID
+	})
+	if len(result) > limit {
+		result = result[:limit]
+	}
 	return result, nil
 }
 

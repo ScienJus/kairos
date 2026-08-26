@@ -9,7 +9,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 
 ## Execution loop
 
-1. Call `find_work` with a reasonable limit. Lifecycle decisions are returned before executable Tasks and empty Blackboard planning candidates, with the limit applied globally. In Workflow mode, role and graph eligibility determine candidates; tags are descriptive metadata and do not filter executable Workflow Tasks. In Blackboard mode, tags may narrow discovery.
+1. Call `find_work` with a reasonable per-kind limit. Candidates are returned in lifecycle-decision, executable Task, then empty-Blackboard order; the limit applies independently to `work_item_acceptance`, `blackboard_completion`, `task`, and `empty_blackboard`. Omission or zero uses five candidates per kind. In Workflow mode, role and graph eligibility determine candidates; tags are descriptive metadata and do not filter executable Workflow Tasks. In Blackboard mode, tags may narrow discovery.
 2. Select one eligible candidate at a time unless the user explicitly requests parallel execution.
 3. Handle Blackboard lifecycle candidates explicitly:
    - For `empty_blackboard`, read the WorkItem goal, context, constraints, acceptance criteria, and Definition instructions. Create a concrete Task when work is needed; if the goal already requires no execution, call `submit_blackboard_completion` with the durable result.

@@ -154,11 +154,12 @@ type HumanAttentionCursor struct {
 	TaskID     domain.TaskID
 }
 
-// OpenTaskFilter narrows discovery candidates before application-level checks.
+// OpenTaskFilter selects executable discovery candidates and bounds returned rows.
 type OpenTaskFilter struct {
 	ActorKind domain.ActorKind
 	Role      string
 	Tags      []string
+	Limit     int
 }
 
 // ReadStore exposes the state required by application operations.
@@ -180,8 +181,9 @@ type ReadStore interface {
 	GetWorkflowTaskActivation(domain.WorkflowTaskActivationID) (domain.WorkflowTaskActivation, error)
 	ListWorkflowTaskActivations(domain.WorkItemID) ([]domain.WorkflowTaskActivation, error)
 	ListOpenTasks(OpenTaskFilter) ([]WorkCandidate, error)
-	ListEmptyBlackboards([]string) ([]domain.WorkItem, error)
-	ListBlackboardsAwaitingLifecycleDecision([]string) ([]domain.WorkItem, error)
+	ListEmptyBlackboards([]string, int) ([]domain.WorkItem, error)
+	ListBlackboardsAwaitingAgentAcceptance([]string, int) ([]domain.WorkItem, error)
+	ListBlackboardsAwaitingCompletion([]string, int) ([]domain.WorkItem, error)
 	ListReapableAgentClaimTasks(time.Time) ([]domain.TaskID, error)
 
 	GetDefinitionMetadata([]domain.DefinitionBinding) (map[domain.DefinitionBinding]domain.DefinitionMetadata, error)

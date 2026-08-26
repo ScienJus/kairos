@@ -109,11 +109,15 @@ The operations console loads active and settled WorkItems through separate statu
 
 Each Definition catalog returns the maximum stored version for every ID. `GET /definitions/{mode}/{id}` returns that latest version, while `GET /definitions/{mode}/{id}/versions` pages that ID's immutable history. The console resolves an unknown ID or version directly and does not scan unrelated catalog pages.
 
+Definition IDs contain only lowercase ASCII letters, digits, and hyphens (`^[a-z0-9-]+$`).
+
 Creating a new Definition ID omits `base_version` and receives version 1. Appending a version must send the latest version the editor was based on as `base_version`. The server compares it under the Definition lock and assigns `max(version) + 1`; a missing or stale base for an existing ID returns `409 conflict`.
 
 Creating a WorkItem intentionally accepts a Definition ID and mode rather than a version. At creation time the server resolves and binds the maximum stored version for that ID.
 
-Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. After Blackboard Tasks converge, `find_work` returns `blackboard_completion`; a collaborator either creates more Tasks or posts a durable completion result. That submission then applies `acceptance_mode`: `none` (default) completes immediately, `agent` returns `work_item_acceptance`, and `human` enters human acceptance. Acceptance is a separate `POST /acceptance` action. Agent acceptance candidates are visible only to Agent identities. Lifecycle decisions are returned before executable or planning candidates, and `limit` applies globally across those candidate kinds.
+Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. After Blackboard Tasks converge, `find_work` returns `blackboard_completion`; a collaborator either creates more Tasks or posts a durable completion result. That submission then applies `acceptance_mode`: `none` (default) completes immediately, `agent` returns `work_item_acceptance`, and `human` enters human acceptance. Acceptance is a separate `POST /acceptance` action. Agent acceptance candidates are visible only to Agent identities.
+
+`find_work` returns candidates in `work_item_acceptance`, `blackboard_completion`, `task`, then `empty_blackboard` groups. Its `limit` applies independently to each group, defaults to 5 when omitted or zero, and accepts values up to 50. An Agent can therefore receive at most four times the limit; a Human does not receive Agent-acceptance candidates. Each group is bounded in its database query rather than after loading the complete candidate set.
 
 Each Workflow Definition `graph.relations[]` entry accepts optional `label` and `agent_guidance` strings. Empty strings mean no additional guidance. Neither field changes graph compilation or progression semantics. HTTP Workflow Task context exposes complete guidance in each Choice Group's `relations`. MCP `get_task_context` annotates the corresponding `targets[]` entry with merged `relation_guidance` (preferring `agent_guidance`, then `label`), avoiding duplicate target structures.
 

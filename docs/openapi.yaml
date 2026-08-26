@@ -305,8 +305,8 @@ paths:
         - $ref: '#/components/parameters/TagQuery'
         - name: limit
           in: query
-          schema: { type: integer, minimum: 0, default: 0 }
-          description: Zero means no limit.
+          schema: { type: integer, minimum: 0, maximum: 50, default: 5 }
+          description: Maximum candidates returned for each candidate kind. Omission or zero uses 5.
       responses:
         '200':
           description: Work candidates
@@ -912,7 +912,7 @@ components:
       name: definition_id
       in: path
       required: true
-      schema: { type: string }
+      schema: { type: string, pattern: '^[a-z0-9-]+$' }
     VersionPath:
       name: version
       in: path
@@ -1126,7 +1126,7 @@ components:
       type: object
       required: [id, version, name, description, agent_instructions, suggested_tags, created_at, updated_at]
       properties:
-        id: { type: string }
+        id: { type: string, pattern: '^[a-z0-9-]+$' }
         version: { type: integer, format: int64, minimum: 1 }
         name: { type: string }
         description: { type: string }
@@ -1266,7 +1266,7 @@ components:
       type: object
       required: [id, version, mode]
       properties:
-        id: { type: string }
+        id: { type: string, pattern: '^[a-z0-9-]+$' }
         version: { type: integer, format: int64 }
         mode: { $ref: '#/components/schemas/CoordinationMode' }
     WorkItem:
@@ -1296,7 +1296,7 @@ components:
       additionalProperties: false
       required: [definition_id, mode, title, goal]
       properties:
-        definition_id: { type: string }
+        definition_id: { type: string, pattern: '^[a-z0-9-]+$' }
         mode: { $ref: '#/components/schemas/CoordinationMode' }
         title: { type: string }
         goal: { type: string }
