@@ -60,6 +60,9 @@ func (t WorkflowTransition) Validate() error {
 	if len(t.TriggeredRelationIDs) == 0 && len(t.SkippedRelationIDs) == 0 {
 		return invalid("workflow_transition.relations", "must not be empty")
 	}
+	if err := validateHistoryText("workflow_transition.reason", t.Reason); err != nil {
+		return err
+	}
 
 	seen := make(map[WorkflowRelationID]string, len(t.TriggeredRelationIDs)+len(t.SkippedRelationIDs))
 	for _, relationID := range t.TriggeredRelationIDs {

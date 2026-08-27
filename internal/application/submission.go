@@ -51,6 +51,7 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 	}
 
 	var created domain.TaskSubmission
+	var terminalErr error
 	err := s.repository.Update(ctx, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
@@ -101,8 +102,13 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 		if err := submission.Validate(); err != nil {
 			return err
 		}
-		if len(task.Submissions) >= MaxTaskHistoryEntries {
-			return conflict("task %q has reached the maximum of %d submissions", task.ID, MaxTaskHistoryEntries)
+		if len(task.Submissions) >= MaxSubmissionsPerTask {
+			reason := historyLimitReason(task.ID, "submissions", MaxSubmissionsPerTask)
+			if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, now); err != nil {
+				return err
+			}
+			terminalErr = conflict("work item %q failed: %s", workItem.ID, reason)
+			return nil
 		}
 
 		requestReview, err := submissionRequiresReview(workItem.CoordinationMode(), task, command.RequestReview)
@@ -112,6 +118,22 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 		decision, err := s.buildTransitionDecision(store, workItem, task, submission.ID, command.Identity.Actor, command.Transition, !requestReview, now)
 		if err != nil {
 			return err
+		}
+		if decision != nil && len(task.TransitionDecisions) >= MaxTransitionDecisionsPerTask {
+			reason := historyLimitReason(task.ID, "transition decisions", MaxTransitionDecisionsPerTask)
+			if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, now); err != nil {
+				return err
+			}
+			terminalErr = conflict("work item %q failed: %s", workItem.ID, reason)
+			return nil
+		}
+		if requestReview && len(task.Reviews) >= MaxReviewsPerTask {
+			reason := historyLimitReason(task.ID, "reviews", MaxReviewsPerTask)
+			if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, now); err != nil {
+				return err
+			}
+			terminalErr = conflict("work item %q failed: %s", workItem.ID, reason)
+			return nil
 		}
 
 		claim.EndedAt = &now
@@ -123,9 +145,6 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 		task.ActiveClaimID = nil
 		task.Submissions = append(task.Submissions, submission)
 		if decision != nil {
-			if len(task.TransitionDecisions) >= MaxTaskHistoryEntries {
-				return conflict("task %q has reached the maximum of %d transition decisions", task.ID, MaxTaskHistoryEntries)
-			}
 			task.TransitionDecisions = append(task.TransitionDecisions, *decision)
 		}
 		task.UpdatedAt = now
@@ -133,9 +152,6 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 
 		var review *domain.Review
 		if requestReview {
-			if len(task.Reviews) >= MaxTaskHistoryEntries {
-				return conflict("task %q has reached the maximum of %d reviews", task.ID, MaxTaskHistoryEntries)
-			}
 			reviewID, err := s.newID("review id")
 			if err != nil {
 				return err
@@ -206,6 +222,9 @@ func (s *Service) SubmitTask(ctx context.Context, command SubmitTaskCommand) (do
 	})
 	if err != nil {
 		return domain.TaskSubmission{}, err
+	}
+	if terminalErr != nil {
+		return domain.TaskSubmission{}, terminalErr
 	}
 	return created, nil
 }

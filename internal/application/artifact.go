@@ -160,6 +160,7 @@ func (s *Service) createArtifact(ctx context.Context, command CreateArtifactComm
 	}
 
 	var created domain.Artifact
+	var terminalErr error
 	err := s.replayableCreate(ctx, command.Identity, command.OperationID, CreateArtifactOperation, command, &created, func(store WriteStore) error {
 		task, claim, err := activeOwnedClaim(store, command.TaskID, command.ClaimID, command.Identity)
 		if err != nil {
@@ -169,8 +170,21 @@ func (s *Service) createArtifact(ctx context.Context, command CreateArtifactComm
 		if err != nil {
 			return err
 		}
-		if err := ensureTaskArtifactCapacity(store, task); err != nil {
+		reached, err := taskArtifactCapacity(store, task)
+		if err != nil {
 			return err
+		}
+		if reached {
+			reason := historyLimitReason(task.ID, "artifacts", MaxArtifactsPerTask)
+			workItem, err := store.GetWorkItem(task.WorkItemID)
+			if err != nil {
+				return fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
+			}
+			if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, s.clock.Now()); err != nil {
+				return err
+			}
+			terminalErr = conflict("work item %q failed: %s", task.WorkItemID, reason)
+			return commitAndReturn(terminalErr)
 		}
 		created = domain.Artifact{
 			ID: domain.ArtifactID(id), WorkItemID: task.WorkItemID, TaskID: task.ID,
@@ -183,6 +197,9 @@ func (s *Service) createArtifact(ctx context.Context, command CreateArtifactComm
 	})
 	if err != nil {
 		return domain.Artifact{}, err
+	}
+	if terminalErr != nil {
+		return domain.Artifact{}, terminalErr
 	}
 	return created, nil
 }
@@ -207,6 +224,7 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 	}
 	state := artifactUploadState{BlobURI: uploadURI}
 	var completed *domain.Artifact
+	var terminalErr error
 	err = s.repository.Update(ctx, func(store WriteStore) error {
 		if err := store.LockIdempotencyKey(command.Identity.Actor, command.OperationID); err != nil {
 			return fmt.Errorf("lock operation %q: %w", command.OperationID, err)
@@ -218,8 +236,21 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 			if err != nil {
 				return err
 			}
-			if err := ensureTaskArtifactCapacity(store, task); err != nil {
+			reached, err := taskArtifactCapacity(store, task)
+			if err != nil {
 				return err
+			}
+			if reached {
+				reason := historyLimitReason(task.ID, "artifacts", MaxArtifactsPerTask)
+				workItem, err := store.GetWorkItem(task.WorkItemID)
+				if err != nil {
+					return fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
+				}
+				if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, s.clock.Now()); err != nil {
+					return err
+				}
+				terminalErr = conflict("work item %q failed: %s", workItem.ID, reason)
+				return nil
 			}
 			return store.CreateIdempotencyRecord(IdempotencyRecord{
 				Actor: command.Identity.Actor, OperationID: command.OperationID,
@@ -239,7 +270,22 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 			if err != nil {
 				return err
 			}
-			return ensureTaskArtifactCapacity(store, task)
+			reached, err := taskArtifactCapacity(store, task)
+			if err != nil {
+				return err
+			}
+			if reached {
+				reason := historyLimitReason(task.ID, "artifacts", MaxArtifactsPerTask)
+				workItem, err := store.GetWorkItem(task.WorkItemID)
+				if err != nil {
+					return fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
+				}
+				if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, s.clock.Now()); err != nil {
+					return err
+				}
+				terminalErr = conflict("work item %q failed: %s", workItem.ID, reason)
+			}
+			return nil
 		case record.Status == IdempotencyCompleted && record.Operation == ArtifactUploadOperation:
 			if record.RequestHash != requestHash {
 				return conflict("operation id %q was already used for another request", command.OperationID)
@@ -260,18 +306,18 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 	if err != nil {
 		return nil, artifactUploadState{}, err
 	}
+	if terminalErr != nil {
+		return nil, artifactUploadState{}, terminalErr
+	}
 	return completed, state, nil
 }
 
-func ensureTaskArtifactCapacity(store ReadStore, task domain.Task) error {
+func taskArtifactCapacity(store ReadStore, task domain.Task) (bool, error) {
 	artifacts, err := store.ListArtifacts(ArtifactFilter{WorkItemID: task.WorkItemID, TaskID: task.ID})
 	if err != nil {
-		return fmt.Errorf("count artifacts for task %q: %w", task.ID, err)
+		return false, fmt.Errorf("count artifacts for task %q: %w", task.ID, err)
 	}
-	if len(artifacts) >= MaxArtifactsPerTask {
-		return conflict("task %q has reached the maximum of %d artifacts", task.ID, MaxArtifactsPerTask)
-	}
-	return nil
+	return len(artifacts) >= MaxArtifactsPerTask, nil
 }
 
 func mustArtifactUploadState(state artifactUploadState) string {
@@ -304,6 +350,7 @@ func (s *Service) finalizeArtifactUpload(ctx context.Context, command UploadArti
 	}
 
 	var result domain.Artifact
+	var terminalErr error
 	err = s.repository.Update(ctx, func(store WriteStore) error {
 		if err := store.LockIdempotencyKey(command.Identity.Actor, command.OperationID); err != nil {
 			return fmt.Errorf("lock operation %q: %w", command.OperationID, err)
@@ -333,8 +380,21 @@ func (s *Service) finalizeArtifactUpload(ctx context.Context, command UploadArti
 		// Recheck while the final transaction holds the WorkItem lock. The
 		// reservation transaction has already committed, so another instance
 		// may have added an Artifact in the meantime.
-		if err := ensureTaskArtifactCapacity(store, task); err != nil {
+		reached, err := taskArtifactCapacity(store, task)
+		if err != nil {
 			return err
+		}
+		if reached {
+			reason := historyLimitReason(task.ID, "artifacts", MaxArtifactsPerTask)
+			workItem, err := store.GetWorkItem(task.WorkItemID)
+			if err != nil {
+				return fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
+			}
+			if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, s.clock.Now()); err != nil {
+				return err
+			}
+			terminalErr = conflict("work item %q failed: %s", task.WorkItemID, reason)
+			return nil
 		}
 		if err := store.CreateArtifactBlob(blob); err != nil {
 			return fmt.Errorf("create artifact blob: %w", err)
@@ -361,7 +421,13 @@ func (s *Service) finalizeArtifactUpload(ctx context.Context, command UploadArti
 		}
 		return nil
 	})
-	return result, err
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	if terminalErr != nil {
+		return domain.Artifact{}, terminalErr
+	}
+	return result, nil
 }
 
 func retainedIdempotentArtifact(store ReadStore, record IdempotencyRecord) (domain.Artifact, error) {
@@ -390,6 +456,9 @@ func activeOwnedClaim(store ReadStore, taskID domain.TaskID, claimID domain.Clai
 	}
 	if err := rejectCancelledWorkItem(workItem); err != nil {
 		return domain.Task{}, domain.Claim{}, err
+	}
+	if workItem.Status != domain.WorkItemStatusOpen {
+		return domain.Task{}, domain.Claim{}, conflict("work item %q is %s", workItem.ID, workItem.Status)
 	}
 	claims, err := store.ListClaims(task.ID)
 	if err != nil {

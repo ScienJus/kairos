@@ -239,6 +239,8 @@ Skipped
     WorkItem Completed
 ```
 
+Workflow 完成是结构性结果，不会自动合成 WorkItem 级 Result。完成后的 WorkItem 保持 `result` 为空；持久成果保留在具体 Task Submission 和 Artifact 中。确实需要最终总结的 Workflow 应将其建模为末尾 Task，由执行者正式提交。
+
 Task 实例总数达到 `MaxTaskExecutions` 时，WorkItem 进入 Failed。
 
 > Workflow defines the constraints; executor autonomy operates at explicitly configured decision points.

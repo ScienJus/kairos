@@ -84,8 +84,8 @@ type WorkItem struct {
 	// Tags provide discovery metadata, including before a Blackboard has Tasks. [Both]
 	Tags []string `json:"tags"`
 
-	// Result stores a submitted completion proposal while acceptance is pending,
-	// and the accepted final outcome after completion. [Both]
+	// Result stores a Blackboard completion proposal while acceptance is pending,
+	// and its accepted final outcome after completion. It remains empty for Workflow. [Both]
 	Result string `json:"result"`
 
 	// Version is the server-maintained WorkItem revision. Blackboard planning
@@ -123,6 +123,12 @@ func (w WorkItem) Validate() error {
 	}
 	if strings.TrimSpace(w.Goal) == "" {
 		return invalid("goal", "is required")
+	}
+	if err := validateHistoryText("result", w.Result); err != nil {
+		return err
+	}
+	if err := validateHistoryText("cancellation_reason", w.CancellationReason); err != nil {
+		return err
 	}
 	if w.Version < 0 {
 		return invalid("version", "must not be negative")

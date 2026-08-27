@@ -239,6 +239,8 @@ A result requiring Review does not take effect until approval. A WorkItem comple
     WorkItem Completed
 ```
 
+Workflow completion is structural and does not synthesize a WorkItem-level result. The completed WorkItem keeps `result` empty; durable outcomes remain on the concrete Task Submissions and Artifacts. A Workflow that requires a final authored summary should model it as a terminal Task.
+
 When the Task instance count reaches `MaxTaskExecutions`, the WorkItem becomes Failed.
 
 > Workflow defines the constraints; executor autonomy operates at explicitly configured decision points.

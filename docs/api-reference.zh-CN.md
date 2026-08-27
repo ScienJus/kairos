@@ -125,15 +125,15 @@ Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation 
 
 单个 Blackboard WorkItem 最多包含 1,000 个 Task 实例和 10,000 条建议 Relation；已完成的历史 Task 以及拆分产生的子 Task 也计入总数。服务端会在根 Task 创建、Task 拆分、追加子 Task 和新增 Relation 的写事务内检查硬上限；超过上限时返回 `409 conflict`，不会产生部分写入结果。
 
-为在不截断历史的前提下限制执行上下文和 WorkItem 上下文大小，每个 Task 最多接受 1,000 条 Claim、Submission、Review、Failure、Transition Decision 和 Artifact。超过单个 Task 上限的追加操作返回 `409 conflict`；已接受的历史在上下文响应中保持完整。
+为在不截断历史的前提下限制执行上下文和 WorkItem 上下文大小，每个 Task 最多接受 128 条 Claim、64 条 Submission、64 条 Review、64 条普通 Failure、64 条 Transition Decision 和 64 个 Artifact。尝试追加超过任一历史上限时，WorkItem 会失败并结束 Active Claim；终态 `fail_work_item` Failure 可额外写入 1 条，因此 Failure 历史在该场景下最多为 65 条。已接受的历史在上下文响应中保持完整。会保留在历史或事件中的 Result、Reason、Retry Prompt、Feedback、Transition Reason 和事件消息按 UTF-8 编码后的单字段上限为 32 KiB。Task Submission 可通过 `artifact_ids` 将较长交付物绑定为 Artifact，同时在 Result 中保留简短摘要。对于不接受 Artifact ID 的纯文本生命周期动作，包括失败与重试详情、Review Feedback、Cancellation Reason 和 Skip Reason，应将较长内容存入可持久访问的外部存储，并在文本字段中提供简短摘要和绝对 URI。
 
 Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `agent_guidance` 字符串。空字符串表示没有额外 Guidance。两者不改变图编译或推进语义。HTTP Workflow Task context 的每个 Choice Group 在 `relations` 中返回完整 Guidance；MCP `get_task_context` 则在对应的 `targets[]` 项上提供合并后的 `relation_guidance`（优先使用 `agent_guidance`，否则使用 `label`），避免重复目标结构。
 
-等待验收期间，`work_item.result` 保存已提交的 completion proposal；验收通过后，同一字段表示已接受的最终结果。Agent 验收阶段若通过创建新 Task 重新打开 WorkItem，会清除已经失效的 proposal。
+对于 Blackboard，等待验收期间 `work_item.result` 保存已提交的 completion proposal；验收通过后，同一字段表示已接受的最终结果。Agent 验收阶段若通过创建新 Task 重新打开 WorkItem，会清除已经失效的 proposal。Workflow 的完成由图收敛确定，因此 Workflow WorkItem 的 `result` 保持为空；其持久成果保留在各 Task Submission 和 Artifact 中。
 
 `POST /api/v1/work-items/{id}/cancellation` 是只允许 Human 调用的管理动作，适用于 `open`、`awaiting_agent_acceptance` 和 `awaiting_human_acceptance` WorkItem。请求必须提供非空 `reason`，服务端记录 `cancelled_at`、`cancelled_by` 和 `cancellation_reason`，并清除待验收的完成提案。同一事务会让全部 Active Claim 以 `work_item_cancelled` 结束、清除对应 Task 的 `active_claim_id`，并只把 `working` Task 恢复为 `pending`；已有 Task 结果不会被重写，也不会创建 Task Failure。取消后的 WorkItem 仍可读取，后续 Task 变更返回 `409 work_item_cancelled`，Agent 收到后应直接停止。MCP 不提供取消工具。
 
-`GET /api/v1/work-items/{id}/context` 在 WorkItem 终态后仍可读取，返回聚合结果、规范化的 Task 与 relation 集合、`claims` 中的完整 Claim 历史，以及 `active_claims` 中当前仍存活的子集。完成态 Task 的执行人可通过 `submission.claim_id -> claims[].id -> executor` 关联。
+`GET /api/v1/work-items/{id}/context` 在 WorkItem 终态后仍可读取，返回 WorkItem、规范化的 Task 与 relation 集合、`claims` 中的完整 Claim 历史，以及 `active_claims` 中当前仍存活的子集。返回的 `work_item.result` 遵循上述模式语义：Blackboard 中保存 completion proposal 或已接受结果，Workflow 中保持为空；Workflow 成果应从 Task Submission 和 Artifact 获取。完成态 Task 的执行人可通过 `submission.claim_id -> claims[].id -> executor` 关联。
 
 Workflow Task Definition 可以声明必交的 `artifacts[]`，每项只有 `name` 和 `description`。Description 是执行指引，不是文件类型 Schema。执行者持有 Claim 时可以用绝对 URI 创建外部 Artifact，或上传托管内容，再通过 `submit_task.artifact_ids` 提交。Submission 在同一事务中绑定暂存 Artifact；缺少 Definition 声明名称的 Workflow 提交会被拒绝。Blackboard Task 没有结构化 Artifact 契约。已提交 Artifact 对整个 WorkItem 可见，暂存 Artifact 只属于创建它的 Claim。
 

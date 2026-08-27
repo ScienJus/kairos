@@ -50,6 +50,12 @@ func (f TaskFailure) Validate() error {
 	if strings.TrimSpace(f.Reason) == "" {
 		return invalid("failure.reason", "is required")
 	}
+	if err := validateHistoryText("failure.reason", f.Reason); err != nil {
+		return err
+	}
+	if err := validateHistoryText("failure.retry_prompt", f.RetryPrompt); err != nil {
+		return err
+	}
 	if f.Action != TaskFailureReopen && strings.TrimSpace(f.RetryPrompt) != "" {
 		return invalid("failure.retry_prompt", "is supported only when reopening the task")
 	}

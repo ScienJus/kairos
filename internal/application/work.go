@@ -149,6 +149,7 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 	}
 
 	var created domain.Claim
+	var terminalErr error
 	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "claim_task", command, &created, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
@@ -180,18 +181,27 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 			return err
 		}
 
+		claims, err := store.ListClaims(task.ID)
+		if err != nil {
+			return fmt.Errorf("list claims for task %q: %w", task.ID, err)
+		}
+		if len(claims) >= MaxClaimsPerTask {
+			now := s.clock.Now()
+			reason := historyLimitReason(task.ID, "claims", MaxClaimsPerTask)
+			if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, now); err != nil {
+				return err
+			}
+			terminalErr = conflict("work item %q failed: %s", workItem.ID, reason)
+			return commitAndReturn(terminalErr)
+		}
+
 		id, err := s.newID("claim id")
 		if err != nil {
 			return err
 		}
 		now := s.clock.Now()
 		claimID := domain.ClaimID(id)
-		claim := domain.Claim{
-			ID:        claimID,
-			TaskID:    task.ID,
-			Executor:  command.Identity.Actor,
-			ClaimedAt: now,
-		}
+		claim := domain.Claim{ID: claimID, TaskID: task.ID, Executor: command.Identity.Actor, ClaimedAt: now}
 		if command.Identity.Actor.Kind == domain.ActorAgent {
 			lease := normalizeClaimLease(command.LeaseSeconds, s.claimLease)
 			claim.LastHeartbeatAt = now
@@ -205,13 +215,6 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 		task.Version++
 		task.UpdatedAt = now
 
-		claims, err := store.ListClaims(task.ID)
-		if err != nil {
-			return fmt.Errorf("list claims for task %q: %w", task.ID, err)
-		}
-		if len(claims) >= MaxClaimsPerTask {
-			return conflict("task %q has reached the maximum of %d claims", task.ID, MaxClaimsPerTask)
-		}
 		claims = append(claims, claim)
 		if err := domain.ValidateTaskContext(workItem.CoordinationMode(), task, claims); err != nil {
 			return err
@@ -231,6 +234,9 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 	})
 	if err != nil {
 		return domain.Claim{}, err
+	}
+	if terminalErr != nil {
+		return domain.Claim{}, terminalErr
 	}
 	return created, nil
 }

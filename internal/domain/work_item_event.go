@@ -120,6 +120,9 @@ func (e WorkItemEvent) Validate() error {
 	if workItemScoped && e.EntityID != string(e.WorkItemID) {
 		return invalid("event.entity_id", "must match work_item_id for work item events")
 	}
+	if err := validateHistoryText("event.message", e.Message); err != nil {
+		return err
+	}
 	if e.Actor != nil {
 		if err := e.Actor.Validate(); err != nil {
 			return err
