@@ -9,6 +9,15 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
+func systemFailureActor() *domain.ActorRef {
+	actor := domain.ActorRef{Kind: domain.ActorAgent, ID: "kairos"}
+	return &actor
+}
+
+func historyLimitReason(taskID domain.TaskID, history string, limit int) string {
+	return fmt.Sprintf("task %s reached the maximum of %d %s", taskID, limit, history)
+}
+
 // FailTaskCommand reports an execution failure from the active Claim.
 type FailTaskCommand struct {
 	TaskID      domain.TaskID
@@ -29,6 +38,7 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 	}
 
 	var created domain.TaskFailure
+	var terminalErr error
 	err := s.repository.Update(ctx, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
@@ -83,8 +93,13 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 		if err := failure.Validate(); err != nil {
 			return err
 		}
-		if len(task.Failures) >= MaxTaskHistoryEntries {
-			return conflict("task %q has reached the maximum of %d failure records", task.ID, MaxTaskHistoryEntries)
+		if len(task.Failures) >= MaxFailuresPerTask && failure.Action != domain.TaskFailureFailWorkItem {
+			reason := historyLimitReason(task.ID, "failure records", MaxFailuresPerTask)
+			if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, now); err != nil {
+				return err
+			}
+			terminalErr = conflict("work item %q failed: %s", workItem.ID, reason)
+			return nil
 		}
 
 		claim.EndedAt = &now
@@ -101,9 +116,6 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 		} else {
 			task.Status = domain.TaskStatusFailed
 			eventType = domain.WorkItemEventTaskFailed
-			workItem.Status = domain.WorkItemStatusFailed
-			workItem.UpdatedAt = now
-			workItem.Version++
 		}
 
 		if err := domain.ValidateTaskContext(workItem.CoordinationMode(), task, claims); err != nil {
@@ -121,13 +133,7 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 		}
 
 		if failure.Action == domain.TaskFailureFailWorkItem {
-			if err := s.revokeOtherClaims(store, workItem, task.ID, now); err != nil {
-				return err
-			}
-			if err := store.SaveWorkItem(workItem); err != nil {
-				return fmt.Errorf("save failed work item: %w", err)
-			}
-			if err := s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventWorkItemFailed, string(workItem.ID), &actor, failure.Reason); err != nil {
+			if err := s.failWorkItem(store, &workItem, &task.ID, &actor, failure.Reason, now); err != nil {
 				return err
 			}
 		}
@@ -138,13 +144,18 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 	if err != nil {
 		return domain.TaskFailure{}, err
 	}
+	if terminalErr != nil {
+		return domain.TaskFailure{}, terminalErr
+	}
 	return created, nil
 }
 
-func (s *Service) revokeOtherClaims(
+func (s *Service) failWorkItem(
 	store WriteStore,
-	workItem domain.WorkItem,
-	failedTaskID domain.TaskID,
+	workItem *domain.WorkItem,
+	excludedTaskID *domain.TaskID,
+	actor *domain.ActorRef,
+	reason string,
 	now time.Time,
 ) error {
 	tasks, err := store.ListTasks(workItem.ID)
@@ -152,7 +163,7 @@ func (s *Service) revokeOtherClaims(
 		return fmt.Errorf("list tasks for failed work item: %w", err)
 	}
 	for _, task := range tasks {
-		if task.ID == failedTaskID || task.ActiveClaimID == nil {
+		if (excludedTaskID != nil && task.ID == *excludedTaskID) || task.ActiveClaimID == nil {
 			continue
 		}
 		claims, err := store.ListClaims(task.ID)
@@ -184,6 +195,18 @@ func (s *Service) revokeOtherClaims(
 			}
 			break
 		}
+	}
+	workItem.Status = domain.WorkItemStatusFailed
+	workItem.UpdatedAt = now
+	workItem.Version++
+	if err := workItem.Validate(); err != nil {
+		return err
+	}
+	if err := store.SaveWorkItem(*workItem); err != nil {
+		return fmt.Errorf("save failed work item: %w", err)
+	}
+	if err := s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventWorkItemFailed, string(workItem.ID), actor, reason); err != nil {
+		return err
 	}
 	return nil
 }

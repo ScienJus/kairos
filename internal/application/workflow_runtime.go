@@ -566,18 +566,9 @@ func (s *Service) failWorkflowExecutionLimit(
 	limit int,
 	now time.Time,
 ) error {
-	workItem.Status = domain.WorkItemStatusFailed
-	workItem.UpdatedAt = now
-	workItem.Version++
-	if err := workItem.Validate(); err != nil {
-		return err
-	}
-	if err := store.SaveWorkItem(*workItem); err != nil {
-		return fmt.Errorf("save workflow execution limit failure: %w", err)
-	}
 	actor := domain.ActorRef{Kind: domain.ActorAgent, ID: "kairos"}
 	message := fmt.Sprintf("workflow exceeded MaxTaskExecutions (%d) after task %s", limit, sourceTask.ID)
-	return s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventWorkItemFailed, string(workItem.ID), &actor, message)
+	return s.failWorkItem(store, workItem, &sourceTask.ID, &actor, message, now)
 }
 
 func hasAppliedDecision(task domain.Task) bool {

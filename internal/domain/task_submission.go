@@ -32,6 +32,9 @@ func (s TaskSubmission) Validate() error {
 	if strings.TrimSpace(s.Result) == "" {
 		return invalid("submission.result", "is required")
 	}
+	if err := validateHistoryText("submission.result", s.Result); err != nil {
+		return err
+	}
 	if s.SubmittedAt.IsZero() {
 		return invalid("submission.submitted_at", "is required")
 	}

@@ -479,7 +479,7 @@ paths:
               type: object
               additionalProperties: false
               required: [result]
-              properties: { result: { type: string } }
+              properties: { result: { $ref: '#/components/schemas/HistoryText' } }
       responses:
         '200': { $ref: '#/components/responses/WorkItem' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -520,7 +520,7 @@ paths:
               type: object
               additionalProperties: false
               required: [reason]
-              properties: { reason: { type: string, pattern: '.*\S.*' } }
+              properties: { reason: { $ref: '#/components/schemas/HistoryText', pattern: '.*\S.*' } }
       responses:
         '200': { $ref: '#/components/responses/WorkItem' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -604,7 +604,7 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              properties: { reason: { type: string } }
+              properties: { reason: { $ref: '#/components/schemas/HistoryText' } }
       responses:
         '204': { description: Claim released }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -767,7 +767,7 @@ paths:
               type: object
               additionalProperties: false
               required: [reason]
-              properties: { reason: { type: string } }
+              properties: { reason: { $ref: '#/components/schemas/HistoryText' } }
       responses:
         '200': { $ref: '#/components/responses/Task' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -850,7 +850,7 @@ paths:
               required: [decision]
               properties:
                 decision: { type: string, enum: [approved, rejected] }
-                feedback: { type: string }
+                feedback: { $ref: '#/components/schemas/HistoryText' }
       responses:
         '200': { $ref: '#/components/responses/Review' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -1046,6 +1046,10 @@ components:
     NullableString: { type: [string, 'null'] }
     NullableCursor: { type: [string, 'null'], minLength: 1, maxLength: 2048 }
     StringArray: { type: array, items: { type: string } }
+    HistoryText:
+      type: string
+      description: Text retained in history or copied into the event log; limited to 32 KiB of UTF-8 encoded bytes.
+      x-maxBytes: 32768
     ErrorResponse:
       type: object
       required: [error]
@@ -1289,14 +1293,16 @@ components:
         constraints: { type: string }
         acceptance_criteria: { type: string }
         tags: { $ref: '#/components/schemas/StringArray' }
-        result: { type: string }
+        result:
+          $ref: '#/components/schemas/HistoryText'
+          description: Blackboard completion proposal or accepted outcome. Always empty for Workflow WorkItems; inspect Task Submissions and Artifacts for Workflow outcomes.
         version: { type: integer, format: int64 }
         created_at: { $ref: '#/components/schemas/DateTime' }
         updated_at: { $ref: '#/components/schemas/DateTime' }
         completed_at: { $ref: '#/components/schemas/NullableDateTime' }
         cancelled_at: { $ref: '#/components/schemas/NullableDateTime' }
         cancelled_by: { $ref: '#/components/schemas/NullableActorRef' }
-        cancellation_reason: { type: string }
+        cancellation_reason: { $ref: '#/components/schemas/HistoryText' }
     CreateWorkItemRequest:
       type: object
       additionalProperties: false
@@ -1323,7 +1329,7 @@ components:
         requested_at: { $ref: '#/components/schemas/DateTime' }
         decided_by: { $ref: '#/components/schemas/NullableString' }
         decided_at: { $ref: '#/components/schemas/NullableDateTime' }
-        feedback: { type: string }
+        feedback: { $ref: '#/components/schemas/HistoryText' }
     Submission:
       type: object
       required: [id, task_id, claim_id, result, submitted_at]
@@ -1331,7 +1337,7 @@ components:
         id: { type: string }
         task_id: { type: string }
         claim_id: { type: string }
-        result: { type: string }
+        result: { $ref: '#/components/schemas/HistoryText' }
         submitted_at: { $ref: '#/components/schemas/DateTime' }
     Failure:
       type: object
@@ -1341,8 +1347,8 @@ components:
         task_id: { type: string }
         claim_id: { type: string }
         action: { type: string, enum: [reopen, fail_work_item] }
-        reason: { type: string }
-        retry_prompt: { type: string }
+        reason: { $ref: '#/components/schemas/HistoryText' }
+        retry_prompt: { $ref: '#/components/schemas/HistoryText' }
         failed_at: { $ref: '#/components/schemas/DateTime' }
     TransitionDecision:
       type: object
@@ -1356,7 +1362,7 @@ components:
         triggered_relation_ids: { $ref: '#/components/schemas/StringArray' }
         skipped_relation_ids: { $ref: '#/components/schemas/StringArray' }
         review_requested_relation_ids: { $ref: '#/components/schemas/StringArray' }
-        reason: { type: string }
+        reason: { $ref: '#/components/schemas/HistoryText' }
         skip_task_ids: { $ref: '#/components/schemas/StringArray' }
         review_requested_task_ids: { $ref: '#/components/schemas/StringArray' }
         decided_by: { $ref: '#/components/schemas/ActorRef' }
@@ -1364,7 +1370,7 @@ components:
         applied_at: { $ref: '#/components/schemas/NullableDateTime' }
     Task:
       type: object
-      description: Task histories are complete. To keep context responses bounded, each Task accepts at most 1,000 Claims, Submissions, Reviews, Failures, Transition Decisions, and Artifacts; attempts beyond a per-task ceiling return 409 conflict.
+      description: Task histories are complete. Each Task accepts at most 128 Claims, 64 Submissions, 64 Reviews, 64 ordinary Failures, 64 Transition Decisions, and 64 Artifacts. A terminal fail_work_item Failure may add one final record; attempting to append beyond any history ceiling fails the WorkItem and ends active Claims.
       required: [id, work_item_id, workflow_task_id, workflow_activation_id, status, active_claim_id, parent_task_id, decomposed_at, title, description, acceptance_criteria, executor, skipped_by, skip_reason, allowed_roles, tags, execution, review_policy, reviews, submissions, failures, transition_decisions, position, version, created_at, updated_at, completed_at]
       properties:
         id: { type: string }
@@ -1381,15 +1387,15 @@ components:
         executor: { $ref: '#/components/schemas/ExecutorRequirement' }
         skipped_by:
           oneOf: [{ $ref: '#/components/schemas/ActorRef' }, { type: 'null' }]
-        skip_reason: { type: string }
+        skip_reason: { $ref: '#/components/schemas/HistoryText' }
         allowed_roles: { $ref: '#/components/schemas/StringArray' }
         tags: { $ref: '#/components/schemas/StringArray' }
         execution: { type: [string, 'null'], enum: [required, optional, null] }
         review_policy: { type: [string, 'null'], enum: [none, executor_decides, required, null] }
-        reviews: { type: array, items: { $ref: '#/components/schemas/Review' } }
-        submissions: { type: array, items: { $ref: '#/components/schemas/Submission' } }
-        failures: { type: array, items: { $ref: '#/components/schemas/Failure' } }
-        transition_decisions: { type: array, items: { $ref: '#/components/schemas/TransitionDecision' } }
+        reviews: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/Review' } }
+        submissions: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/Submission' } }
+        failures: { type: array, maxItems: 65, items: { $ref: '#/components/schemas/Failure' } }
+        transition_decisions: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/TransitionDecision' } }
         position: { type: integer, format: int64 }
         version: { type: integer, format: int64 }
         created_at: { $ref: '#/components/schemas/DateTime' }
@@ -1470,17 +1476,17 @@ components:
         kind: { type: string }
         actor:
           oneOf: [{ $ref: '#/components/schemas/ActorRef' }, { type: 'null' }]
-        reason: { type: string }
+        reason: { $ref: '#/components/schemas/HistoryText' }
         occurred_at: { $ref: '#/components/schemas/NullableDateTime' }
     TaskHistory:
       type: object
       required: [claims, submissions, reviews, failures, transition_decisions]
       properties:
-        claims: { type: array, items: { $ref: '#/components/schemas/Claim' } }
-        submissions: { type: array, items: { $ref: '#/components/schemas/Submission' } }
-        reviews: { type: array, items: { $ref: '#/components/schemas/Review' } }
-        failures: { type: array, items: { $ref: '#/components/schemas/Failure' } }
-        transition_decisions: { type: array, items: { $ref: '#/components/schemas/TransitionDecision' } }
+        claims: { type: array, maxItems: 128, items: { $ref: '#/components/schemas/Claim' } }
+        submissions: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/Submission' } }
+        reviews: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/Review' } }
+        failures: { type: array, maxItems: 65, items: { $ref: '#/components/schemas/Failure' } }
+        transition_decisions: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/TransitionDecision' } }
     TaskCapabilities:
       type: object
       required: [can_claim, can_submit, can_release, can_fail, can_review, can_skip, can_decompose, can_add_child]
@@ -1503,7 +1509,7 @@ components:
         current_review:
           oneOf: [{ $ref: '#/components/schemas/Review' }, { type: 'null' }]
         history: { $ref: '#/components/schemas/TaskHistory' }
-        artifacts: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
+        artifacts: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/Artifact' } }
         capabilities: { $ref: '#/components/schemas/TaskCapabilities' }
     WorkflowChoiceRelation:
       type: object
@@ -1542,8 +1548,8 @@ components:
       properties:
         work_item: { $ref: '#/components/schemas/WorkItem' }
         task: { $ref: '#/components/schemas/Task' }
-        claims: { type: array, items: { $ref: '#/components/schemas/Claim' } }
-        artifacts: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
+        claims: { type: array, maxItems: 128, items: { $ref: '#/components/schemas/Claim' } }
+        artifacts: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/Artifact' } }
         expected_artifacts: { type: array, items: { $ref: '#/components/schemas/ArtifactDefinition' } }
         definition: { $ref: '#/components/schemas/DefinitionContext' }
         responsibility: { $ref: '#/components/schemas/Responsibility' }
@@ -1597,14 +1603,14 @@ components:
         choice_group_id: { type: string }
         skip_optional_task_ids: { $ref: '#/components/schemas/StringArray' }
         review_skipped_task_ids: { $ref: '#/components/schemas/StringArray' }
-        reason: { type: string }
+        reason: { $ref: '#/components/schemas/HistoryText' }
     SubmitTaskRequest:
       type: object
       additionalProperties: false
       required: [claim_id, result]
       properties:
         claim_id: { type: string }
-        result: { type: string }
+        result: { $ref: '#/components/schemas/HistoryText' }
         artifact_ids: { $ref: '#/components/schemas/StringArray' }
         request_review: { type: boolean, default: false }
         transition:
@@ -1624,8 +1630,8 @@ components:
       properties:
         claim_id: { type: string }
         action: { type: string, enum: [reopen, fail_work_item] }
-        reason: { type: string }
-        retry_prompt: { type: string }
+        reason: { $ref: '#/components/schemas/HistoryText' }
+        retry_prompt: { $ref: '#/components/schemas/HistoryText' }
     WorkItemResponse:
       type: object
       required: [data]

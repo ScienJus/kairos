@@ -1535,7 +1535,7 @@ func TestWorkflowDefinitionLimitsRejectBeforeWorkItemCreation(t *testing.T) {
 	}
 }
 
-func TestTaskHistoryLimitsRejectWrites(t *testing.T) {
+func TestTaskHistoryLimitsFailWorkItem(t *testing.T) {
 	t.Parallel()
 	identity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "history-limit-agent"}, Role: "generalist"}
 
@@ -1563,6 +1563,86 @@ func TestTaskHistoryLimitsRejectWrites(t *testing.T) {
 		}
 		return repository, service, task, claim
 	}
+	newClaimedOptionalTask := func(t *testing.T, withSuccessor bool) (*testRepository, *Service, domain.WorkItem, domain.Task, domain.Claim, Identity) {
+		t.Helper()
+		workflowIdentity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "optional-history-agent"}, Role: "backend"}
+		repository := newTestRepository()
+		definition := historyLimitOptionalWorkflowDefinition(withSuccessor)
+		repository.workflows[definitionKey(definition.ID, definition.Version)] = definition
+		service := newTestService(t, repository)
+		workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+			Definition: definition.Binding(), Identity: workflowIdentity, Title: "Optional history", Goal: "Exercise independent history limits",
+		})
+		if err != nil {
+			t.Fatalf("create optional workflow: %v", err)
+		}
+		start := workflowTasksByDefinition(repository.tasksFor(workItem.ID))["start"]
+		completeWorkflowTask(t, service, repository, workflowIdentity, start, WorkflowTransitionCommand{ChoiceGroupID: "exit:start"})
+		optional := workflowTasksByDefinition(repository.tasksFor(workItem.ID))["optional"]
+		claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: optional.ID, Identity: workflowIdentity})
+		if err != nil {
+			t.Fatalf("claim optional task: %v", err)
+		}
+		return repository, service, workItem, optional, claim, workflowIdentity
+	}
+	populateOptionalHistory := func(t *testing.T, repository *testRepository, task domain.Task, identity Identity, withDecisions bool) {
+		t.Helper()
+		stored := repository.tasks[task.ID]
+		stored.Submissions = make([]domain.TaskSubmission, 0, MaxSubmissionsPerTask-1)
+		stored.Reviews = make([]domain.Review, 0, MaxReviewsPerTask)
+		stored.TransitionDecisions = make([]domain.TransitionDecision, 0, MaxTransitionDecisionsPerTask)
+		base := applicationTestTime.Add(-time.Duration(MaxReviewsPerTask+1) * time.Minute)
+		reviewer := domain.ActorID("reviewer")
+		for index := 0; index < MaxSubmissionsPerTask-1; index++ {
+			claimID := domain.ClaimID(fmt.Sprintf("optional-history-claim-%d", index))
+			submissionID := domain.SubmissionID(fmt.Sprintf("optional-history-submission-%d", index))
+			claimedAt := base.Add(time.Duration(index) * time.Minute)
+			endedAt := claimedAt.Add(time.Second)
+			decidedAt := endedAt.Add(time.Second)
+			repository.claims[claimID] = domain.Claim{
+				ID: claimID, TaskID: task.ID, Executor: identity.Actor, ClaimedAt: claimedAt,
+				EndedAt: &endedAt, EndReason: domain.ClaimEndSubmittedForReview,
+			}
+			stored.Submissions = append(stored.Submissions, domain.TaskSubmission{
+				ID: submissionID, TaskID: task.ID, ClaimID: claimID, Result: "retry", SubmittedAt: endedAt,
+			})
+			stored.Reviews = append(stored.Reviews, domain.Review{
+				ID: domain.ReviewID(fmt.Sprintf("optional-history-review-%d", index)), TaskID: task.ID,
+				SubmissionID: &submissionID, Status: domain.ReviewStatusRejected, RequestedBy: identity.Actor.ID,
+				RequestedAt: endedAt, DecidedBy: &reviewer, DecidedAt: &decidedAt, Feedback: "retry",
+			})
+			if withDecisions {
+				stored.TransitionDecisions = append(stored.TransitionDecisions, domain.TransitionDecision{
+					ID:         domain.TransitionDecisionID(fmt.Sprintf("optional-history-decision-%d", index)),
+					WorkItemID: task.WorkItemID, SourceTaskID: task.ID, SourceSubmissionID: &submissionID,
+					WorkflowTransition: domain.WorkflowTransition{ChoiceGroupID: "exit:optional", TriggeredRelationIDs: []domain.WorkflowRelationID{"optional-next"}},
+					DecidedBy:          identity.Actor, DecidedAt: endedAt,
+				})
+			}
+		}
+		skipRequestedAt := base.Add(time.Duration(MaxSubmissionsPerTask) * time.Minute)
+		skipDecidedAt := skipRequestedAt.Add(time.Second)
+		stored.Reviews = append(stored.Reviews, domain.Review{
+			ID: "optional-skip-review", TaskID: task.ID, Status: domain.ReviewStatusRejected,
+			RequestedBy: identity.Actor.ID, RequestedAt: skipRequestedAt,
+			DecidedBy: &reviewer, DecidedAt: &skipDecidedAt, Feedback: "execute instead",
+		})
+		if withDecisions {
+			stored.TransitionDecisions = append(stored.TransitionDecisions, domain.TransitionDecision{
+				ID: "optional-skip-decision", WorkItemID: task.WorkItemID, SourceTaskID: task.ID,
+				WorkflowTransition: domain.WorkflowTransition{ChoiceGroupID: "exit:optional", TriggeredRelationIDs: []domain.WorkflowRelationID{"optional-next"}},
+				DecidedBy:          identity.Actor, DecidedAt: skipRequestedAt,
+			})
+		}
+		repository.tasks[task.ID] = stored
+		claims, err := repository.ListClaims(task.ID)
+		if err != nil {
+			t.Fatalf("list optional history claims: %v", err)
+		}
+		if err := domain.ValidateTaskContext(domain.CoordinationModeWorkflow, stored, claims); err != nil {
+			t.Fatalf("optional history fixture is invalid: %v", err)
+		}
+	}
 
 	t.Run("claims", func(t *testing.T) {
 		repository, service, task, initialClaim := newClaimedTask(t)
@@ -1577,74 +1657,91 @@ func TestTaskHistoryLimitsRejectWrites(t *testing.T) {
 				ClaimedAt: applicationTestTime,
 			}
 		}
-		before := repository.tasks[task.ID]
 		if _, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: identity}); !errors.Is(err, ErrConflict) {
 			t.Fatalf("claim limit error = %v, want ErrConflict", err)
 		}
-		if len(repository.claims) != MaxClaimsPerTask || !slices.Equal(repository.tasks[task.ID].AllowedRoles, before.AllowedRoles) || repository.tasks[task.ID].Version != before.Version {
-			t.Fatalf("claim limit partially changed state: claims=%d task=%#v", len(repository.claims), repository.tasks[task.ID])
+		if repository.workItems[task.WorkItemID].Status != domain.WorkItemStatusFailed || repository.tasks[task.ID].ActiveClaimID != nil {
+			t.Fatalf("claim limit did not fail work item: work_item=%#v task=%#v", repository.workItems[task.WorkItemID], repository.tasks[task.ID])
 		}
 	})
 
 	t.Run("submissions", func(t *testing.T) {
 		repository, service, task, claim := newClaimedTask(t)
 		stored := repository.tasks[task.ID]
-		stored.Submissions = make([]domain.TaskSubmission, MaxTaskHistoryEntries)
+		stored.Submissions = make([]domain.TaskSubmission, MaxSubmissionsPerTask)
+		for index := range stored.Submissions {
+			claimID := domain.ClaimID(fmt.Sprintf("submission-claim-%d", index))
+			endedAt := applicationTestTime.Add(time.Duration(index+1) * time.Second)
+			repository.claims[claimID] = domain.Claim{ID: claimID, TaskID: task.ID, Executor: identity.Actor, ClaimedAt: applicationTestTime, EndedAt: &endedAt, EndReason: domain.ClaimEndTaskCompleted}
+			stored.Submissions[index] = domain.TaskSubmission{ID: domain.SubmissionID(fmt.Sprintf("submission-%d", index)), TaskID: task.ID, ClaimID: claimID, Result: "done", SubmittedAt: endedAt}
+		}
 		repository.tasks[task.ID] = stored
 		if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Result: "done"}); !errors.Is(err, ErrConflict) {
-			t.Fatalf("submission limit error = %v, want ErrConflict", err)
+			t.Fatalf("submission limit error = %v, want ErrConflict after terminal failure", err)
 		}
-		if repository.tasks[task.ID].ActiveClaimID == nil || len(repository.tasks[task.ID].Submissions) != MaxTaskHistoryEntries {
-			t.Fatalf("submission limit partially changed task: %#v", repository.tasks[task.ID])
+		if repository.workItems[task.WorkItemID].Status != domain.WorkItemStatusFailed || repository.tasks[task.ID].ActiveClaimID != nil || len(repository.tasks[task.ID].Submissions) != MaxSubmissionsPerTask {
+			t.Fatalf("submission limit did not fail work item: work_item=%#v task=%#v", repository.workItems[task.WorkItemID], repository.tasks[task.ID])
 		}
 	})
 
 	t.Run("reviews", func(t *testing.T) {
-		repository, service, task, claim := newClaimedTask(t)
-		stored := repository.tasks[task.ID]
-		stored.Reviews = make([]domain.Review, MaxTaskHistoryEntries)
-		repository.tasks[task.ID] = stored
-		if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Result: "done", RequestReview: true}); !errors.Is(err, ErrConflict) {
-			t.Fatalf("review limit error = %v, want ErrConflict", err)
+		repository, service, _, task, claim, workflowIdentity := newClaimedOptionalTask(t, false)
+		populateOptionalHistory(t, repository, task, workflowIdentity, false)
+		_, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+			TaskID: task.ID, ClaimID: claim.ID, Identity: workflowIdentity, Result: "done", RequestReview: true,
+		})
+		if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "reviews") {
+			t.Fatalf("review limit error = %v, want ErrConflict mentioning reviews", err)
 		}
-		if repository.tasks[task.ID].ActiveClaimID == nil || len(repository.tasks[task.ID].Reviews) != MaxTaskHistoryEntries {
-			t.Fatalf("review limit partially changed task: %#v", repository.tasks[task.ID])
+		if repository.workItems[task.WorkItemID].Status != domain.WorkItemStatusFailed || repository.tasks[task.ID].ActiveClaimID != nil || len(repository.tasks[task.ID].Reviews) != MaxReviewsPerTask {
+			t.Fatalf("review limit did not fail work item: work_item=%#v task=%#v", repository.workItems[task.WorkItemID], repository.tasks[task.ID])
 		}
 	})
 
 	t.Run("failures", func(t *testing.T) {
 		repository, service, task, claim := newClaimedTask(t)
 		stored := repository.tasks[task.ID]
-		stored.Failures = make([]domain.TaskFailure, MaxTaskHistoryEntries)
+		stored.Failures = make([]domain.TaskFailure, MaxFailuresPerTask)
+		for index := range stored.Failures {
+			claimID := domain.ClaimID(fmt.Sprintf("failure-claim-%d", index))
+			endedAt := applicationTestTime.Add(time.Duration(index+1) * time.Second)
+			claimedAt := endedAt.Add(-time.Second)
+			repository.claims[claimID] = domain.Claim{ID: claimID, TaskID: task.ID, Executor: identity.Actor, ClaimedAt: claimedAt, EndedAt: &endedAt, EndReason: domain.ClaimEndTaskFailed}
+			stored.Failures[index] = domain.TaskFailure{ID: domain.TaskFailureID(fmt.Sprintf("failure-%d", index)), TaskID: task.ID, ClaimID: claimID, Action: domain.TaskFailureReopen, Reason: "retry", FailedAt: endedAt}
+		}
 		repository.tasks[task.ID] = stored
 		if _, err := service.FailTask(context.Background(), FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Action: domain.TaskFailureReopen, Reason: "retry"}); !errors.Is(err, ErrConflict) {
-			t.Fatalf("failure limit error = %v, want ErrConflict", err)
+			t.Fatalf("failure limit error = %v, want ErrConflict after terminal failure", err)
 		}
-		if repository.tasks[task.ID].ActiveClaimID == nil || len(repository.tasks[task.ID].Failures) != MaxTaskHistoryEntries {
-			t.Fatalf("failure limit partially changed task: %#v", repository.tasks[task.ID])
+		if repository.workItems[task.WorkItemID].Status != domain.WorkItemStatusFailed || repository.tasks[task.ID].ActiveClaimID != nil || len(repository.tasks[task.ID].Failures) != MaxFailuresPerTask {
+			t.Fatalf("failure limit did not fail work item: work_item=%#v task=%#v", repository.workItems[task.WorkItemID], repository.tasks[task.ID])
+		}
+	})
+
+	t.Run("terminal failure may exceed failure limit once", func(t *testing.T) {
+		repository, service, task, claim := newClaimedTask(t)
+		stored := repository.tasks[task.ID]
+		stored.Failures = make([]domain.TaskFailure, MaxFailuresPerTask)
+		for index := range stored.Failures {
+			claimID := domain.ClaimID(fmt.Sprintf("terminal-claim-%d", index))
+			endedAt := applicationTestTime.Add(-time.Duration(MaxFailuresPerTask-index) * time.Second)
+			claimedAt := endedAt.Add(-time.Second)
+			repository.claims[claimID] = domain.Claim{ID: claimID, TaskID: task.ID, Executor: identity.Actor, ClaimedAt: claimedAt, EndedAt: &endedAt, EndReason: domain.ClaimEndTaskFailed}
+			stored.Failures[index] = domain.TaskFailure{ID: domain.TaskFailureID(fmt.Sprintf("terminal-failure-%d", index)), TaskID: task.ID, ClaimID: claimID, Action: domain.TaskFailureReopen, Reason: "retry", FailedAt: endedAt}
+		}
+		repository.tasks[task.ID] = stored
+		created, err := service.FailTask(context.Background(), FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Action: domain.TaskFailureFailWorkItem, Reason: "terminal failure"})
+		if err != nil {
+			t.Fatalf("terminal failure at limit: %v", err)
+		}
+		if created.Action != domain.TaskFailureFailWorkItem || len(repository.tasks[task.ID].Failures) != MaxFailuresPerTask+1 || repository.tasks[task.ID].Status != domain.TaskStatusFailed || repository.workItems[task.WorkItemID].Status != domain.WorkItemStatusFailed {
+			t.Fatalf("terminal failure state: failure=%#v task=%#v work_item=%#v", created, repository.tasks[task.ID], repository.workItems[task.WorkItemID])
 		}
 	})
 
 	t.Run("transition decisions", func(t *testing.T) {
-		workflowIdentity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "history-limit-workflow-agent"}, Role: "backend"}
-		repository := newTestRepository()
-		definition := consecutiveOptionalWorkflowDefinition()
-		repository.workflows[definitionKey(definition.ID, definition.Version)] = definition
-		service := newTestService(t, repository)
-		workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
-			Definition: definition.Binding(), Identity: workflowIdentity, Title: "Transition limits", Goal: "Bound decisions",
-		})
-		if err != nil {
-			t.Fatalf("create workflow: %v", err)
-		}
-		task := repository.tasksFor(workItem.ID)[0]
-		claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: workflowIdentity})
-		if err != nil {
-			t.Fatalf("claim workflow task: %v", err)
-		}
-		stored := repository.tasks[task.ID]
-		stored.TransitionDecisions = make([]domain.TransitionDecision, MaxTaskHistoryEntries)
-		repository.tasks[task.ID] = stored
+		repository, service, _, task, claim, workflowIdentity := newClaimedOptionalTask(t, true)
+		populateOptionalHistory(t, repository, task, workflowIdentity, true)
 		contextView, err := service.GetTaskExecutionContext(context.Background(), GetTaskExecutionContextQuery{TaskID: task.ID, Identity: workflowIdentity})
 		if err != nil || contextView.Workflow == nil || len(contextView.Workflow.ChoiceGroups) == 0 {
 			t.Fatalf("workflow context: %v %#v", err, contextView)
@@ -1652,11 +1749,11 @@ func TestTaskHistoryLimitsRejectWrites(t *testing.T) {
 		if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
 			TaskID: task.ID, ClaimID: claim.ID, Identity: workflowIdentity, Result: "done",
 			Transition: &WorkflowTransitionCommand{ChoiceGroupID: contextView.Workflow.ChoiceGroups[0].ID},
-		}); !errors.Is(err, ErrConflict) {
-			t.Fatalf("transition decision limit error = %v, want ErrConflict", err)
+		}); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "transition decisions") {
+			t.Fatalf("transition decision limit error = %v, want ErrConflict mentioning transition decisions", err)
 		}
-		if repository.tasks[task.ID].ActiveClaimID == nil || len(repository.tasks[task.ID].TransitionDecisions) != MaxTaskHistoryEntries {
-			t.Fatalf("transition limit partially changed task: %#v", repository.tasks[task.ID])
+		if repository.workItems[task.WorkItemID].Status != domain.WorkItemStatusFailed || repository.tasks[task.ID].ActiveClaimID != nil || len(repository.tasks[task.ID].TransitionDecisions) != MaxTransitionDecisionsPerTask {
+			t.Fatalf("transition limit did not fail work item: work_item=%#v task=%#v", repository.workItems[task.WorkItemID], repository.tasks[task.ID])
 		}
 	})
 
@@ -1667,10 +1764,10 @@ func TestTaskHistoryLimitsRejectWrites(t *testing.T) {
 			repository.artifacts[id] = domain.Artifact{ID: id, WorkItemID: task.WorkItemID, TaskID: task.ID, ClaimID: claim.ID}
 		}
 		if _, err := service.CreateArtifact(context.Background(), CreateArtifactCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Name: "extra", URI: "https://example.test/extra"}); !errors.Is(err, ErrConflict) {
-			t.Fatalf("external artifact limit error = %v, want ErrConflict", err)
+			t.Fatalf("external artifact limit error = %v, want ErrConflict after terminal failure", err)
 		}
-		if len(repository.artifacts) != MaxArtifactsPerTask {
-			t.Fatalf("external artifact limit partially changed state: %d", len(repository.artifacts))
+		if repository.workItems[task.WorkItemID].Status != domain.WorkItemStatusFailed || repository.tasks[task.ID].ActiveClaimID != nil || len(repository.artifacts) != MaxArtifactsPerTask {
+			t.Fatalf("external artifact limit did not fail work item: work_item=%#v task=%#v", repository.workItems[task.WorkItemID], repository.tasks[task.ID])
 		}
 
 		repository, service, task, claim = newClaimedTask(t)
@@ -1690,8 +1787,8 @@ func TestTaskHistoryLimitsRejectWrites(t *testing.T) {
 		}, strings.NewReader("content")); !errors.Is(err, ErrConflict) {
 			t.Fatalf("managed artifact limit error = %v, want ErrConflict", err)
 		}
-		if len(repository.artifacts) != MaxArtifactsPerTask || len(repository.blobs) != 0 || len(repository.idempotency) != 0 {
-			t.Fatalf("managed artifact limit partially changed state: artifacts=%d blobs=%d idempotency=%d", len(repository.artifacts), len(repository.blobs), len(repository.idempotency))
+		if repository.workItems[task.WorkItemID].Status != domain.WorkItemStatusFailed || repository.tasks[task.ID].ActiveClaimID != nil || len(repository.artifacts) != MaxArtifactsPerTask || len(repository.blobs) != 0 || len(repository.idempotency) != 0 {
+			t.Fatalf("managed artifact limit did not fail work item: work_item=%#v task=%#v artifacts=%d blobs=%d idempotency=%d", repository.workItems[task.WorkItemID], repository.tasks[task.ID], len(repository.artifacts), len(repository.blobs), len(repository.idempotency))
 		}
 	})
 }
@@ -1838,9 +1935,10 @@ func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T
 	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusOpen {
 		t.Fatalf("blackboard after final task: got %s, want open", got)
 	}
+	completionResult := "Investigate failure\nFound the root cause\n\nApply discovered fix\nApplied the fix"
 	completed, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
 		WorkItemID: workItem.ID, Identity: agent,
-		Result: summarizeWorkItemResult(repository.tasksFor(workItem.ID)),
+		Result: completionResult,
 	})
 	if err != nil {
 		t.Fatalf("submit completion: %v", err)
@@ -2329,6 +2427,57 @@ func TestWorkflowActivationJoinsParallelTasks(t *testing.T) {
 	}
 }
 
+func TestWorkflowExecutionLimitRevokesParallelClaims(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := parallelLimitWorkflowDefinition()
+	repository.workflows[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	identity := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "parallel-limit-agent"}, Role: "backend"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: identity, Title: "Parallel limit", Goal: "Revoke remaining work",
+	})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	byDefinition := workflowTasksByDefinition(repository.tasksFor(workItem.ID))
+	firstClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: byDefinition["first"].ID, Identity: identity})
+	if err != nil {
+		t.Fatalf("claim first task: %v", err)
+	}
+	secondClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: byDefinition["second"].ID, Identity: identity})
+	if err != nil {
+		t.Fatalf("claim second task: %v", err)
+	}
+	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: byDefinition["first"].ID, ClaimID: firstClaim.ID, Identity: identity, Result: "first complete",
+		Transition: &WorkflowTransitionCommand{ChoiceGroupID: "exit:first"},
+	}); err != nil {
+		t.Fatalf("execution limit submission: %v", err)
+	}
+	if repository.workItems[workItem.ID].Status != domain.WorkItemStatusFailed {
+		t.Fatalf("work item status = %s, want failed", repository.workItems[workItem.ID].Status)
+	}
+	revoked := repository.claims[secondClaim.ID]
+	if revoked.Active() || revoked.EndReason != domain.ClaimEndRevoked {
+		t.Fatalf("parallel claim = %#v, want revoked", revoked)
+	}
+	if task := repository.tasks[byDefinition["second"].ID]; task.ActiveClaimID != nil || task.Status != domain.TaskStatusPending {
+		t.Fatalf("parallel task after failure = %#v, want pending without active claim", task)
+	}
+	contextView, err := service.GetWorkItemExecutionContext(context.Background(), GetWorkItemExecutionContextQuery{WorkItemID: workItem.ID, Identity: identity})
+	if err != nil {
+		t.Fatalf("get failed WorkItem context: %v", err)
+	}
+	if len(contextView.ActiveClaims) != 0 {
+		t.Fatalf("failed WorkItem active claims = %#v, want empty", contextView.ActiveClaims)
+	}
+	if _, err := service.HeartbeatClaim(context.Background(), HeartbeatClaimCommand{TaskID: byDefinition["second"].ID, ClaimID: secondClaim.ID, Identity: identity}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("heartbeat failed WorkItem error = %v, want ErrConflict", err)
+	}
+}
+
 func TestWorkflowOptionalSkipRequiresConfiguredReview(t *testing.T) {
 	t.Parallel()
 
@@ -2364,6 +2513,66 @@ func TestWorkflowOptionalSkipRequiresConfiguredReview(t *testing.T) {
 	}
 	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusCompleted {
 		t.Fatalf("workflow status: got %q, want completed", got)
+	}
+}
+
+func TestWorkflowCompletionKeepsLargeTaskResultsOnSubmissions(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository()
+	definition := largeResultWorkflowDefinition()
+	repository.workflows[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	agent := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "large-result-agent"}, Role: "backend"}
+	workItem, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Large results", Goal: "Complete without aggregating Task results",
+	})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	largeResult := strings.Repeat("x", domain.MaxHistoryTextBytes)
+	start := workflowTasksByDefinition(repository.tasksFor(workItem.ID))["start"]
+	startClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: start.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim start: %v", err)
+	}
+	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: start.ID, ClaimID: startClaim.ID, Identity: agent, Result: largeResult,
+		Transition: &WorkflowTransitionCommand{ChoiceGroupID: "exit:start"},
+	}); err != nil {
+		t.Fatalf("submit large start result: %v", err)
+	}
+	finish := workflowTasksByDefinition(repository.tasksFor(workItem.ID))["finish"]
+	finishClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: finish.ID, Identity: agent})
+	if err != nil {
+		t.Fatalf("claim finish: %v", err)
+	}
+	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
+		TaskID: finish.ID, ClaimID: finishClaim.ID, Identity: agent, Result: largeResult,
+	}); err != nil {
+		t.Fatalf("submit large finish result: %v", err)
+	}
+	completed := repository.workItems[workItem.ID]
+	if completed.Status != domain.WorkItemStatusCompleted || completed.Result != "" || completed.CompletedAt == nil {
+		t.Fatalf("completed workflow = %#v, want completed with empty result", completed)
+	}
+	for _, task := range repository.tasksFor(workItem.ID) {
+		if task.Status != domain.TaskStatusCompleted || len(task.Submissions) != 1 || task.Submissions[0].Result != largeResult {
+			t.Fatalf("workflow Task result was not preserved: %#v", task)
+		}
+	}
+	completionEventFound := false
+	for _, event := range repository.events {
+		if event.Type != domain.WorkItemEventWorkItemCompleted {
+			continue
+		}
+		completionEventFound = true
+		if event.Message != "" {
+			t.Fatalf("workflow completion event message = %q, want empty", event.Message)
+		}
+	}
+	if !completionEventFound {
+		t.Fatal("workflow completion event was not recorded")
 	}
 }
 
@@ -2743,6 +2952,49 @@ func workflowDefinition() domain.WorkflowDefinition {
 	}
 }
 
+func largeResultWorkflowDefinition() domain.WorkflowDefinition {
+	return domain.WorkflowDefinition{
+		DefinitionMetadata: domain.DefinitionMetadata{
+			ID: "large-result-workflow", Version: 1, Name: "Large result workflow",
+			CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
+		},
+		Graph: domain.WorkflowGraph{
+			StartTaskIDs: []domain.WorkflowTaskID{"start"},
+			Tasks: []domain.WorkflowTaskDefinition{
+				{ID: "start", Title: "Start", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone},
+				{ID: "finish", Title: "Finish", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone},
+			},
+			Relations: []domain.WorkflowRelationDefinition{{ID: "start-finish", FromTaskID: "start", ToTaskID: "finish"}},
+		},
+	}
+}
+
+func historyLimitOptionalWorkflowDefinition(withSuccessor bool) domain.WorkflowDefinition {
+	id := domain.DefinitionID("optional-history-terminal")
+	name := "Optional history terminal"
+	tasks := []domain.WorkflowTaskDefinition{
+		{ID: "start", Title: "Start", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone},
+		{ID: "optional", Title: "Optional", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionOptional, ReviewPolicy: domain.ReviewExecutorDecides},
+	}
+	relations := []domain.WorkflowRelationDefinition{{ID: "start-optional", FromTaskID: "start", ToTaskID: "optional"}}
+	if withSuccessor {
+		id = "optional-history-transition"
+		name = "Optional history transition"
+		tasks = append(tasks, domain.WorkflowTaskDefinition{
+			ID: "next", Title: "Next", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone,
+		})
+		relations = append(relations, domain.WorkflowRelationDefinition{ID: "optional-next", FromTaskID: "optional", ToTaskID: "next"})
+	}
+	return domain.WorkflowDefinition{
+		DefinitionMetadata: domain.DefinitionMetadata{
+			ID: id, Version: 1, Name: name, CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
+		},
+		Graph: domain.WorkflowGraph{
+			StartTaskIDs: []domain.WorkflowTaskID{"start"}, Tasks: tasks, Relations: relations,
+		},
+	}
+}
+
 func reviewedWorkflowDefinition() domain.WorkflowDefinition {
 	return domain.WorkflowDefinition{
 		DefinitionMetadata: domain.DefinitionMetadata{
@@ -2782,6 +3034,27 @@ func joiningWorkflowDefinition() domain.WorkflowDefinition {
 				{ID: "b-d", FromTaskID: "b", ToTaskID: "d"},
 				{ID: "c-d", FromTaskID: "c", ToTaskID: "d"},
 			},
+		},
+	}
+}
+
+func parallelLimitWorkflowDefinition() domain.WorkflowDefinition {
+	return domain.WorkflowDefinition{
+		DefinitionMetadata: domain.DefinitionMetadata{
+			ID: "parallel-limit-workflow", Version: 1, Name: "Parallel limit",
+			CreatedAt: applicationTestTime, UpdatedAt: applicationTestTime,
+		},
+		Graph: domain.WorkflowGraph{
+			StartTaskIDs: []domain.WorkflowTaskID{"first", "second"},
+			Tasks: []domain.WorkflowTaskDefinition{
+				{ID: "first", Title: "First", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone},
+				{ID: "second", Title: "Second", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone},
+				{ID: "next", Title: "Next", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone},
+			},
+			Relations: []domain.WorkflowRelationDefinition{
+				{ID: "first-next", FromTaskID: "first", ToTaskID: "next"},
+			},
+			MaxTaskExecutions: 2,
 		},
 	}
 }

@@ -109,11 +109,15 @@ type PageRequest[T any] struct {
 const MaxPageLimit = 200
 
 // Per-task history ceilings keep executor contexts bounded while preserving
-// complete history for every accepted operation.
+// complete history for every accepted operation. A terminal fail_work_item
+// Failure may add one record beyond MaxFailuresPerTask.
 const (
-	MaxClaimsPerTask      = 1000
-	MaxTaskHistoryEntries = 1000
-	MaxArtifactsPerTask   = 1000
+	MaxClaimsPerTask              = 128
+	MaxSubmissionsPerTask         = 64
+	MaxFailuresPerTask            = 64
+	MaxReviewsPerTask             = 64
+	MaxTransitionDecisionsPerTask = 64
+	MaxArtifactsPerTask           = 64
 )
 
 type Page[T any] struct {

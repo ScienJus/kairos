@@ -80,6 +80,9 @@ func (s *Service) HeartbeatClaim(ctx context.Context, command HeartbeatClaimComm
 		if err := rejectCancelledWorkItem(workItem); err != nil {
 			return err
 		}
+		if workItem.Status != domain.WorkItemStatusOpen {
+			return conflict("work item %q is %s", workItem.ID, workItem.Status)
+		}
 		claims, err := store.ListClaims(task.ID)
 		if err != nil {
 			return fmt.Errorf("list claims: %w", err)

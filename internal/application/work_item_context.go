@@ -149,15 +149,17 @@ func (s *Service) GetWorkItemExecutionContext(
 			claims = []domain.Claim{}
 		}
 		activeClaims := []domain.Claim{}
-		activeClaimIDs := make(map[domain.ClaimID]struct{})
-		for _, task := range tasks {
-			if task.ActiveClaimID != nil {
-				activeClaimIDs[*task.ActiveClaimID] = struct{}{}
+		if workItem.Status == domain.WorkItemStatusOpen {
+			activeClaimIDs := make(map[domain.ClaimID]struct{})
+			for _, task := range tasks {
+				if task.ActiveClaimID != nil {
+					activeClaimIDs[*task.ActiveClaimID] = struct{}{}
+				}
 			}
-		}
-		for _, claim := range claims {
-			if _, active := activeClaimIDs[claim.ID]; active && claim.Active() {
-				activeClaims = append(activeClaims, claim)
+			for _, claim := range claims {
+				if _, active := activeClaimIDs[claim.ID]; active && claim.Active() {
+					activeClaims = append(activeClaims, claim)
+				}
 			}
 		}
 		result = WorkItemExecutionContext{

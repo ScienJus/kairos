@@ -81,6 +81,9 @@ func (r Review) Validate() error {
 	if r.Status == ReviewStatusRejected && strings.TrimSpace(r.Feedback) == "" {
 		return invalid("review.feedback", "is required when rejected")
 	}
+	if err := validateHistoryText("review.feedback", r.Feedback); err != nil {
+		return err
+	}
 
 	return nil
 }

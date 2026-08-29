@@ -175,6 +175,9 @@ func (t Task) Validate(mode CoordinationMode) error {
 	if strings.TrimSpace(t.Title) == "" {
 		return invalid("title", "is required")
 	}
+	if err := validateHistoryText("skip_reason", t.SkipReason); err != nil {
+		return err
+	}
 	if !t.Executor.Valid() {
 		return invalid("executor", "unsupported value %q", t.Executor)
 	}
