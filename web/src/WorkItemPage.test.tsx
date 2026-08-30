@@ -37,7 +37,7 @@ function context(item: WorkItem, tasks: Task[] = []): WorkItemContext {
   return {
     work_item: item,
     definition: { name: 'Article collaboration', description: '', agent_instructions: '', suggested_tags: [] },
-    tasks: tasks, relations: [], claims: [], active_claims: [], artifacts: [],
+    tasks: tasks, relations: [], claims: [], active_claims: [], coordination_claims: [], active_coordination_claim: null, artifacts: [],
   }
 }
 
@@ -123,5 +123,47 @@ describe('WorkItem lifecycle actions', () => {
     expect(await screen.findByText('This WorkItem was cancelled')).toBeInTheDocument()
     expect(screen.getByText('The request was superseded.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Cancel WorkItem' })).not.toBeInTheDocument()
+  })
+
+  it('hides empty Blackboard lifecycle controls from agents', async () => {
+    vi.spyOn(api, 'getWorkItem').mockResolvedValue(context(workItem()))
+    renderPage({ id: 'agent-1', kind: 'agent', role: 'generalist' })
+
+    expect(await screen.findByText('Article')).toBeInTheDocument()
+    expect(screen.queryByText('How should this work begin?')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add task' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Nothing needs to be done')).not.toBeInTheDocument()
+  })
+
+  it('hides converged Blackboard lifecycle controls from agents', async () => {
+    vi.spyOn(api, 'getWorkItem').mockResolvedValue(context(workItem(), [completedTask()]))
+    renderPage({ id: 'agent-1', kind: 'agent', role: 'generalist' })
+
+    expect(await screen.findByText('Draft article')).toBeInTheDocument()
+    expect(screen.queryByText('Current plan is complete')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add task' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Submit completion' })).not.toBeInTheDocument()
+  })
+
+  it('does not offer WorkItem acceptance controls to agents', async () => {
+    vi.spyOn(api, 'getWorkItem').mockResolvedValue(context(workItem({
+      status: 'awaiting_agent_acceptance', result: 'Ready for acceptance.', acceptance_mode: 'agent',
+    }), [completedTask()]))
+    renderPage({ id: 'agent-1', kind: 'agent', role: 'generalist' })
+
+    expect(await screen.findByText('Awaiting agent acceptance')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Accept and complete' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Submit completion' })).not.toBeInTheDocument()
+  })
+
+  it('hides human WorkItem acceptance controls from agents', async () => {
+    vi.spyOn(api, 'getWorkItem').mockResolvedValue(context(workItem({
+      status: 'awaiting_human_acceptance', result: 'Ready for human acceptance.', acceptance_mode: 'human',
+    }), [completedTask()]))
+    renderPage({ id: 'agent-1', kind: 'agent', role: 'generalist' })
+
+    expect(await screen.findByText('Awaiting human acceptance')).toBeInTheDocument()
+    expect(screen.queryByText('Work item acceptance')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Accept and complete' })).not.toBeInTheDocument()
   })
 })

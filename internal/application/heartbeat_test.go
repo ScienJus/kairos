@@ -250,7 +250,7 @@ func createLeaseTestTask(t *testing.T, service *Service, creator Identity, execu
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: creator, Title: "Execute", Executor: executor})
+	task, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: creator, Title: "Execute", Executor: executor})
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}

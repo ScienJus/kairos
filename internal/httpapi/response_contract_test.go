@@ -60,7 +60,8 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 	if err := json.Unmarshal(workItemBody, &workItemEnvelope); err != nil {
 		t.Fatalf("decode WorkItem context: %v", err)
 	}
-	workItemData := workItemEnvelope["data"].(map[string]any)["work_item"].(map[string]any)
+	contextData := workItemEnvelope["data"].(map[string]any)
+	workItemData := contextData["work_item"].(map[string]any)
 	assertJSONKeys(t, workItemData,
 		[]string{"cancelled_at", "cancelled_by", "cancellation_reason"},
 		[]string{"cancelledat", "cancelledby", "cancellationreason"},
@@ -68,8 +69,17 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 	if workItemData["cancelled_at"] != nil || workItemData["cancelled_by"] != nil || workItemData["cancellation_reason"] != "" {
 		t.Fatalf("open WorkItem cancellation metadata = %#v, want null/null/empty", workItemData)
 	}
+	if claims, ok := contextData["coordination_claims"].([]any); !ok || len(claims) != 0 {
+		t.Fatalf("empty coordination_claims = %#v, want []", contextData["coordination_claims"])
+	}
+	if contextData["active_coordination_claim"] != nil {
+		t.Fatalf("active_coordination_claim = %#v, want null", contextData["active_coordination_claim"])
+	}
+	planningClaim := requestData[domain.CoordinationClaim](t, server.Client(), http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/coordination-claims", map[string]any{
+		"kind": "empty_blackboard",
+	}, "claim-contract-planning", http.StatusCreated)
 	task := requestData[domain.Task](t, server.Client(), http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
-		"title": "Inspect response", "executor": "human", "allowed_roles": []string{}, "tags": []string{},
+		"coordination_claim_id": planningClaim.ID, "title": "Inspect response", "executor": "human", "allowed_roles": []string{}, "tags": []string{},
 	}, "create-contract-task", http.StatusCreated)
 
 	body := rawTrustedResponse(t, server.Client(), http.MethodGet, server.URL+"/api/v1/tasks/"+string(task.ID), http.StatusOK)

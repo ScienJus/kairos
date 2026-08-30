@@ -53,6 +53,9 @@ func (s *Service) CancelWorkItem(ctx context.Context, command CancelWorkItemComm
 		}
 		now := s.clock.Now()
 		actor := command.Identity.Actor
+		if err := endActiveCoordinationClaim(store, workItem.ID, domain.CoordinationClaimEndWorkItemCancelled, now); err != nil {
+			return err
+		}
 		for _, task := range tasks {
 			if task.ActiveClaimID == nil {
 				continue

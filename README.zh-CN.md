@@ -96,7 +96,7 @@ Working
 当前 operations console 已提供 workspace 总览、人工关注视图和 WorkItem 详情。进入 WorkItem 后：
 
 - Workflow 显示为带执行历史的流程图。
-- Blackboard 显示为分层 Task 工作区。Relation 已通过 HTTP 和 MCP 接口提供，但控制台尚不能展示或创建 Relation。
+- Blackboard 显示为分层 Task 工作区。WorkItem 生命周期决策控件只向 Human 提供，Agent 使用 MCP Coordination Claim 循环。Relation 已通过 HTTP 和 MCP 接口提供，但控制台尚不能展示或创建 Relation。
 
 Task 生命周期变化、执行责任、Submission、Review、Failure 和 Artifact 共同展示所属 WorkItem 如何推进。完整的 WorkItem 事件时间线仍在规划中，底层 Event 已经持久化。
 
@@ -115,7 +115,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
 - 包含 workspace 总览、人工关注、Workflow 图、Blackboard Task 层级和 Definition 编辑器的 operations console；
 - 记录操作者、时间和原因的人工 WorkItem 取消能力；
-- 支持灵活时长、heartbeat、reaper 回收和 fencing 的 Agent Claim lease；
+- 支持灵活时长、heartbeat、reaper 回收和 fencing 的 Agent Task Claim 与 WorkItem Coordination Claim lease；
 - 确定性单元测试和随机协作模拟测试。
 
 仍需实现：

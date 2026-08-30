@@ -22,7 +22,7 @@ const (
 	workItemCancelledErrorCode          = "work_item_cancelled"
 )
 
-const serverInstructions = "Use find_work to discover eligible work. For empty_blackboard or blackboard_completion, create more work when needed; otherwise submit_blackboard_completion. Accept only work_item_acceptance candidates with accept_blackboard_completion. Read task context before claim_task; execute only after a successful claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. End every claim with submit_task, fail_task, or release_claim unless a tool returns work_item_cancelled; that terminal Human decision ends the claim, so stop immediately without another mutation. Resource-creating tools that accept operation_id replay an identical retry; use a new ID when their arguments change. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
+const serverInstructions = "Use find_work to discover eligible work. Claim empty_blackboard, blackboard_completion, and work_item_acceptance with claim_work_candidate before inspecting and deciding them; heartbeat long decisions and end each coordination claim by creating the chosen follow-up Task, submitting or accepting completion, or releasing it. Read task context before claim_task; execute only after a successful task claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. End every task claim with submit_task, fail_task, or release_claim unless a tool returns work_item_cancelled. Resource-creating tools that accept operation_id replay an identical retry; use a new ID when their arguments change. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
 
 // Options configures MCP transport limits.
 type Options struct {
@@ -199,6 +199,31 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "claim_work_candidate",
+		Title:       "Claim work candidate",
+		Description: "Atomically reserve an empty Blackboard, completion decision, or Agent acceptance before reasoning begins.",
+		Annotations: mutationAnnotations(false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input claimWorkCandidateInput) (*mcp.CallToolResult, coordinationClaimOutput, error) {
+		if err := requireOperationID(input.OperationID); err != nil {
+			return nil, coordinationClaimOutput{}, err
+		}
+		claim, err := service.ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{
+			WorkItemID: domain.WorkItemID(input.WorkItemID), Kind: application.WorkCandidateKind(input.Kind), Identity: actor,
+			OperationID: input.OperationID, LeaseSeconds: input.LeaseSeconds,
+		})
+		return successResult(fmt.Sprintf("Claimed %s for WorkItem %s with Coordination Claim %s.", claim.Kind, claim.WorkItemID, claim.ID)), coordinationClaimOutput{Claim: coordinationClaimViewFrom(claim)}, toolError(err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "heartbeat_coordination_claim", Title: "Heartbeat coordination claim", Description: "Extend an active WorkItem coordination claim before reaping.", Annotations: mutationAnnotations(false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input heartbeatCoordinationClaimInput) (*mcp.CallToolResult, coordinationClaimOutput, error) {
+		claim, err := service.HeartbeatCoordinationClaim(ctx, application.HeartbeatCoordinationClaimCommand{
+			WorkItemID: domain.WorkItemID(input.WorkItemID), ClaimID: domain.CoordinationClaimID(input.ClaimID), Identity: actor, LeaseSeconds: input.LeaseSeconds,
+		})
+		return successResult(fmt.Sprintf("Heartbeated Coordination Claim %s.", input.ClaimID)), coordinationClaimOutput{Claim: coordinationClaimViewFrom(claim)}, toolError(err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name: "heartbeat_claim", Title: "Heartbeat claim", Description: "Extend an active claim before reaping.", Annotations: mutationAnnotations(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input heartbeatClaimInput) (*mcp.CallToolResult, claimOutput, error) {
 		claim, err := service.HeartbeatClaim(ctx, application.HeartbeatClaimCommand{TaskID: domain.TaskID(input.TaskID), ClaimID: domain.ClaimID(input.ClaimID), Identity: actor, LeaseSeconds: input.LeaseSeconds})
@@ -281,6 +306,15 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name: "release_coordination_claim", Title: "Release coordination claim", Description: "Release an active WorkItem coordination claim back to discovery.", Annotations: mutationAnnotations(false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input releaseCoordinationClaimInput) (*mcp.CallToolResult, releasedOutput, error) {
+		err := service.ReleaseCoordinationClaim(ctx, application.ReleaseCoordinationClaimCommand{
+			WorkItemID: domain.WorkItemID(input.WorkItemID), ClaimID: domain.CoordinationClaimID(input.ClaimID), Identity: actor,
+		})
+		return successResult(fmt.Sprintf("Released Coordination Claim %s for WorkItem %s.", input.ClaimID, input.WorkItemID)), releasedOutput{Released: err == nil}, toolError(err)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_blackboard_task",
 		Title:       "Create blackboard task",
 		Description: "Plan an executable task in an open or empty Blackboard.",
@@ -290,7 +324,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			return nil, taskOutput{}, err
 		}
 		task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
-			WorkItemID:         domain.WorkItemID(input.WorkItemID),
+			WorkItemID: domain.WorkItemID(input.WorkItemID), CoordinationClaimID: domain.CoordinationClaimID(input.CoordinationClaimID),
 			Identity:           actor,
 			OperationID:        input.OperationID,
 			Title:              input.Title,
@@ -334,12 +368,12 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "submit_blackboard_completion", Title: "Submit blackboard completion", Description: "Submit a converged Blackboard's durable result for acceptance.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input submitBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
-		workItem, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor, Result: input.Result})
+		workItem, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), CoordinationClaimID: domain.CoordinationClaimID(input.CoordinationClaimID), Identity: actor, Result: input.Result})
 		return successResult(fmt.Sprintf("Submitted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, toolError(err)
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "accept_blackboard_completion", Title: "Accept blackboard completion", Description: "Accept a pending Blackboard completion proposal.", Annotations: mutationAnnotations(false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input acceptBlackboardCompletionInput) (*mcp.CallToolResult, workItemOutput, error) {
-		workItem, err := service.AcceptBlackboardCompletion(ctx, application.AcceptBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), Identity: actor})
+		workItem, err := service.AcceptBlackboardCompletion(ctx, application.AcceptBlackboardCompletionCommand{WorkItemID: domain.WorkItemID(input.WorkItemID), CoordinationClaimID: domain.CoordinationClaimID(input.CoordinationClaimID), Identity: actor})
 		return successResult(fmt.Sprintf("Accepted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, toolError(err)
 	})
 
@@ -365,10 +399,23 @@ type claimTaskInput struct {
 	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
 }
 
+type claimWorkCandidateInput struct {
+	WorkItemID   string `json:"work_item_id" jsonschema:"Concrete Blackboard WorkItem ID."`
+	Kind         string `json:"kind" jsonschema:"Candidate kind: empty_blackboard, blackboard_completion, or work_item_acceptance."`
+	OperationID  string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
+	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
+}
+
 type heartbeatClaimInput struct {
 	TaskID       string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
 	ClaimID      string `json:"claim_id" jsonschema:"Active claim owned by the current actor."`
 	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
+}
+
+type heartbeatCoordinationClaimInput struct {
+	WorkItemID   string `json:"work_item_id"`
+	ClaimID      string `json:"claim_id"`
+	LeaseSeconds int64  `json:"lease_seconds,omitempty"`
 }
 
 type workflowTransitionInput struct {
@@ -417,15 +464,21 @@ type releaseClaimInput struct {
 	Reason  string `json:"reason,omitempty" jsonschema:"Why the claim is being released, when useful for the next executor or an automated release."`
 }
 
+type releaseCoordinationClaimInput struct {
+	WorkItemID string `json:"work_item_id"`
+	ClaimID    string `json:"claim_id"`
+}
+
 type createBlackboardTaskInput struct {
-	WorkItemID         string   `json:"work_item_id" jsonschema:"Open blackboard work item ID."`
-	OperationID        string   `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
-	Title              string   `json:"title" jsonschema:"Short executable task title."`
-	Description        string   `json:"description,omitempty" jsonschema:"What the executor should do."`
-	AcceptanceCriteria string   `json:"acceptance_criteria,omitempty" jsonschema:"Observable conditions for successful completion."`
-	Executor           string   `json:"executor" jsonschema:"Required executor kind: agent, human, or either."`
-	AllowedRoles       []string `json:"allowed_roles,omitempty" jsonschema:"Agent roles allowed to execute the task; empty means unrestricted."`
-	Tags               []string `json:"tags,omitempty" jsonschema:"Searchable task tags."`
+	WorkItemID          string   `json:"work_item_id" jsonschema:"Open blackboard work item ID."`
+	CoordinationClaimID string   `json:"coordination_claim_id,omitempty" jsonschema:"Required when resolving a lifecycle candidate by creating this Task."`
+	OperationID         string   `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
+	Title               string   `json:"title" jsonschema:"Short executable task title."`
+	Description         string   `json:"description,omitempty" jsonschema:"What the executor should do."`
+	AcceptanceCriteria  string   `json:"acceptance_criteria,omitempty" jsonschema:"Observable conditions for successful completion."`
+	Executor            string   `json:"executor" jsonschema:"Required executor kind: agent, human, or either."`
+	AllowedRoles        []string `json:"allowed_roles,omitempty" jsonschema:"Agent roles allowed to execute the task; empty means unrestricted."`
+	Tags                []string `json:"tags,omitempty" jsonschema:"Searchable task tags."`
 }
 
 type addBlackboardRelationInput struct {
@@ -462,12 +515,14 @@ type skipBlackboardTaskInput struct {
 	Reason string `json:"reason"`
 }
 type submitBlackboardCompletionInput struct {
-	WorkItemID string `json:"work_item_id"`
-	Result     string `json:"result"`
+	WorkItemID          string `json:"work_item_id"`
+	CoordinationClaimID string `json:"coordination_claim_id,omitempty" jsonschema:"Required for Agent callers; Human callers omit it."`
+	Result              string `json:"result"`
 }
 
 type acceptBlackboardCompletionInput struct {
-	WorkItemID string `json:"work_item_id"`
+	WorkItemID          string `json:"work_item_id"`
+	CoordinationClaimID string `json:"coordination_claim_id,omitempty" jsonschema:"Required for Agent acceptance; Human acceptance omits it."`
 }
 
 func workflowTaskIDs(values []string) []domain.WorkflowTaskID {

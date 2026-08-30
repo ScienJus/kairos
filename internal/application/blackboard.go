@@ -18,9 +18,10 @@ const (
 
 // CreateBlackboardTaskCommand adds one planned Task to an open Blackboard.
 type CreateBlackboardTaskCommand struct {
-	WorkItemID  domain.WorkItemID
-	Identity    Identity
-	OperationID string
+	WorkItemID          domain.WorkItemID
+	CoordinationClaimID domain.CoordinationClaimID
+	Identity            Identity
+	OperationID         string
 
 	Title              string
 	Description        string
@@ -54,16 +55,31 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 		if workItem.Status != domain.WorkItemStatusOpen && workItem.Status != domain.WorkItemStatusAwaitingAgentAcceptance {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
 		}
-		if workItem.Status == domain.WorkItemStatusAwaitingAgentAcceptance {
-			workItem.Status = domain.WorkItemStatusOpen
-			workItem.Result = ""
-		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return fmt.Errorf("list blackboard tasks: %w", err)
 		}
 		if err := ensureBlackboardTaskCapacity(len(tasks), 1); err != nil {
 			return err
+		}
+		candidateKind, candidate, err := coordinationCandidate(store, workItem)
+		if err != nil {
+			return err
+		}
+		var coordinationClaim domain.CoordinationClaim
+		if candidate {
+			if command.Identity.Actor.Kind == domain.ActorAgent {
+				coordinationClaim, err = requireCoordinationClaim(store, workItem, candidateKind, command.CoordinationClaimID, command.Identity)
+				if err != nil {
+					return err
+				}
+			} else if err := endActiveCoordinationClaim(store, workItem.ID, domain.CoordinationClaimEndRevoked, s.clock.Now()); err != nil {
+				return err
+			}
+		}
+		if workItem.Status == domain.WorkItemStatusAwaitingAgentAcceptance {
+			workItem.Status = domain.WorkItemStatusOpen
+			workItem.Result = ""
 		}
 		id, err := s.newID("task id")
 		if err != nil {
@@ -87,6 +103,11 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 		}
 		if err := store.CreateTask(task); err != nil {
 			return fmt.Errorf("create blackboard task: %w", err)
+		}
+		if coordinationClaim.ID != "" {
+			if err := endCoordinationClaim(store, &coordinationClaim, domain.CoordinationClaimEndTaskCreated, now); err != nil {
+				return err
+			}
 		}
 		if err := advanceBlackboardRevision(store, &workItem, now); err != nil {
 			return err

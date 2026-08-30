@@ -18,8 +18,7 @@ export function CreateTask({
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const mutation = useMutation({
-    mutationFn: (input: TaskDraftInput) =>
-      api.createTask(identity, workItemID, input),
+    mutationFn: (input: TaskDraftInput) => api.createTask(identity, workItemID, input),
     onSuccess: async () => {
       await refreshWorkItemState(queryClient, identity, workItemID);
       setOpen(false);
@@ -100,8 +99,7 @@ export function EmptyBlackboardActions({
   const queryClient = useQueryClient();
   const [result, setResult] = useState("");
   const complete = useMutation({
-    mutationFn: () =>
-      api.submitBlackboardCompletion(identity, workItemID, result),
+    mutationFn: () => api.submitBlackboardCompletion(identity, workItemID, result),
     onSuccess: () => refreshWorkItemState(queryClient, identity, workItemID),
   });
   return (
@@ -146,8 +144,7 @@ export function BlackboardCompletionActions({
   const queryClient = useQueryClient();
   const [result, setResult] = useState("");
   const submit = useMutation({
-    mutationFn: () =>
-      api.submitBlackboardCompletion(identity, workItemID, result),
+    mutationFn: () => api.submitBlackboardCompletion(identity, workItemID, result),
     onSuccess: () => refreshWorkItemState(queryClient, identity, workItemID),
   });
   return (

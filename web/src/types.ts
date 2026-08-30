@@ -35,6 +35,12 @@ export interface Claim {
   id: string; task_id: string; executor: ActorRef; claimed_at: string; last_heartbeat_at: string
   lease_until: string; lease_seconds: number; ended_at: string | null; end_reason: string
 }
+export type CoordinationClaimKind = 'empty_blackboard' | 'blackboard_completion' | 'work_item_acceptance'
+export interface CoordinationClaim {
+  id: string; work_item_id: string; kind: CoordinationClaimKind; executor: ActorRef
+  claimed_at: string; last_heartbeat_at: string; lease_until: string; lease_seconds: number
+  ended_at: string | null; end_reason: string
+}
 export interface WorkflowChoiceOption {
   id: string; kind: 'continue' | 'exit'
   targets: Array<{ id: string; title: string }>
@@ -55,7 +61,11 @@ export interface TaskDetailView {
 export interface TaskRelation { work_item_id: string; from_task_id: string; to_task_id: string }
 export interface BlackboardTaskDecomposition { parent: Task; children: Task[] }
 export interface DefinitionContext { name: string; description: string; agent_instructions: string; suggested_tags: string[] }
-export interface WorkItemContext { work_item: WorkItem; definition: DefinitionContext; tasks: Task[]; relations: TaskRelation[]; claims: Claim[]; active_claims: Claim[]; artifacts: Artifact[] }
+export interface WorkItemContext {
+  work_item: WorkItem; definition: DefinitionContext; tasks: Task[]; relations: TaskRelation[]
+  claims: Claim[]; active_claims: Claim[]; coordination_claims: CoordinationClaim[]
+  active_coordination_claim: CoordinationClaim | null; artifacts: Artifact[]
+}
 export interface Definition {
   id: string; version: number; name: string; description: string; agent_instructions: string
   suggested_tags: string[]; graph?: unknown

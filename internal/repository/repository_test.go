@@ -19,6 +19,50 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
+func createBlackboardTaskForTest(service *application.Service, ctx context.Context, command application.CreateBlackboardTaskCommand) (domain.Task, error) {
+	if command.Identity.Actor.Kind == domain.ActorAgent && command.CoordinationClaimID == "" {
+		candidates, err := service.FindWork(ctx, application.FindWorkQuery{Identity: command.Identity, Limit: application.MaxFindWorkLimit})
+		if err != nil {
+			return domain.Task{}, err
+		}
+		for _, candidate := range candidates {
+			if candidate.WorkItem.ID != command.WorkItemID || candidate.Kind == application.WorkCandidateTask {
+				continue
+			}
+			claim, err := service.ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{
+				WorkItemID: command.WorkItemID, Kind: candidate.Kind, Identity: command.Identity,
+			})
+			if err != nil {
+				return domain.Task{}, err
+			}
+			command.CoordinationClaimID = claim.ID
+			break
+		}
+	}
+	return service.CreateBlackboardTask(ctx, command)
+}
+
+func submitBlackboardCompletionForTest(service *application.Service, ctx context.Context, command application.SubmitBlackboardCompletionCommand) (domain.WorkItem, error) {
+	if command.Identity.Actor.Kind == domain.ActorAgent && command.CoordinationClaimID == "" {
+		candidates, err := service.FindWork(ctx, application.FindWorkQuery{Identity: command.Identity, Limit: application.MaxFindWorkLimit})
+		if err != nil {
+			return domain.WorkItem{}, err
+		}
+		for _, candidate := range candidates {
+			if candidate.WorkItem.ID != command.WorkItemID || candidate.Kind == application.WorkCandidateTask {
+				continue
+			}
+			claim, err := service.ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{WorkItemID: command.WorkItemID, Kind: candidate.Kind, Identity: command.Identity})
+			if err != nil {
+				return domain.WorkItem{}, err
+			}
+			command.CoordinationClaimID = claim.ID
+			break
+		}
+	}
+	return service.SubmitBlackboardCompletion(ctx, command)
+}
+
 var repositoryTestTime = time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 var repositoryTestIDSequence atomic.Int64
 
@@ -67,6 +111,12 @@ func TestSQLRepositoryContract(t *testing.T) {
 		})
 		t.Run("claim lease columns", func(t *testing.T) {
 			testClaimLeaseColumns(t, repository, blackboard)
+		})
+		t.Run("coordination claim constraints", func(t *testing.T) {
+			testCoordinationClaimConstraints(t, repository, blackboard)
+		})
+		t.Run("coordination claim history limit", func(t *testing.T) {
+			testCoordinationClaimHistoryLimit(t, repository, blackboard)
 		})
 		t.Run("artifact garbage collection", func(t *testing.T) {
 			testArtifactGarbageCollection(t, repository, blackboard)
@@ -338,7 +388,7 @@ func testCursorPagination(
 		t.Fatalf("paginate WorkItems: %v", err)
 	}
 
-	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItems[0].ID, Identity: agent, Title: "Submit pagination artifacts", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -389,7 +439,7 @@ func testCursorPagination(
 		t.Fatalf("paginate Artifacts: %v", err)
 	}
 
-	otherTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	otherTask, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItems[0].ID, Identity: agent, Title: "Submit another Task artifact", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -410,7 +460,7 @@ func testCursorPagination(
 	}); err != nil {
 		t.Fatalf("submit other Task Artifact: %v", err)
 	}
-	separateTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	separateTask, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItems[1].ID, Identity: agent, Title: "Separate WorkItem Claim", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -457,7 +507,7 @@ func testCursorPagination(
 
 	humanTasks := make([]domain.Task, 0, len(workItems))
 	for index, workItem := range workItems {
-		humanTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		humanTask, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{
 			WorkItemID: workItem.ID, Identity: agent, Title: fmt.Sprintf("Human attention %d", index+1), Executor: domain.ExecutorHuman,
 		})
 		if err != nil {
@@ -517,7 +567,7 @@ func testMutableRecordTimestamps(t *testing.T, repository *SQLRepository, defini
 	if err != nil {
 		t.Fatalf("create timestamp WorkItem: %v", err)
 	}
-	task, err := creator.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(creator, ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: agent, Title: "Submit timestamped Artifact", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -873,7 +923,7 @@ func testArtifactGarbageCollection(t *testing.T, repository *SQLRepository, defi
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: agent, Title: "Upload", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -958,14 +1008,14 @@ func testBlackboardLifecycleCandidates(t *testing.T, repository *SQLRepository, 
 
 	empty := createWorkItem("Empty lifecycle board", domain.WorkItemAcceptanceNone)
 	pending := createWorkItem("Pending lifecycle board", domain.WorkItemAcceptanceNone)
-	if _, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	if _, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: pending.ID, Identity: agent, Title: "Pending task", Executor: domain.ExecutorAgent,
 	}); err != nil {
 		t.Fatalf("create pending task: %v", err)
 	}
 
 	converged := createWorkItem("Converged lifecycle board", domain.WorkItemAcceptanceNone)
-	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: converged.ID, Identity: agent, Title: "Completed task", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -981,7 +1031,7 @@ func testBlackboardLifecycleCandidates(t *testing.T, repository *SQLRepository, 
 		t.Fatalf("submit completed task: %v", err)
 	}
 	skipped := createWorkItem("Skipped lifecycle board", domain.WorkItemAcceptanceNone)
-	skippedTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	skippedTask, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: skipped.ID, Identity: agent, Title: "Obsolete task", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -994,13 +1044,13 @@ func testBlackboardLifecycleCandidates(t *testing.T, repository *SQLRepository, 
 	}
 
 	agentAcceptance := createWorkItem("Agent acceptance lifecycle board", domain.WorkItemAcceptanceAgent)
-	if _, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{
+	if _, err := submitBlackboardCompletionForTest(service, ctx, application.SubmitBlackboardCompletionCommand{
 		WorkItemID: agentAcceptance.ID, Identity: agent, Result: "ready for agent acceptance",
 	}); err != nil {
 		t.Fatalf("submit agent completion: %v", err)
 	}
 	humanAcceptance := createWorkItem("Human acceptance lifecycle board", domain.WorkItemAcceptanceHuman)
-	if _, err := service.SubmitBlackboardCompletion(ctx, application.SubmitBlackboardCompletionCommand{
+	if _, err := submitBlackboardCompletionForTest(service, ctx, application.SubmitBlackboardCompletionCommand{
 		WorkItemID: humanAcceptance.ID, Identity: agent, Result: "ready for human acceptance",
 	}); err != nil {
 		t.Fatalf("submit human completion: %v", err)
@@ -1058,11 +1108,11 @@ func testClaimLeaseColumns(t *testing.T, repository *SQLRepository, definition d
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	agentTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: agent, Title: "Agent", Executor: domain.ExecutorAgent})
+	agentTask, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: agent, Title: "Agent", Executor: domain.ExecutorAgent})
 	if err != nil {
 		t.Fatalf("create agent task: %v", err)
 	}
-	humanTask, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: agent, Title: "Human", Executor: domain.ExecutorHuman})
+	humanTask, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: agent, Title: "Human", Executor: domain.ExecutorHuman})
 	if err != nil {
 		t.Fatalf("create human task: %v", err)
 	}
@@ -1111,6 +1161,168 @@ func testClaimLeaseColumns(t *testing.T, repository *SQLRepository, definition d
 	}
 	if got := listReapable(agentClaim.LeaseUntil); !slices.Contains(got, agentTask.ID) || slices.Contains(got, humanTask.ID) {
 		t.Fatalf("reapable at deadline = %v, want agent task %q without human task %q", got, agentTask.ID, humanTask.ID)
+	}
+
+	coordinationWorkItem, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Coordination lease columns", Goal: "Persist decision ownership",
+	})
+	if err != nil {
+		t.Fatalf("create coordination work item: %v", err)
+	}
+	coordinationClaim, err := service.ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{
+		WorkItemID: coordinationWorkItem.ID, Kind: application.WorkCandidateEmptyBlackboard, Identity: agent, LeaseSeconds: 300,
+	})
+	if err != nil {
+		t.Fatalf("claim coordination candidate: %v", err)
+	}
+	var coordinationKind, coordinationExecutorKind, coordinationExecutorID string
+	var coordinationActive bool
+	var coordinationHeartbeat, coordinationUntil scannedTime
+	var coordinationSeconds int64
+	query := rebind(repository.dialect, `
+		SELECT kind, executor_kind, executor_id, active, last_heartbeat_at, lease_until, lease_seconds
+		FROM coordination_claims WHERE id = ?`)
+	if err := repository.db.QueryRowContext(ctx, query, coordinationClaim.ID).Scan(
+		&coordinationKind, &coordinationExecutorKind, &coordinationExecutorID, &coordinationActive,
+		&coordinationHeartbeat, &coordinationUntil, &coordinationSeconds,
+	); err != nil {
+		t.Fatalf("query coordination claim columns: %v", err)
+	}
+	if coordinationKind != string(domain.CoordinationClaimEmptyBlackboard) || coordinationExecutorKind != "agent" ||
+		coordinationExecutorID != "lease-agent" || !coordinationActive || coordinationSeconds != 300 {
+		t.Fatalf("coordination columns = %s/%s/%s active=%v lease=%d", coordinationKind, coordinationExecutorKind, coordinationExecutorID, coordinationActive, coordinationSeconds)
+	}
+	if !coordinationHeartbeat.Equal(coordinationClaim.LastHeartbeatAt) || !coordinationUntil.Equal(coordinationClaim.LeaseUntil) {
+		t.Fatalf("coordination lease times = %s/%s, want %s/%s", coordinationHeartbeat.Time, coordinationUntil.Time, coordinationClaim.LastHeartbeatAt, coordinationClaim.LeaseUntil)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		claims, err := store.ListCoordinationClaims(coordinationWorkItem.ID)
+		if err != nil {
+			return err
+		}
+		if len(claims) != 1 || claims[0] != coordinationClaim {
+			return fmt.Errorf("coordination claim round trip = %#v, want %#v", claims, coordinationClaim)
+		}
+		before, err := store.ListReapableCoordinationClaimWorkItems(coordinationClaim.LeaseUntil.Add(-time.Nanosecond))
+		if err != nil {
+			return err
+		}
+		atDeadline, err := store.ListReapableCoordinationClaimWorkItems(coordinationClaim.LeaseUntil)
+		if err != nil {
+			return err
+		}
+		if slices.Contains(before, coordinationWorkItem.ID) || !slices.Contains(atDeadline, coordinationWorkItem.ID) {
+			return fmt.Errorf("coordination reap boundary = %v before/%v at deadline", before, atDeadline)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verify coordination claim persistence: %v", err)
+	}
+}
+
+func testCoordinationClaimConstraints(t *testing.T, repository *SQLRepository, definition domain.BlackboardDefinition) {
+	t.Helper()
+	ctx := context.Background()
+	service := repositoryTestService(t, repository)
+	agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "constraint-agent"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Coordination constraints", Goal: "Reject invalid query columns",
+	})
+	if err != nil {
+		t.Fatalf("create constraint work item: %v", err)
+	}
+	insert := rebind(repository.dialect, `
+		INSERT INTO coordination_claims
+			(id, work_item_id, kind, executor_kind, executor_id, active, claimed_at, last_heartbeat_at, lease_until, lease_seconds, updated_at, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	now := databaseTime(repositoryTestTime)
+	valid := []any{"constraint-claim", workItem.ID, "empty_blackboard", "agent", "constraint-agent", true, now, now, databaseTime(repositoryTestTime.Add(time.Minute)), int64(60), now, "{}"}
+	tests := []struct {
+		name  string
+		index int
+		value any
+	}{
+		{name: "kind", index: 2, value: "unknown"},
+		{name: "executor", index: 3, value: "human"},
+		{name: "lease", index: 9, value: int64(0)},
+	}
+	if repository.dialect == dialectSQLite {
+		tests = append(tests,
+			struct {
+				name  string
+				index int
+				value any
+			}{name: "active", index: 5, value: 2},
+			struct {
+				name  string
+				index int
+				value any
+			}{name: "payload", index: 11, value: "not-json"},
+		)
+	}
+	for index, test := range tests {
+		arguments := append([]any(nil), valid...)
+		arguments[0] = fmt.Sprintf("constraint-claim-%d", index)
+		arguments[test.index] = test.value
+		if _, err := repository.db.ExecContext(ctx, insert, arguments...); err == nil {
+			t.Errorf("invalid coordination claim %s unexpectedly inserted", test.name)
+		}
+	}
+}
+
+func testCoordinationClaimHistoryLimit(t *testing.T, repository *SQLRepository, definition domain.BlackboardDefinition) {
+	t.Helper()
+	ctx := context.Background()
+	service := repositoryTestService(t, repository)
+	agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "history-limit-agent"}, Role: "generalist"}
+	workItem, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Coordination history limit", Goal: "Commit terminal limit state",
+	})
+	if err != nil {
+		t.Fatalf("create history-limit work item: %v", err)
+	}
+	claimedAt := repositoryTestTime.Add(-time.Hour)
+	endedAt := claimedAt.Add(time.Second)
+	if err := repository.Update(ctx, func(store application.WriteStore) error {
+		for index := 0; index < application.MaxCoordinationClaimsPerWorkItem; index++ {
+			claim := domain.CoordinationClaim{
+				ID:         domain.CoordinationClaimID(fmt.Sprintf("history-limit-coordination-%03d", index)),
+				WorkItemID: workItem.ID, Kind: domain.CoordinationClaimEmptyBlackboard, Executor: agent.Actor,
+				ClaimedAt: claimedAt, LastHeartbeatAt: claimedAt, LeaseUntil: claimedAt.Add(time.Minute), LeaseSeconds: 60,
+				EndedAt: &endedAt, EndReason: domain.CoordinationClaimEndReleased,
+			}
+			if err := store.CreateCoordinationClaim(claim); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("populate coordination claim history: %v", err)
+	}
+	_, err = service.ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{
+		WorkItemID: workItem.ID, Kind: application.WorkCandidateEmptyBlackboard, Identity: agent,
+	})
+	if !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), "coordination claims") {
+		t.Fatalf("history limit error = %v, want coordination-claim conflict", err)
+	}
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		persisted, err := store.GetWorkItem(workItem.ID)
+		if err != nil {
+			return err
+		}
+		if persisted.Status != domain.WorkItemStatusFailed {
+			return fmt.Errorf("work item status = %q, want failed", persisted.Status)
+		}
+		claims, err := store.ListCoordinationClaims(workItem.ID)
+		if err != nil {
+			return err
+		}
+		if len(claims) != application.MaxCoordinationClaimsPerWorkItem {
+			return fmt.Errorf("coordination claim count = %d, want %d", len(claims), application.MaxCoordinationClaimsPerWorkItem)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verify committed history-limit state: %v", err)
 	}
 }
 
@@ -1312,7 +1524,7 @@ func testConcurrentClaim(
 	if err != nil {
 		t.Fatalf("create blackboard: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID,
 		Identity:   creator, Title: "Claim once", Executor: domain.ExecutorAgent,
 	})
@@ -1462,9 +1674,16 @@ func testConcurrentBlackboardPlanning(
 		go func() {
 			defer wait.Done()
 			<-start
+			claim, err := service.ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{
+				WorkItemID: workItem.ID, Kind: application.WorkCandidateEmptyBlackboard, Identity: planners[index],
+			})
+			if err != nil {
+				errorsByPlanner[index] = err
+				return
+			}
 			_, errorsByPlanner[index] = service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
-				WorkItemID: workItem.ID,
-				Identity:   planners[index], Title: fmt.Sprintf("Plan part %d", index+1), Executor: domain.ExecutorAgent,
+				WorkItemID:          workItem.ID,
+				CoordinationClaimID: claim.ID, Identity: planners[index], Title: fmt.Sprintf("Plan part %d", index+1), Executor: domain.ExecutorAgent,
 			})
 		}()
 	}
@@ -1472,31 +1691,34 @@ func testConcurrentBlackboardPlanning(
 	wait.Wait()
 
 	succeeded := 0
+	conflicted := 0
 	for _, err := range errorsByPlanner {
 		switch {
 		case err == nil:
 			succeeded++
+		case errors.Is(err, application.ErrConflict):
+			conflicted++
 		default:
 			t.Fatalf("planning result: %v", err)
 		}
 	}
-	if succeeded != 2 {
-		t.Fatalf("planning results: success=%d", succeeded)
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("planning results: success=%d conflict=%d", succeeded, conflicted)
 	}
 	err = repository.View(ctx, func(store application.ReadStore) error {
 		persisted, err := store.GetWorkItem(workItem.ID)
 		if err != nil {
 			return err
 		}
-		if persisted.Version != 2 {
-			return fmt.Errorf("work item version is %d, want 2", persisted.Version)
+		if persisted.Version != 1 {
+			return fmt.Errorf("work item version is %d, want 1", persisted.Version)
 		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return err
 		}
-		if len(tasks) != 2 {
-			return fmt.Errorf("task count is %d, want 2", len(tasks))
+		if len(tasks) != 1 {
+			return fmt.Errorf("task count is %d, want 1", len(tasks))
 		}
 		return nil
 	})
@@ -1532,6 +1754,13 @@ func testConcurrentIdempotentPlanning(
 		Identity:   planner, OperationID: "add-login-task",
 		Title: "Implement login", Executor: domain.ExecutorAgent,
 	}
+	coordinationClaim, err := services[0].ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{
+		WorkItemID: workItem.ID, Kind: application.WorkCandidateEmptyBlackboard, Identity: planner,
+	})
+	if err != nil {
+		t.Fatalf("claim planning candidate: %v", err)
+	}
+	command.CoordinationClaimID = coordinationClaim.ID
 
 	start := make(chan struct{})
 	results := make([]domain.Task, len(services))
@@ -1600,7 +1829,7 @@ func testHierarchyClosureRace(
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	root, err := services[0].CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	root, err := createBlackboardTaskForTest(services[0], ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: identities[0], Title: "Deliver feature", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -1705,7 +1934,7 @@ func testConcurrentChildAppends(
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	root, err := services[0].CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	root, err := createBlackboardTaskForTest(services[0], ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: identities[0], Title: "Implement login", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -1796,13 +2025,13 @@ func testConcurrentReciprocalRelations(
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	first, err := services[0].CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	first, err := createBlackboardTaskForTest(services[0], ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: identities[0], Title: "First task", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create first task: %v", err)
 	}
-	second, err := services[0].CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+	second, err := createBlackboardTaskForTest(services[0], ctx, application.CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: identities[0], Title: "Second task", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {

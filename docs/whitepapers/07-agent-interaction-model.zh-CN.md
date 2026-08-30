@@ -36,6 +36,8 @@ submit result
 
 Agent 在执行前读取必要上下文并确认 Task。Agent 在执行开始前建立带 lease 的 Claim，形成唯一执行责任；未来的 Bridge 也会为所选 Agent Identity 建立同样的 Claim。执行期间 Agent 通过 heartbeat 续租，并可以为每一段续租请求不同的时长。Claim 与 Task 状态表示工作正在执行，Submission、Review、Failure、推进决策和 Artifact 则持久描述它对 WorkItem 进展的贡献。到达 `lease_until` 只表示 Claim 可以被 reaper 回收，并不会直接撤销执行权；reaper 提交回收前，当前 Agent 仍可续租或提交。回收完成后 Agent 必须停止，不能复活旧 Claim 或继续提交。
 
+Blackboard 生命周期判断使用并行的 WorkItem Coordination Claim。Agent 在读取完整上下文并判断 `empty_blackboard`、`blackboard_completion` 或 `work_item_acceptance` 候选前先领取它；创建所选 Task、提交完成或接受完成时携带该 Claim ID，并在同一事务内结束 Claim。这保护了尚不存在可执行 Task 时的分析窗口。Coordination Claim 与 Agent Task Claim 使用相同的 lease、heartbeat、reaper 回收和 fencing 规则。
+
 ## 2. 发现工作
 
 Agent 只发现允许 Agent 执行的 Task：
@@ -52,9 +54,9 @@ executor = agent | either
 | Workflow | 前置关系已满足的 required Task，以及决定保留的 optional Task；候选由 role 与图状态决定，不由 tags 过滤 |
 | Blackboard | 符合 tags 和查询上下文的 Task |
 
-候选结果提供足够的信息帮助 Agent 比较工作，包括 WorkItem 摘要、Task 目标、协调模式、tags 和当前可执行原因。Agent 可以进一步读取完整上下文后再建立 Claim。
+候选结果提供足够的信息帮助 Agent 比较工作，包括 WorkItem 摘要、Task 目标、协调模式、tags 和当前可执行原因。Agent 可以在建立 Task Claim 前读取 Task 上下文；对于 Blackboard 生命周期候选，必须先建立 Coordination Claim，Active Coordination Claim 会让该 WorkItem 从其他发现查询中隐藏。
 
-空 Blackboard 直接以 WorkItem 作为候选。Agent 读取其目标与全局说明后创建首个 Task，后续发现回到通常的 Task 候选。
+空 Blackboard 直接以 WorkItem 作为候选。Agent 先领取候选，再读取目标与全局说明，并携带 Coordination Claim ID 创建首个 Task；后续发现回到通常的 Task 候选。
 
 ## 3. Task 上下文
 
@@ -104,7 +106,7 @@ Task
 
 提交还可以携带当前协调模式允许的推进决策。Kairos 根据这些决策和模式规则更新 Task Graph。
 
-Operation ID 只用于创建 WorkItem、Claim、Artifact 或 Blackboard Task 的 HTTP 或 MCP 调用。完全相同的重试会返回原资源，避免响应丢失后无法找回服务端生成的 ID；同一 Operation ID 被用于不同参数时返回冲突。Definition 追加使用 base version，生命周期变更不保存旧响应：重试会依据当前 Task 和 WorkItem 状态重新判断，因此首次成功后可能返回冲突。托管 Artifact 上传还会通过 Operation ID 跨数据库与文件 Store 写入恢复。
+Operation ID 只用于创建 WorkItem、Task Claim、Coordination Claim、Artifact 或 Blackboard Task 的 HTTP 或 MCP 调用。完全相同的重试会返回原资源，避免响应丢失后无法找回服务端生成的 ID；同一 Operation ID 被用于不同参数时返回冲突。Definition 追加使用 base version，生命周期变更不保存旧响应：重试会依据当前 Task 和 WorkItem 状态重新判断，因此首次成功后可能返回冲突。托管 Artifact 上传还会通过 Operation ID 跨数据库与文件 Store 写入恢复。
 
 Agent 无法完成 Task 时，可以提交失败原因并选择重新打开 Task 或使整个 WorkItem 失败。重新打开时可以附加 Retry Prompt；失败记录和提示会进入后续执行者读取的完整 Task 上下文。
 
@@ -156,6 +158,6 @@ Codex / Claude Code / Other Harness
 
 Kairos 通过无状态 Streamable HTTP MCP 端点暴露主动执行闭环。每个 HTTP 请求都独立通过 Trusted 或 Authenticated Mode 解析 Actor，因此身份不依赖 MCP Session，也不会作为工具参数被接受。
 
-MCP 接入面包含工作发现、Task 上下文、可读取终态的 WorkItem 上下文、Claim 创建与 heartbeat、外部 Artifact 登记、Base64 托管 Artifact 上传、提交、失败、Claim 释放与 Blackboard Task 创建。`claim_task` 与 `heartbeat_claim` 接受可选的 `lease_seconds`，服务端返回实际批准的时长与 `lease_until`。Blackboard Task 上下文中的顶层 `task` 是当前任务；`blackboard.tasks` 会有意排除当前任务，并通过 `blackboard.current_task_id` 提供关联。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行与 heartbeat 循环及资源创建重试纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
+MCP 接入面包含工作发现、Task 上下文、可读取终态的 WorkItem 上下文、Task 与 Coordination Claim 生命周期、外部 Artifact 登记、Base64 托管 Artifact 上传、提交、失败，以及 Blackboard 规划与关闭。Task 与 Coordination Claim 的创建和 heartbeat 都接受可选的 `lease_seconds`，服务端返回实际批准的时长与 `lease_until`。Blackboard Task 上下文中的顶层 `task` 是当前任务；`blackboard.tasks` 会有意排除当前任务，并通过 `blackboard.current_task_id` 提供关联。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行与 heartbeat 循环及资源创建重试纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
 
 > One execution protocol, two coordination modes.

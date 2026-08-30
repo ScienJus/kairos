@@ -80,6 +80,8 @@ The current interaction surface supports:
 
 These actions directly update the shared Task Graph and therefore the observable progress of the WorkItem. Suggested Relations remain available in the durable model, HTTP API, MCP tools, and execution context, but the current console neither displays nor creates them.
 
+The console exposes empty-Blackboard planning, converged completion, and WorkItem acceptance decisions only to Human identities. Agents perform those decisions through MCP so they acquire and maintain the required Coordination Claim before reasoning begins.
+
 Cancellation is deliberately a WorkItem-level management action. The detail page exposes it only to Human identities while the WorkItem is active or awaiting acceptance, confirms the reason, and then shows the recorded actor, time, and reason in the read-only terminal view.
 
 ## 6. History

@@ -97,7 +97,7 @@ Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式�
 | 认证与会话 | `GET /api/v1/auth/config`、`GET /api/v1/session` |
 | Workflow Definitions | 目录 `GET /api/v1/definitions/workflows`；最新版本 `GET /{id}`；历史与追加 `GET/POST /{id}/versions`；精确版本 `GET /{id}/versions/{version}` |
 | Blackboard Definitions | 目录 `GET /api/v1/definitions/blackboards`；最新版本 `GET /{id}`；历史与追加 `GET/POST /{id}/versions`；精确版本 `GET /{id}/versions/{version}` |
-| WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance`、`POST /cancellation` |
+| WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance`、`POST /cancellation`；Coordination Claim 使用 `POST /{id}/coordination-claims`、`POST /{id}/coordination-claims/{claim_id}/heartbeat` 和 `DELETE /{id}/coordination-claims/{claim_id}` |
 | Artifacts | `GET /api/v1/work-items/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifact-uploads`、`GET /api/v1/artifacts/{id}/content` |
 | 工作发现 | `GET /api/v1/work` |
 | Task 详情与执行 | `GET /api/v1/tasks/{id}`、`/context`、`/claims`、`/submissions`、`/failures`、`/reviews` |
@@ -117,23 +117,25 @@ Definition ID 只能包含小写 ASCII 字母、数字和连字符（`^[a-z0-9-]
 
 创建 WorkItem 时有意只提交 Definition ID 和 mode，不提交版本。服务端会在创建时解析并绑定该 ID 最大的已存储版本。
 
-Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。Blackboard Task 收敛后，`find_work` 返回 `blackboard_completion`；协作者可以继续创建 Task，也可以提交持久完成结果。提交后才应用 `acceptance_mode`：`none`（默认）立即完成，`agent` 返回 `work_item_acceptance`，`human` 进入人工验收；验收通过独立的 `POST /acceptance` 动作完成。Agent 验收候选仅对 Agent identity 可见。
+Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。Blackboard Task 收敛后，`find_work` 返回 `blackboard_completion`；协作者可以继续创建 Task，也可以提交持久完成结果。提交后才应用 `acceptance_mode`：`none`（默认）立即完成，`agent` 返回 `work_item_acceptance`，`human` 进入人工验收；验收通过独立的 `POST /acceptance` 动作完成。Agent 验收候选仅对 Agent identity 可见。Agent 在分析 `empty_blackboard`、`blackboard_completion` 或 `work_item_acceptance` 前必须创建 WorkItem Coordination Claim；Active Claim 会从发现结果中隐藏该候选，后续创建 Task、提交完成或接受完成必须携带 Claim ID，并在同一事务内结束 Claim。
+
+Operations console 只向 Human identity 提供这些 WorkItem 生命周期决策控件。Agent 通过 MCP 的发现与 Coordination Claim 循环执行这些决策，在加载完整上下文并开始分析前先建立 Claim。
 
 Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation Definition。起始 Task ID 必须唯一、存在于图中且对应 required Task，因此其数量由 Task Definition 上限自然约束。`max_task_executions` 传 0 时使用 100 的服务端默认值，显式值不能超过 500；它限制一个 WorkItem 的运行时 Task 实例总数。这些限制用于保护图规模和循环执行，不增加重复的运行时图校验。
 
-`find_work` 按 `work_item_acceptance`、`blackboard_completion`、`task`、`empty_blackboard` 分组顺序返回候选。`limit` 独立作用于每个组；省略或传 0 时默认为 5，最大允许 50。因此 Agent 最多收到四倍于 limit 的候选；Human 不会收到 Agent 验收候选。每个组都在数据库查询阶段限制结果，不会先加载完整候选集合再截断。
+`find_work` 按 `work_item_acceptance`、`blackboard_completion`、`task`、`empty_blackboard` 分组顺序返回未领取候选。`limit` 独立作用于每个组；省略或传 0 时默认为 5，最大允许 50。因此 Agent 最多收到四倍于 limit 的候选；Human 不会收到 Agent 验收候选。每个组都在数据库查询阶段限制结果，不会先加载完整候选集合再截断。
 
 单个 Blackboard WorkItem 最多包含 1,000 个 Task 实例和 10,000 条建议 Relation；已完成的历史 Task 以及拆分产生的子 Task 也计入总数。服务端会在根 Task 创建、Task 拆分、追加子 Task 和新增 Relation 的写事务内检查硬上限；超过上限时返回 `409 conflict`，不会产生部分写入结果。
 
-为在不截断历史的前提下限制执行上下文和 WorkItem 上下文大小，每个 Task 最多接受 128 条 Claim、64 条 Submission、64 条 Review、64 条普通 Failure、64 条 Transition Decision 和 64 个 Artifact。尝试追加超过任一历史上限时，WorkItem 会失败并结束 Active Claim；终态 `fail_work_item` Failure 可额外写入 1 条，因此 Failure 历史在该场景下最多为 65 条。已接受的历史在上下文响应中保持完整。会保留在历史或事件中的 Result、Reason、Retry Prompt、Feedback、Transition Reason 和事件消息按 UTF-8 编码后的单字段上限为 32 KiB。Task Submission 可通过 `artifact_ids` 将较长交付物绑定为 Artifact，同时在 Result 中保留简短摘要。对于不接受 Artifact ID 的纯文本生命周期动作，包括失败与重试详情、Review Feedback、Cancellation Reason 和 Skip Reason，应将较长内容存入可持久访问的外部存储，并在文本字段中提供简短摘要和绝对 URI。
+为在不截断历史的前提下限制执行上下文和 WorkItem 上下文大小，每个 WorkItem 最多接受 128 条 Coordination Claim；每个 Task 最多接受 128 条 Claim、64 条 Submission、64 条 Review、64 条普通 Failure、64 条 Transition Decision 和 64 个 Artifact。尝试追加超过任一历史上限时，WorkItem 会失败并结束 Active Claim，被拒绝的操作不会再追加历史记录；终态 `fail_work_item` Failure 可额外写入 1 条，因此 Failure 历史在该场景下最多为 65 条。已接受的历史在上下文响应中保持完整。会保留在历史或事件中的 Result、Reason、Retry Prompt、Feedback、Transition Reason 和事件消息按 UTF-8 编码后的单字段上限为 32 KiB。Task Submission 可通过 `artifact_ids` 将较长交付物绑定为 Artifact，同时在 Result 中保留简短摘要。对于不接受 Artifact ID 的纯文本生命周期动作，包括失败与重试详情、Review Feedback、Cancellation Reason 和 Skip Reason，应将较长内容存入可持久访问的外部存储，并在文本字段中提供简短摘要和绝对 URI。
 
 Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `agent_guidance` 字符串。空字符串表示没有额外 Guidance。两者不改变图编译或推进语义。HTTP Workflow Task context 的每个 Choice Group 在 `relations` 中返回完整 Guidance；MCP `get_task_context` 则在对应的 `targets[]` 项上提供合并后的 `relation_guidance`（优先使用 `agent_guidance`，否则使用 `label`），避免重复目标结构。
 
 对于 Blackboard，等待验收期间 `work_item.result` 保存已提交的 completion proposal；验收通过后，同一字段表示已接受的最终结果。Agent 验收阶段若通过创建新 Task 重新打开 WorkItem，会清除已经失效的 proposal。Workflow 的完成由图收敛确定，因此 Workflow WorkItem 的 `result` 保持为空；其持久成果保留在各 Task Submission 和 Artifact 中。
 
-`POST /api/v1/work-items/{id}/cancellation` 是只允许 Human 调用的管理动作，适用于 `open`、`awaiting_agent_acceptance` 和 `awaiting_human_acceptance` WorkItem。请求必须提供非空 `reason`，服务端记录 `cancelled_at`、`cancelled_by` 和 `cancellation_reason`，并清除待验收的完成提案。同一事务会让全部 Active Claim 以 `work_item_cancelled` 结束、清除对应 Task 的 `active_claim_id`，并只把 `working` Task 恢复为 `pending`；已有 Task 结果不会被重写，也不会创建 Task Failure。取消后的 WorkItem 仍可读取，后续 Task 变更返回 `409 work_item_cancelled`，Agent 收到后应直接停止。MCP 不提供取消工具。
+`POST /api/v1/work-items/{id}/cancellation` 是只允许 Human 调用的管理动作，适用于 `open`、`awaiting_agent_acceptance` 和 `awaiting_human_acceptance` WorkItem。请求必须提供非空 `reason`，服务端记录 `cancelled_at`、`cancelled_by` 和 `cancellation_reason`，并清除待验收的完成提案。同一事务会让全部 Active Task Claim 与 Coordination Claim 以 `work_item_cancelled` 结束、清除对应 Task 的 `active_claim_id`，并只把 `working` Task 恢复为 `pending`；已有 Task 结果不会被重写，也不会创建 Task Failure。取消后的 WorkItem 仍可读取，后续 Task 变更返回 `409 work_item_cancelled`，Agent 收到后应直接停止。MCP 不提供取消工具。
 
-`GET /api/v1/work-items/{id}/context` 在 WorkItem 终态后仍可读取，返回 WorkItem、规范化的 Task 与 relation 集合、`claims` 中的完整 Claim 历史，以及 `active_claims` 中当前仍存活的子集。返回的 `work_item.result` 遵循上述模式语义：Blackboard 中保存 completion proposal 或已接受结果，Workflow 中保持为空；Workflow 成果应从 Task Submission 和 Artifact 获取。完成态 Task 的执行人可通过 `submission.claim_id -> claims[].id -> executor` 关联。
+`GET /api/v1/work-items/{id}/context` 在 WorkItem 终态后仍可读取，返回 WorkItem、规范化的 Task 与 relation 集合、`claims` 中的完整 Task Claim 历史、`active_claims` 中当前仍存活的 Task 子集、`coordination_claims` 中的 WorkItem 判断历史，以及可选的 `active_coordination_claim`。空历史编码为 `[]`，不存在 Active Coordination Claim 时编码为 `null`。返回的 `work_item.result` 遵循上述模式语义：Blackboard 中保存 completion proposal 或已接受结果，Workflow 中保持为空；Workflow 成果应从 Task Submission 和 Artifact 获取。完成态 Task 的执行人可通过 `submission.claim_id -> claims[].id -> executor` 关联。
 
 Workflow Task Definition 可以声明必交的 `artifacts[]`，每项只有 `name` 和 `description`。Description 是执行指引，不是文件类型 Schema。执行者持有 Claim 时可以用绝对 URI 创建外部 Artifact，或上传托管内容，再通过 `submit_task.artifact_ids` 提交。Submission 在同一事务中绑定暂存 Artifact；缺少 Definition 声明名称的 Workflow 提交会被拒绝。Blackboard Task 没有结构化 Artifact 契约。已提交 Artifact 对整个 WorkItem 可见，暂存 Artifact 只属于创建它的 Claim。
 
@@ -147,19 +149,20 @@ Artifact GC 默认每隔 `KAIROS_ARTIFACT_GC_INTERVAL`（15 分钟）执行一�
 
 ## Claim Lease
 
-Agent Claim 使用 lease，Human Claim 不使用。Agent Claim 与 heartbeat 可选择 15 秒至 30 分钟的时长；省略时使用 `KAIROS_AGENT_CLAIM_LEASE`，默认五分钟。`lease_until` 是后台 reaper 最早可以结束 Claim、将 Task 恢复为 Pending 的时间；到达该时间本身不会改变执行权。reaper 提交回收事务前，当前执行者仍可继续推进 Task 或续租，其他执行者仍不能 Claim 这个 Working Task。回收完成后，旧 Claim ID 继续作为 fencing token，不能续租或提交成果。
+Agent Task Claim 与 WorkItem Coordination Claim 都使用 lease，Human 操作不使用。Agent Claim 与 heartbeat 可选择 15 秒至 30 分钟的时长；省略时使用 `KAIROS_AGENT_CLAIM_LEASE`，默认五分钟。`lease_until` 是后台 reaper 最早可以结束 Claim、将 Task 或生命周期候选重新放回发现结果的时间；到达该时间本身不会改变执行权。reaper 提交回收事务前，当前 Agent 仍可继续受保护操作或续租，其他 Agent 仍不能领取该工作。回收完成后，旧 Claim ID 继续作为 fencing token，不能续租或用于生命周期变更。
 
 ## MCP
 
 MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>`；身份不会出现在工具参数中。
 
-执行面包含 17 个工具：
+执行面包含 20 个工具：
 
 - 发现与上下文：`find_work`、`get_task_context`、`get_work_item_context`；
-- Claim 生命周期与交付：`claim_task`、`heartbeat_claim`、`create_artifact`、`upload_artifact`、`release_claim`、`submit_task`、`fail_task`；
+- Task Claim 生命周期与交付：`claim_task`、`heartbeat_claim`、`create_artifact`、`upload_artifact`、`release_claim`、`submit_task`、`fail_task`；
+- Coordination Claim 生命周期：`claim_work_candidate`、`heartbeat_coordination_claim`、`release_coordination_claim`；
 - Blackboard 规划与关闭：`create_blackboard_task`、`add_blackboard_relation`、`decompose_blackboard_task`、`add_blackboard_child_task`、`skip_blackboard_task`、`submit_blackboard_completion`、`accept_blackboard_completion`。
 
-只有创建资源的 MCP 工具要求 `operation_id`：`claim_task`、`create_artifact`、`upload_artifact`、`create_blackboard_task`、`decompose_blackboard_task` 和 `add_blackboard_child_task`。这些工具会重放完全相同的重试，避免响应丢失后无法找回服务端生成的 ID；参数变化时必须使用新 ID。生命周期变更和 Relation 创建直接依据当前领域状态判断，成功后的重试可能返回冲突。Workflow 候选由 role 与图状态决定，忽略 tag 筛选；Blackboard 可以按 tags 发现。Workflow Task context 提供受控的上游摘要、durable result 和可选 Relation Guidance，但不授予任意读取其他 Task 的权限，也不会因为 Guidance 产生 Definition 未允许的分支。
+只有创建资源的 MCP 工具要求 `operation_id`：`claim_task`、`claim_work_candidate`、`create_artifact`、`upload_artifact`、`create_blackboard_task`、`decompose_blackboard_task` 和 `add_blackboard_child_task`。这些工具会重放完全相同的重试，避免响应丢失后无法找回服务端生成的 ID；参数变化时必须使用新 ID。生命周期变更和 Relation 创建直接依据当前领域状态判断，成功后的重试可能返回冲突。Workflow 候选由 role 与图状态决定，忽略 tag 筛选；Blackboard 可以按 tags 发现。Workflow Task context 提供受控的上游摘要、durable result 和可选 Relation Guidance，但不授予任意读取其他 Task 的权限，也不会因为 Guidance 产生 Definition 未允许的分支。
 
 `upload_artifact` 通过不带 data URI 前缀的 `content_base64` 接受标准 Base64 字节，解码后写入服务端配置的 Artifact Store，并返回供 `submit_task.artifact_ids` 使用的暂存 Artifact ID。解码后的大小上限与 HTTP multipart 上传共用 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES`；MCP 请求体上限会包含对应的 Base64 膨胀。该工具只面向小文件，因为 Base64 会增加约三分之一传输体积，且 MCP 请求会完整缓存在内存中。大文件应使用 `create_artifact` 登记 S3 或其他持久外部 URI。
 
