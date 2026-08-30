@@ -11,11 +11,11 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 
 1. Call `find_work` with a reasonable per-kind limit. Candidates are returned in lifecycle-decision, executable Task, then empty-Blackboard order; the limit applies independently to `work_item_acceptance`, `blackboard_completion`, `task`, and `empty_blackboard`. Omission or zero uses five candidates per kind. In Workflow mode, role and graph eligibility determine candidates; tags are descriptive metadata and do not filter executable Workflow Tasks. In Blackboard mode, tags may narrow discovery.
 2. Select one eligible candidate at a time unless the user explicitly requests parallel execution.
-3. Handle Blackboard lifecycle candidates explicitly:
-   - For `empty_blackboard`, read the WorkItem goal, context, constraints, acceptance criteria, and Definition instructions. Create a concrete Task when work is needed; if the goal already requires no execution, call `submit_blackboard_completion` with the durable result.
-   - For `blackboard_completion`, inspect the converged WorkItem. Create another Task when more work is needed; otherwise call `submit_blackboard_completion`. Task convergence alone never completes a Blackboard or starts acceptance.
-   - For `work_item_acceptance`, review the submitted completion result. Create another Task if the proposal should not be accepted; otherwise call `accept_blackboard_completion`.
-   Call `find_work` again after every lifecycle decision.
+3. For an `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance` candidate, call `claim_work_candidate` before loading WorkItem context or reasoning about the decision. Keep the Coordination Claim ID; if the Claim conflicts, do not inspect or act on that candidate and call `find_work` again.
+   - For `empty_blackboard`, read the claimed WorkItem goal, context, constraints, acceptance criteria, and Definition instructions. Create a concrete Task when work is needed; if the goal already requires no execution, call `submit_blackboard_completion` with the durable result.
+   - For `blackboard_completion`, inspect the claimed, converged WorkItem. Create another Task when more work is needed; otherwise call `submit_blackboard_completion`. Task convergence alone never completes a Blackboard or starts acceptance.
+   - For `work_item_acceptance`, review the claimed completion result. Create another Task if the proposal should not be accepted; otherwise call `accept_blackboard_completion`.
+   Pass `coordination_claim_id` to the chosen lifecycle action. It atomically ends the Claim. Heartbeat with `heartbeat_coordination_claim` before `lease_until` during a long decision, or call `release_coordination_claim` if stopping without one of those actions. After expiry is reaped, the old Claim ID is fenced and cannot resolve the candidate. A history-limit response that reports the WorkItem failed is terminal. Call `find_work` again after every lifecycle decision or release.
 4. For a Task candidate, call `get_task_context` before claiming. Read the complete Task, WorkItem, Definition instructions, previous failures, upstream Workflow results, and current Blackboard state.
 5. Call `claim_task` immediately before beginning execution. Do not work on a Task whose Claim was not acquired successfully.
 6. Perform the requested work outside Kairos using the available repository, browser, API, or other tools. Keep the Claim ID.
@@ -30,10 +30,10 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 
 ## Mutation discipline
 
-- Supply a stable `operation_id` to `claim_task`, `create_artifact`, `upload_artifact`, `create_blackboard_task`, `decompose_blackboard_task`, and `add_blackboard_child_task`.
+- Supply a stable `operation_id` to `claim_task`, `claim_work_candidate`, `create_artifact`, `upload_artifact`, `create_blackboard_task`, `decompose_blackboard_task`, and `add_blackboard_child_task`.
 - Reuse that ID only when retrying the exact same resource-creating call with identical arguments; changed arguments require a new ID.
 - Lifecycle tools have no `operation_id`. If their response is lost, read current context before deciding whether another transition is still valid.
-- Treat any response reporting that the WorkItem is `completed`, `failed`, or `cancelled` as terminal. Stop work and heartbeat immediately; do not call `submit_task`, `fail_task`, `release_claim`, create an Artifact, or perform any other mutation for that Task.
+- Treat any response reporting that the WorkItem is `completed`, `failed`, or `cancelled` as terminal. Stop work and heartbeat immediately; do not call `submit_task`, `fail_task`, `release_claim`, `release_coordination_claim`, create an Artifact, or perform any other mutation for that WorkItem.
 - If a conflict does not make the WorkItem status clear, call `get_work_item_context` before another mutation. Stop if the WorkItem is terminal; only treat the conflict as recoverable concurrency when it remains open.
 - Never place Bearer tokens or trusted identity headers in tool arguments. MCP transport authentication supplies the actor identity.
 
@@ -41,7 +41,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 
 For a non-terminal Workflow Task, use the choice groups returned by `get_task_context`. Read optional target `relation_guidance` when interpreting the already-legal choices; guidance never creates a branch that is absent from the choice groups. Pass exactly one legal `transition.choice_group_id` to `submit_task` and only skip IDs listed as skippable. Do not invent runtime Workflow edges. The current Workflow context includes controlled summaries of upstream Tasks and their durable results; use those summaries instead of opening arbitrary upstream Task contexts. Direct `get_task_context` calls remain restricted by the target Task's role and active Claim.
 
-For Blackboard Tasks, omit `transition`. Use `create_blackboard_task` only for open or Agent-acceptance Blackboard WorkItems returned by Kairos or already present in Task context. `submit_blackboard_completion` declares that the goal is achieved; `accept_blackboard_completion` is a separate acceptance action.
+For Blackboard Tasks, omit `transition`. Use `create_blackboard_task` without a Coordination Claim while adding ordinary work to a non-converged Blackboard. When the call resolves `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance`, it must use the matching active Coordination Claim. `submit_blackboard_completion` declares that the goal is achieved and requires the matching lifecycle Claim from an Agent; `accept_blackboard_completion` is a separate acceptance action with the same rule.
 
 Use `decompose_blackboard_task` when a claimed Task must become an aggregate of concrete children. While that aggregate remains open, use `add_blackboard_child_task` for newly discovered work. Use `add_blackboard_relation` for suggested ordering, and `skip_blackboard_task` with a durable reason when an unclaimed pending Task has lost value.
 

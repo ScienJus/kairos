@@ -245,7 +245,7 @@ func (s *collaborationSimulation) executeRandomTask(
 			continue
 		}
 		if candidate.Kind == application.WorkCandidateEmptyBlackboard {
-			if _, err := s.service.CreateBlackboardTask(s.ctx, application.CreateBlackboardTaskCommand{
+			if _, err := createBlackboardTaskForTest(s.service, s.ctx, application.CreateBlackboardTaskCommand{
 				WorkItemID: candidate.WorkItem.ID,
 				Identity:   agent.identity, Title: "Plan the implementation",
 				Executor: domain.ExecutorAgent, Tags: []string{"planning"},
@@ -256,7 +256,7 @@ func (s *collaborationSimulation) executeRandomTask(
 			return true
 		}
 		if candidate.Kind == application.WorkCandidateBlackboardCompletion {
-			if _, err := s.service.SubmitBlackboardCompletion(s.ctx, application.SubmitBlackboardCompletionCommand{
+			if _, err := submitBlackboardCompletionForTest(s.service, s.ctx, application.SubmitBlackboardCompletionCommand{
 				WorkItemID: candidate.WorkItem.ID,
 				Identity:   agent.identity,
 				Result:     "All planned Blackboard tasks converged.",

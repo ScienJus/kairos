@@ -27,6 +27,9 @@ type TaskID string
 // ClaimID identifies one execution responsibility period.
 type ClaimID string
 
+// CoordinationClaimID identifies one period of WorkItem-level coordination.
+type CoordinationClaimID string
+
 // SubmissionID identifies one immutable Task result submission.
 type SubmissionID string
 

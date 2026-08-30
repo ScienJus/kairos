@@ -85,15 +85,20 @@ func (s *Service) StartLeaseReaper(ctx context.Context, interval time.Duration) 
 	return func() { close(stop); <-done }
 }
 
-// ReapExpiredClaims returns reapable Agent Claims to the pending queue.
+// ReapExpiredClaims ends expired Task and WorkItem coordination Claims.
 func (s *Service) ReapExpiredClaims(ctx context.Context) error {
 	now := s.clock.Now()
 	var taskIDs []domain.TaskID
+	var workItemIDs []domain.WorkItemID
 	if err := s.repository.View(ctx, func(store ReadStore) error {
 		var err error
 		taskIDs, err = store.ListReapableAgentClaimTasks(now)
 		if err != nil {
 			return fmt.Errorf("list reapable agent claims: %w", err)
+		}
+		workItemIDs, err = store.ListReapableCoordinationClaimWorkItems(now)
+		if err != nil {
+			return fmt.Errorf("list reapable coordination claims: %w", err)
 		}
 		return nil
 	}); err != nil {
@@ -117,6 +122,28 @@ func (s *Service) ReapExpiredClaims(ctx context.Context) error {
 				return fmt.Errorf("reap claim for task %q: %w", task.ID, err)
 			}
 			return nil
+		}); err != nil {
+			reapErrors = append(reapErrors, err)
+		}
+	}
+	for _, workItemID := range workItemIDs {
+		if err := s.repository.Update(ctx, func(store WriteStore) error {
+			workItem, err := store.GetWorkItem(workItemID)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					return nil
+				}
+				return fmt.Errorf("get reapable work item %q: %w", workItemID, err)
+			}
+			claims, err := store.ListCoordinationClaims(workItem.ID)
+			if err != nil {
+				return fmt.Errorf("list coordination claims for %q: %w", workItem.ID, err)
+			}
+			claim := activeCoordinationClaim(claims)
+			if claim == nil || now.Before(claim.LeaseUntil) {
+				return nil
+			}
+			return endCoordinationClaim(store, claim, domain.CoordinationClaimEndExpired, now)
 		}); err != nil {
 			reapErrors = append(reapErrors, err)
 		}

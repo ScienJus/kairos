@@ -80,6 +80,8 @@ Blackboard WorkItem 使用分层 Task 工作区展示协作者当前共享的计
 
 这些操作直接更新共享 Task Graph，因此也会更新 WorkItem 可观察到的进展。建议 Relation 已存在于持久模型、HTTP API、MCP 工具和执行上下文中，但当前控制台既不展示也不能创建 Relation。
 
+控制台只向 Human identity 提供空 Blackboard 规划、收敛完成和 WorkItem 验收决策。Agent 通过 MCP 执行这些决策，以便在开始分析前先领取并维护所需的 Coordination Claim。
+
 取消被明确建模为 WorkItem 级管理动作。详情页只在 WorkItem 仍活跃或等待验收时向 Human 身份提供该操作，确认原因后进入只读终态，并展示记录的操作者、时间和原因。
 
 ## 6. 历史

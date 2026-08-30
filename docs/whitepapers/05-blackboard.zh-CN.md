@@ -39,7 +39,7 @@ Blackboard 中的 Task Graph 是当前工作认知的共享表达。
 
 Blackboard 的结构追加基于服务端最新状态提交。多个协作者同时创建不同 Task 或 Relation 时，操作依次写入并可以全部成功；WorkItem Version 作为服务端维护的结构修订号。Operation ID 负责识别创建 Task 的请求重试，Relation 自身标识防止重复边，Task Version 负责保护单个 Task 的状态变化。
 
-Task Graph 为空时，WorkItem 本身作为候选工作被发现。协作者读取整体目标和 Blackboard Instructions 后创建首个 Task；WorkItem Tags 用于这种初始发现。
+Task Graph 为空时，WorkItem 本身作为候选工作被发现。Agent 在读取完整上下文或开始规划前，先创建一个带 lease 的 WorkItem Coordination Claim。Active Claim 会让该候选从其他发现查询中隐藏，直到 Agent 创建首个 Task、提交“目标已满足”的完成结果、主动释放 Claim，或 lease 被 reaper 回收。WorkItem Tags 用于这种初始发现。
 
 Suggested Tags 提供开放的标签词汇，例如 `module:*` 或 `kind:*`。Agent 在创建 Task 时根据实际内容选择具体 tags；这些建议不构成权限或格式约束。
 
@@ -147,5 +147,7 @@ Blackboard 的自主性来自持续规划，因此无需通过预配置的 optio
 ```
 
 新的发现可以随时扩展 Task Graph，目标已经满足时则可以将剩余的低价值 Task 标记为 Skipped。Task 收敛后 WorkItem 仍保持 `open`，不会自行声明完成或开始验收；协作者必须显式提交持久的完成结果，之后才应用 `acceptance_mode`：`none` 立即完成，`agent` 产生 Agent 验收候选，`human` 进入人工验收状态。验收者可以接受完成声明；Agent 验收者也可以创建更多 Task，让 WorkItem 回到执行阶段。空 Blackboard 同样通过显式完成声明结束。
+
+Agent 使用一个带 lease 的 Coordination Claim 预留每次 `empty_blackboard`、`blackboard_completion` 或 `work_item_acceptance` 判断。创建所选 Task、提交完成或接受完成时携带该 Claim ID，并在同一事务内结束 Claim，过期 Agent 因而不能再提交第二份决定。lease 过期后候选重新进入发现，旧 ID 继续作为 fencing token。Human 管理动作不需要领取 Claim，但会先撤销 Active Agent Coordination Claim，再应用人的决定。
 
 > Blackboard grows a shared plan while people and agents execute the work.

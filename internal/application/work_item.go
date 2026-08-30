@@ -276,9 +276,10 @@ func (s *Service) completeWorkItem(
 
 // SubmitBlackboardCompletionCommand declares that an open Blackboard has achieved its goal.
 type SubmitBlackboardCompletionCommand struct {
-	WorkItemID domain.WorkItemID
-	Identity   Identity
-	Result     string
+	WorkItemID          domain.WorkItemID
+	CoordinationClaimID domain.CoordinationClaimID
+	Identity            Identity
+	Result              string
 }
 
 // SubmitBlackboardCompletion records a durable completion proposal after all current Tasks converge.
@@ -308,6 +309,22 @@ func (s *Service) SubmitBlackboardCompletion(ctx context.Context, command Submit
 		if workItem.Status != domain.WorkItemStatusOpen {
 			return conflict("work item %q is %s", workItem.ID, workItem.Status)
 		}
+		candidateKind, candidate, err := coordinationCandidate(store, workItem)
+		if err != nil {
+			return err
+		}
+		if !candidate || (candidateKind != domain.CoordinationClaimEmptyBlackboard && candidateKind != domain.CoordinationClaimBlackboardCompletion) {
+			return conflict("work item %q is not ready for completion", workItem.ID)
+		}
+		var coordinationClaim domain.CoordinationClaim
+		if command.Identity.Actor.Kind == domain.ActorAgent {
+			coordinationClaim, err = requireCoordinationClaim(store, workItem, candidateKind, command.CoordinationClaimID, command.Identity)
+			if err != nil {
+				return err
+			}
+		} else if err := endActiveCoordinationClaim(store, workItem.ID, domain.CoordinationClaimEndRevoked, s.clock.Now()); err != nil {
+			return err
+		}
 		tasks, err := store.ListTasks(workItem.ID)
 		if err != nil {
 			return fmt.Errorf("list tasks: %w", err)
@@ -318,6 +335,11 @@ func (s *Service) SubmitBlackboardCompletion(ctx context.Context, command Submit
 
 		actor := command.Identity.Actor
 		result := strings.TrimSpace(command.Result)
+		if coordinationClaim.ID != "" {
+			if err := endCoordinationClaim(store, &coordinationClaim, domain.CoordinationClaimEndCompletionSubmitted, s.clock.Now()); err != nil {
+				return err
+			}
+		}
 		if err := s.appendEvent(store, workItem.ID, nil, domain.WorkItemEventCompletionSubmitted, string(workItem.ID), &actor, result); err != nil {
 			return err
 		}
@@ -354,8 +376,9 @@ func (s *Service) SubmitBlackboardCompletion(ctx context.Context, command Submit
 
 // AcceptBlackboardCompletionCommand accepts a previously submitted completion proposal.
 type AcceptBlackboardCompletionCommand struct {
-	WorkItemID domain.WorkItemID
-	Identity   Identity
+	WorkItemID          domain.WorkItemID
+	CoordinationClaimID domain.CoordinationClaimID
+	Identity            Identity
 }
 
 // AcceptBlackboardCompletion completes a Blackboard whose configured acceptance is pending.
@@ -383,6 +406,13 @@ func (s *Service) AcceptBlackboardCompletion(ctx context.Context, command Accept
 		case domain.WorkItemStatusAwaitingAgentAcceptance:
 			if command.Identity.Actor.Kind != domain.ActorAgent {
 				return forbidden("agent acceptance is required for work item %q", workItem.ID)
+			}
+			coordinationClaim, err := requireCoordinationClaim(store, workItem, domain.CoordinationClaimWorkItemAcceptance, command.CoordinationClaimID, command.Identity)
+			if err != nil {
+				return err
+			}
+			if err := endCoordinationClaim(store, &coordinationClaim, domain.CoordinationClaimEndCompletionAccepted, s.clock.Now()); err != nil {
+				return err
 			}
 		case domain.WorkItemStatusAwaitingHumanAcceptance:
 			if command.Identity.Actor.Kind != domain.ActorHuman {

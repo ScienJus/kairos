@@ -47,6 +47,16 @@ type claimView struct {
 	LeaseUntil   string    `json:"lease_until,omitempty"`
 }
 
+type coordinationClaimView struct {
+	ID           string    `json:"id"`
+	WorkItemID   string    `json:"work_item_id"`
+	Kind         string    `json:"kind"`
+	Executor     actorView `json:"executor"`
+	EndReason    string    `json:"end_reason,omitempty"`
+	LeaseSeconds int64     `json:"lease_seconds"`
+	LeaseUntil   string    `json:"lease_until"`
+}
+
 type submissionView struct {
 	ID      string `json:"id"`
 	TaskID  string `json:"task_id"`
@@ -208,15 +218,21 @@ type outcomeView struct {
 }
 
 type workItemContextOutput struct {
-	WorkItem   workItemView      `json:"work_item"`
-	Definition definitionView    `json:"definition"`
-	Tasks      []taskSummaryView `json:"tasks"`
-	Relations  []relationView    `json:"relations"`
-	Artifacts  []artifactView    `json:"artifacts"`
+	WorkItem                workItemView            `json:"work_item"`
+	Definition              definitionView          `json:"definition"`
+	Tasks                   []taskSummaryView       `json:"tasks"`
+	Relations               []relationView          `json:"relations"`
+	CoordinationClaims      []coordinationClaimView `json:"coordination_claims"`
+	ActiveCoordinationClaim *coordinationClaimView  `json:"active_coordination_claim"`
+	Artifacts               []artifactView          `json:"artifacts"`
 }
 
 type claimOutput struct {
 	Claim claimView `json:"claim"`
+}
+
+type coordinationClaimOutput struct {
+	Claim coordinationClaimView `json:"claim"`
 }
 
 type submissionOutput struct {
@@ -316,13 +332,19 @@ func taskContextView(value application.TaskExecutionContext) taskContextOutput {
 }
 
 func workItemContextView(value application.WorkItemExecutionContext) workItemContextOutput {
-	return workItemContextOutput{
-		WorkItem:   workItemViewFrom(value.WorkItem),
-		Definition: definitionViewFrom(value.Definition),
-		Tasks:      taskSummaryViews(value.Tasks),
-		Relations:  relationViews(value.Relations),
-		Artifacts:  artifactViews(value.Artifacts),
+	result := workItemContextOutput{
+		WorkItem:           workItemViewFrom(value.WorkItem),
+		Definition:         definitionViewFrom(value.Definition),
+		Tasks:              taskSummaryViews(value.Tasks),
+		Relations:          relationViews(value.Relations),
+		CoordinationClaims: coordinationClaimViews(value.CoordinationClaims),
+		Artifacts:          artifactViews(value.Artifacts),
 	}
+	if value.ActiveCoordinationClaim != nil {
+		claim := coordinationClaimViewFrom(*value.ActiveCoordinationClaim)
+		result.ActiveCoordinationClaim = &claim
+	}
+	return result
 }
 
 func definitionViewFrom(value application.DefinitionExecutionContext) definitionView {
@@ -391,6 +413,21 @@ func claimViewFrom(value domain.Claim) claimView {
 		result.LeaseUntil = value.LeaseUntil.UTC().Format(time.RFC3339Nano)
 	}
 	return result
+}
+
+func coordinationClaimViews(values []domain.CoordinationClaim) []coordinationClaimView {
+	result := make([]coordinationClaimView, 0, len(values))
+	for _, value := range values {
+		result = append(result, coordinationClaimViewFrom(value))
+	}
+	return result
+}
+
+func coordinationClaimViewFrom(value domain.CoordinationClaim) coordinationClaimView {
+	return coordinationClaimView{
+		ID: string(value.ID), WorkItemID: string(value.WorkItemID), Kind: string(value.Kind), Executor: actorViewFrom(value.Executor),
+		EndReason: string(value.EndReason), LeaseSeconds: value.LeaseSeconds, LeaseUntil: value.LeaseUntil.UTC().Format(time.RFC3339Nano),
+	}
 }
 
 func submissionViews(values []domain.TaskSubmission) []submissionView {

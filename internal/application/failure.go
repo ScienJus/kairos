@@ -158,6 +158,9 @@ func (s *Service) failWorkItem(
 	reason string,
 	now time.Time,
 ) error {
+	if err := endActiveCoordinationClaim(store, workItem.ID, domain.CoordinationClaimEndWorkItemFailed, now); err != nil {
+		return err
+	}
 	tasks, err := store.ListTasks(workItem.ID)
 	if err != nil {
 		return fmt.Errorf("list tasks for failed work item: %w", err)

@@ -422,6 +422,67 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/coordination-claims:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: claimWorkCandidate
+      summary: Claim Work Candidate
+      description: Agent-only reservation for an empty Blackboard, Blackboard completion decision, or Agent acceptance decision.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CoordinationClaimRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/CoordinationClaim' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/coordination-claims/{claim_id}:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/ClaimIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    delete:
+      operationId: releaseCoordinationClaim
+      summary: Release Coordination Claim
+      responses:
+        '204': { description: Coordination Claim released }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/work-items/{work_item_id}/coordination-claims/{claim_id}/heartbeat:
+    parameters:
+      - $ref: '#/components/parameters/WorkItemIdPath'
+      - $ref: '#/components/parameters/ClaimIdPath'
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: heartbeatCoordinationClaim
+      summary: Heartbeat Coordination Claim
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/CoordinationClaim' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/work-items/{work_item_id}/tasks:
     parameters:
       - $ref: '#/components/parameters/WorkItemIdPath'
@@ -479,7 +540,9 @@ paths:
               type: object
               additionalProperties: false
               required: [result]
-              properties: { result: { $ref: '#/components/schemas/HistoryText' } }
+              properties:
+                coordination_claim_id: { type: string, description: Required for Agent callers. }
+                result: { $ref: '#/components/schemas/HistoryText' }
       responses:
         '200': { $ref: '#/components/responses/WorkItem' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -495,6 +558,14 @@ paths:
     post:
       operationId: acceptBlackboardCompletion
       summary: Accept Blackboard Completion
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                coordination_claim_id: { type: string, description: Required for Agent acceptance; omitted for Human acceptance. }
       responses:
         '200': { $ref: '#/components/responses/WorkItem' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -511,7 +582,7 @@ paths:
     post:
       operationId: cancelWorkItem
       summary: Cancel Work Item
-      description: Human-only terminal cancellation. Active Claims are ended; no Task is marked failed.
+      description: Human-only terminal cancellation. Active Task and Coordination Claims are ended; no Task is marked failed.
       requestBody:
         required: true
         content:
@@ -1023,6 +1094,9 @@ components:
     Claim:
       description: Claim
       content: { application/json: { schema: { $ref: '#/components/schemas/ClaimResponse' } } }
+    CoordinationClaim:
+      description: WorkItem coordination Claim
+      content: { application/json: { schema: { $ref: '#/components/schemas/CoordinationClaimResponse' } } }
     Submission:
       description: Submission
       content: { application/json: { schema: { $ref: '#/components/schemas/SubmissionResponse' } } }
@@ -1407,6 +1481,7 @@ components:
       additionalProperties: false
       required: [title, executor]
       properties:
+        coordination_claim_id: { type: string, description: Required for an Agent when creating the Task resolves a lifecycle candidate. }
         title: { type: string }
         description: { type: string }
         acceptance_criteria: { type: string }
@@ -1434,6 +1509,34 @@ components:
         lease_seconds: { type: integer, format: int64 }
         ended_at: { $ref: '#/components/schemas/NullableDateTime' }
         end_reason: { type: string, enum: ['', task_completed, submitted_for_review, released, revoked, task_failed, task_decomposed, expired, work_item_cancelled] }
+    CoordinationClaim:
+      type: object
+      required: [id, work_item_id, kind, executor, claimed_at, last_heartbeat_at, lease_until, lease_seconds, ended_at, end_reason]
+      properties:
+        id: { type: string }
+        work_item_id: { type: string }
+        kind: { type: string, enum: [empty_blackboard, blackboard_completion, work_item_acceptance] }
+        executor: { $ref: '#/components/schemas/ActorRef' }
+        claimed_at: { $ref: '#/components/schemas/DateTime' }
+        last_heartbeat_at: { $ref: '#/components/schemas/DateTime' }
+        lease_until: { $ref: '#/components/schemas/DateTime' }
+        lease_seconds: { type: integer, format: int64, minimum: 1 }
+        ended_at: { $ref: '#/components/schemas/NullableDateTime' }
+        end_reason:
+          type: string
+          enum: ['', task_created, completion_submitted, completion_accepted, released, expired, revoked, work_item_cancelled, work_item_failed]
+          description: task_created is valid for every kind; completion_submitted is valid for empty_blackboard and blackboard_completion; completion_accepted is valid for work_item_acceptance; operational end reasons are valid for every kind.
+    CoordinationClaimRequest:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [empty_blackboard, blackboard_completion, work_item_acceptance] }
+        lease_seconds:
+          type: integer
+          format: int64
+          default: 0
+          description: Positive values are clamped to the supported 15-1800 second range; zero or a negative value uses the server default.
     Artifact:
       type: object
       required: [id, work_item_id, task_id, claim_id, submission_id, name, uri, created_at]
@@ -1560,7 +1663,7 @@ components:
           oneOf: [{ $ref: '#/components/schemas/BlackboardContext' }, { type: 'null' }]
     WorkItemContext:
       type: object
-      required: [work_item, definition, tasks, relations, claims, active_claims, artifacts]
+      required: [work_item, definition, tasks, relations, claims, active_claims, coordination_claims, active_coordination_claim, artifacts]
       properties:
         work_item: { $ref: '#/components/schemas/WorkItem' }
         definition: { $ref: '#/components/schemas/DefinitionContext' }
@@ -1568,6 +1671,9 @@ components:
         relations: { type: array, items: { $ref: '#/components/schemas/TaskRelation' } }
         claims: { type: array, items: { $ref: '#/components/schemas/Claim' } }
         active_claims: { type: array, items: { $ref: '#/components/schemas/Claim' } }
+        coordination_claims: { type: array, maxItems: 128, items: { $ref: '#/components/schemas/CoordinationClaim' } }
+        active_coordination_claim:
+          oneOf: [{ $ref: '#/components/schemas/CoordinationClaim' }, { type: 'null' }]
         artifacts: { type: array, items: { $ref: '#/components/schemas/Artifact' } }
     WorkCandidate:
       type: object
@@ -1654,6 +1760,10 @@ components:
       type: object
       required: [data]
       properties: { data: { $ref: '#/components/schemas/Claim' } }
+    CoordinationClaimResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/CoordinationClaim' } }
     SubmissionResponse:
       type: object
       required: [data]

@@ -90,8 +90,11 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 		"definition_id": "authenticated", "mode": "blackboard",
 		"title": "Authenticated execution", "goal": "Verify bearer authentication",
 	}, agent.Token, http.StatusCreated)
+	planningClaim := authenticatedRequestData[domain.CoordinationClaim](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/coordination-claims", map[string]any{
+		"kind": "empty_blackboard",
+	}, agent.Token, http.StatusCreated)
 	task := authenticatedRequestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
-		"title": "Protected task", "executor": "agent", "allowed_roles": []string{"database"},
+		"coordination_claim_id": planningClaim.ID, "title": "Protected task", "executor": "agent", "allowed_roles": []string{"database"},
 	}, agent.Token, http.StatusCreated)
 
 	claim := authenticatedRequestData[domain.Claim](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/claims", nil, agent.Token, http.StatusCreated)

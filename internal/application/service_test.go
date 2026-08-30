@@ -207,7 +207,7 @@ func TestManagedArtifactUploadRetryAfterClaimEnds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: agent, Title: "Upload", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -287,7 +287,7 @@ func TestManagedArtifactUploadSerializesConcurrentRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: agent, Title: "Upload", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -365,7 +365,7 @@ func TestManagedArtifactUploadRewritesFileAfterPendingGCDeleteFailure(t *testing
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: agent, Title: "Upload", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -509,14 +509,14 @@ func TestSubmittedArtifactIsVisibleToOtherBlackboardTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	producer, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	producer, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: agent,
 		Title: "Produce", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create producer: %v", err)
 	}
-	consumer, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	consumer, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: agent,
 		Title: "Consume", Executor: domain.ExecutorAgent,
 	})
@@ -711,14 +711,14 @@ func TestGetBlackboardTaskExecutionContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create blackboard: %v", err)
 	}
-	first, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	first, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID,
 		Identity:   agent, Title: "Investigate", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create first task: %v", err)
 	}
-	second, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	second, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID,
 		Identity:   agent, Title: "Summarize", Executor: domain.ExecutorAgent,
 	})
@@ -813,19 +813,19 @@ func TestCancelWorkItemEndsActiveClaimsAndRejectsFurtherMutations(t *testing.T) 
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	agentTask, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	agentTask, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: human, Title: "Agent task", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create agent task: %v", err)
 	}
-	humanTask, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	humanTask, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: human, Title: "Human task", Executor: domain.ExecutorHuman,
 	})
 	if err != nil {
 		t.Fatalf("create human task: %v", err)
 	}
-	pendingTask, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	pendingTask, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: human, Title: "Pending task", Executor: domain.ExecutorEither,
 	})
 	if err != nil {
@@ -1036,7 +1036,7 @@ func TestFindWorkDiscoversEmptyBlackboard(t *testing.T) {
 	if err != nil || len(other) != 0 {
 		t.Fatalf("unmatched empty blackboard: candidates=%#v err=%v", other, err)
 	}
-	completed, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
+	completed, err := submitBlackboardCompletionForTest(service, context.Background(), SubmitBlackboardCompletionCommand{
 		WorkItemID: workItem.ID,
 		Identity:   agent,
 		Result:     "The goal requires no execution tasks.",
@@ -1072,13 +1072,13 @@ func TestFindWorkLimitsEachCandidateKindAndFiltersAgentAcceptanceFromHumans(t *t
 	}
 
 	awaitingAcceptance := createWorkItem("Awaiting acceptance", domain.WorkItemAcceptanceAgent)
-	if _, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+	if _, err := submitBlackboardCompletionForTest(service, ctx, SubmitBlackboardCompletionCommand{
 		WorkItemID: awaitingAcceptance.ID, Identity: agent, Result: "ready",
 	}); err != nil {
 		t.Fatalf("submit completion for acceptance: %v", err)
 	}
 	secondAcceptance := createWorkItem("Second awaiting acceptance", domain.WorkItemAcceptanceAgent)
-	if _, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+	if _, err := submitBlackboardCompletionForTest(service, ctx, SubmitBlackboardCompletionCommand{
 		WorkItemID: secondAcceptance.ID, Identity: agent, Result: "also ready",
 	}); err != nil {
 		t.Fatalf("submit second completion for acceptance: %v", err)
@@ -1087,7 +1087,7 @@ func TestFindWorkLimitsEachCandidateKindAndFiltersAgentAcceptanceFromHumans(t *t
 	createConverged := func(title string) domain.WorkItem {
 		t.Helper()
 		workItem := createWorkItem(title, domain.WorkItemAcceptanceNone)
-		task, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+		task, err := createBlackboardTaskForTest(service, ctx, CreateBlackboardTaskCommand{
 			WorkItemID: workItem.ID, Identity: agent, Title: "Completed task", Executor: domain.ExecutorAgent,
 		})
 		if err != nil {
@@ -1108,7 +1108,7 @@ func TestFindWorkLimitsEachCandidateKindAndFiltersAgentAcceptanceFromHumans(t *t
 	createPending := func(title string) domain.WorkItem {
 		t.Helper()
 		workItem := createWorkItem(title, domain.WorkItemAcceptanceNone)
-		if _, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+		if _, err := createBlackboardTaskForTest(service, ctx, CreateBlackboardTaskCommand{
 			WorkItemID: workItem.ID, Identity: agent, Title: "Pending task", Executor: domain.ExecutorEither,
 		}); err != nil {
 			t.Fatalf("create pending task: %v", err)
@@ -1205,11 +1205,11 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create work item: %v", err)
 			}
-			task, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: agent, Title: "Finish", Executor: domain.ExecutorAgent})
+			task, err := createBlackboardTaskForTest(service, ctx, CreateBlackboardTaskCommand{WorkItemID: workItem.ID, Identity: agent, Title: "Finish", Executor: domain.ExecutorAgent})
 			if err != nil {
 				t.Fatalf("create task: %v", err)
 			}
-			if _, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+			if _, err := submitBlackboardCompletionForTest(service, ctx, SubmitBlackboardCompletionCommand{
 				WorkItemID: workItem.ID, Identity: agent, Result: "too early",
 			}); !errors.Is(err, ErrConflict) {
 				t.Fatalf("submit completion before task convergence: got %v", err)
@@ -1229,7 +1229,7 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 			if err != nil || len(candidates) != 1 || candidates[0].Kind != WorkCandidateBlackboardCompletion {
 				t.Fatalf("completion candidates = %#v, err=%v", candidates, err)
 			}
-			got, err = service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+			got, err = submitBlackboardCompletionForTest(service, ctx, SubmitBlackboardCompletionCommand{
 				WorkItemID: workItem.ID, Identity: agent, Result: "done",
 			})
 			if err != nil {
@@ -1248,7 +1248,7 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 				if err != nil || len(candidates) != 1 || candidates[0].Kind != WorkCandidateWorkItemAcceptance {
 					t.Fatalf("acceptance candidates = %#v, err=%v", candidates, err)
 				}
-				followUp, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+				followUp, err := createBlackboardTaskForTest(service, ctx, CreateBlackboardTaskCommand{
 					WorkItemID: workItem.ID, Identity: agent, Title: "Address acceptance feedback", Executor: domain.ExecutorAgent,
 				})
 				if err != nil {
@@ -1265,13 +1265,13 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 				if _, err := service.SubmitTask(ctx, SubmitTaskCommand{TaskID: followUp.ID, ClaimID: followUpClaim.ID, Identity: agent, Result: "feedback addressed"}); err != nil {
 					t.Fatalf("submit acceptance follow-up: %v", err)
 				}
-				got, err = service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+				got, err = submitBlackboardCompletionForTest(service, ctx, SubmitBlackboardCompletionCommand{
 					WorkItemID: workItem.ID, Identity: agent, Result: "done after feedback",
 				})
 				if err != nil || got.Status != domain.WorkItemStatusAwaitingAgentAcceptance || got.Result != "done after feedback" {
 					t.Fatalf("resubmit completion = %#v, err=%v", got, err)
 				}
-				accepted, err := service.AcceptBlackboardCompletion(ctx, AcceptBlackboardCompletionCommand{WorkItemID: workItem.ID, Identity: agent})
+				accepted, err := acceptBlackboardCompletionForTest(service, ctx, AcceptBlackboardCompletionCommand{WorkItemID: workItem.ID, Identity: agent})
 				if err != nil || accepted.Status != domain.WorkItemStatusCompleted {
 					t.Fatalf("accept agent completion = %#v, err=%v", accepted, err)
 				}
@@ -1288,7 +1288,7 @@ func TestBlackboardAcceptanceModes(t *testing.T) {
 					t.Fatalf("human acceptance candidates = %#v, err=%v", candidates, err)
 				}
 				human := Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
-				accepted, err := service.AcceptBlackboardCompletion(ctx, AcceptBlackboardCompletionCommand{WorkItemID: workItem.ID, Identity: human})
+				accepted, err := acceptBlackboardCompletionForTest(service, ctx, AcceptBlackboardCompletionCommand{WorkItemID: workItem.ID, Identity: human})
 				if err != nil || accepted.Status != domain.WorkItemStatusCompleted {
 					t.Fatalf("accept human completion = %#v, err=%v", accepted, err)
 				}
@@ -1311,7 +1311,7 @@ func TestHumanCanSubmitBlackboardCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(ctx, CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, ctx, CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: human, Title: "Human task", Executor: domain.ExecutorHuman,
 	})
 	if err != nil {
@@ -1326,7 +1326,7 @@ func TestHumanCanSubmitBlackboardCompletion(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("submit human task: %v", err)
 	}
-	completed, err := service.SubmitBlackboardCompletion(ctx, SubmitBlackboardCompletionCommand{
+	completed, err := submitBlackboardCompletionForTest(service, ctx, SubmitBlackboardCompletionCommand{
 		WorkItemID: workItem.ID, Identity: human, Result: "human completed the work item",
 	})
 	if err != nil || completed.Status != domain.WorkItemStatusCompleted || completed.Result != "human completed the work item" {
@@ -1382,7 +1382,7 @@ func TestBlackboardPlanningRequiresExplicitCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create blackboard: %v", err)
 	}
-	first, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	first, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID,
 		Identity:   identity,
 		Title:      "Collect failures",
@@ -1392,7 +1392,7 @@ func TestBlackboardPlanningRequiresExplicitCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create first task: %v", err)
 	}
-	second, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	second, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID,
 		Identity:   identity,
 		Title:      "Remove obsolete hypothesis",
@@ -1440,13 +1440,13 @@ func TestBlackboardPlanningRequiresExplicitCompletion(t *testing.T) {
 	if converged.Status != domain.WorkItemStatusOpen || converged.CompletedAt != nil {
 		t.Fatalf("converged blackboard: %#v", converged)
 	}
-	completed, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
+	completed, err := submitBlackboardCompletionForTest(service, context.Background(), SubmitBlackboardCompletionCommand{
 		WorkItemID: workItem.ID, Identity: identity, Result: "No remaining work is useful.",
 	})
 	if err != nil || completed.Status != domain.WorkItemStatusCompleted || completed.CompletedAt == nil {
 		t.Fatalf("submit blackboard completion: %#v, err=%v", completed, err)
 	}
-	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	if _, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: identity, Title: "Late task", Executor: domain.ExecutorAgent,
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("append after submitted completion: got %v", err)
@@ -1472,7 +1472,7 @@ func TestBlackboardPlanningEnforcesResourceLimits(t *testing.T) {
 			ID: domain.TaskID(fmt.Sprintf("existing-%d", index)), WorkItemID: workItem.ID, Position: int64(index),
 		}
 	}
-	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	if _, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: identity, Title: "one too many", Executor: domain.ExecutorAgent,
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("task limit error = %v, want ErrConflict", err)
@@ -1485,13 +1485,13 @@ func TestBlackboardPlanningEnforcesResourceLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create relation blackboard: %v", err)
 	}
-	from, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	from, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: relationWorkItem.ID, Identity: identity, Title: "from", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
 		t.Fatalf("create relation source: %v", err)
 	}
-	to, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	to, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: relationWorkItem.ID, Identity: identity, Title: "to", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -1551,7 +1551,7 @@ func TestTaskHistoryLimitsFailWorkItem(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create work item: %v", err)
 		}
-		task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		task, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 			WorkItemID: workItem.ID, Identity: identity, Title: "Bounded task", Executor: domain.ExecutorAgent,
 		})
 		if err != nil {
@@ -1808,7 +1808,7 @@ func TestListHumanAttentionAggregatesHumanTasksAndReviews(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: planner, Title: "Check the result", Executor: domain.ExecutorHuman,
 	})
 	if err != nil {
@@ -1861,7 +1861,7 @@ func TestListHumanAttentionPaginatesWithStableCursor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create WorkItem: %v", err)
 		}
-		if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+		if _, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 			WorkItemID: workItem.ID, Identity: planner, Title: title, Executor: domain.ExecutorHuman,
 		}); err != nil {
 			t.Fatalf("create human Task: %v", err)
@@ -1899,7 +1899,7 @@ func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T
 	if err != nil {
 		t.Fatalf("create blackboard: %v", err)
 	}
-	first, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	first, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: agent, Title: "Investigate failure", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -1909,7 +1909,7 @@ func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T
 	if err != nil {
 		t.Fatalf("claim initial task: %v", err)
 	}
-	followUp, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	followUp, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: agent, Title: "Apply discovered fix", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -1936,7 +1936,7 @@ func TestBlackboardFollowUpCreatedBeforeSubmissionKeepsWorkItemOpen(t *testing.T
 		t.Fatalf("blackboard after final task: got %s, want open", got)
 	}
 	completionResult := "Investigate failure\nFound the root cause\n\nApply discovered fix\nApplied the fix"
-	completed, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
+	completed, err := submitBlackboardCompletionForTest(service, context.Background(), SubmitBlackboardCompletionCommand{
 		WorkItemID: workItem.ID, Identity: agent,
 		Result: completionResult,
 	})
@@ -1983,13 +1983,13 @@ func TestBlackboardPlanningAppendsAgainstLatestRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create blackboard: %v", err)
 	}
-	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	if _, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID,
 		Identity:   identity, Title: "Implement login", Executor: domain.ExecutorAgent,
 	}); err != nil {
 		t.Fatalf("create first task: %v", err)
 	}
-	if _, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	if _, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID,
 		Identity:   identity, Title: "Test login", Executor: domain.ExecutorAgent,
 	}); err != nil {
@@ -2018,7 +2018,7 @@ func TestBlackboardTaskHierarchySupportsOpenAppendAndRecursiveCompletion(t *test
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	root, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	root, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID, Identity: planner, Title: "Implement login", Executor: domain.ExecutorAgent,
 	})
 	if err != nil {
@@ -2127,7 +2127,7 @@ func TestBlackboardTaskHierarchySupportsOpenAppendAndRecursiveCompletion(t *test
 	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusOpen {
 		t.Fatalf("blackboard after aggregate closure: got %s, want open", got)
 	}
-	if _, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
+	if _, err := submitBlackboardCompletionForTest(service, context.Background(), SubmitBlackboardCompletionCommand{
 		WorkItemID: workItem.ID, Identity: contributor, Result: "All aggregate children completed.",
 	}); err != nil {
 		t.Fatalf("submit aggregate completion: %v", err)
@@ -2162,6 +2162,13 @@ func TestReplayableCreateReturnsOriginalResultAndRejectsReuse(t *testing.T) {
 		Identity:   identity, OperationID: "create-login-task",
 		Title: "Implement login", Executor: domain.ExecutorAgent,
 	}
+	coordinationClaim, err := service.ClaimWorkCandidate(context.Background(), ClaimWorkCandidateCommand{
+		WorkItemID: workItem.ID, Kind: WorkCandidateEmptyBlackboard, Identity: identity,
+	})
+	if err != nil {
+		t.Fatalf("claim planning candidate: %v", err)
+	}
+	command.CoordinationClaimID = coordinationClaim.ID
 	first, err := service.CreateBlackboardTask(context.Background(), command)
 	if err != nil {
 		t.Fatalf("first request: %v", err)
@@ -2195,7 +2202,7 @@ func TestFailTaskReopensAndPreservesFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID,
 		Identity:   identity, Title: "Inspect logs", Executor: domain.ExecutorAgent,
 	})
@@ -2313,7 +2320,7 @@ func TestBlackboardReviewReopensTaskWithCompleteHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create blackboard: %v", err)
 	}
-	task, err := service.CreateBlackboardTask(context.Background(), CreateBlackboardTaskCommand{
+	task, err := createBlackboardTaskForTest(service, context.Background(), CreateBlackboardTaskCommand{
 		WorkItemID: workItem.ID,
 		Identity:   firstAgent, Title: "Analyze traces", Executor: domain.ExecutorAgent,
 	})
@@ -2366,7 +2373,7 @@ func TestBlackboardReviewReopensTaskWithCompleteHistory(t *testing.T) {
 	if got := repository.workItems[workItem.ID].Status; got != domain.WorkItemStatusOpen {
 		t.Fatalf("blackboard after approved final task: got %s, want open", got)
 	}
-	if _, err := service.SubmitBlackboardCompletion(context.Background(), SubmitBlackboardCompletionCommand{
+	if _, err := submitBlackboardCompletionForTest(service, context.Background(), SubmitBlackboardCompletionCommand{
 		WorkItemID: workItem.ID, Identity: secondAgent, Result: "Reviewed diagnosis completed.",
 	}); err != nil {
 		t.Fatalf("submit reviewed completion: %v", err)
@@ -3168,6 +3175,7 @@ type testRepository struct {
 	tasks                   map[domain.TaskID]domain.Task
 	relations               []domain.TaskRelation
 	claims                  map[domain.ClaimID]domain.Claim
+	coordinationClaims      map[domain.CoordinationClaimID]domain.CoordinationClaim
 	artifacts               map[domain.ArtifactID]domain.Artifact
 	blobs                   map[string]domain.ArtifactBlob
 	activations             map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation
@@ -3182,16 +3190,82 @@ type testRepository struct {
 
 func newTestRepository() *testRepository {
 	return &testRepository{
-		workItems:   make(map[domain.WorkItemID]domain.WorkItem),
-		tasks:       make(map[domain.TaskID]domain.Task),
-		claims:      make(map[domain.ClaimID]domain.Claim),
-		artifacts:   make(map[domain.ArtifactID]domain.Artifact),
-		blobs:       make(map[string]domain.ArtifactBlob),
-		activations: make(map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation),
-		workflows:   make(map[string]domain.WorkflowDefinition),
-		blackboards: make(map[string]domain.BlackboardDefinition),
-		idempotency: make(map[string]IdempotencyRecord),
+		workItems:          make(map[domain.WorkItemID]domain.WorkItem),
+		tasks:              make(map[domain.TaskID]domain.Task),
+		claims:             make(map[domain.ClaimID]domain.Claim),
+		coordinationClaims: make(map[domain.CoordinationClaimID]domain.CoordinationClaim),
+		artifacts:          make(map[domain.ArtifactID]domain.Artifact),
+		blobs:              make(map[string]domain.ArtifactBlob),
+		activations:        make(map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation),
+		workflows:          make(map[string]domain.WorkflowDefinition),
+		blackboards:        make(map[string]domain.BlackboardDefinition),
+		idempotency:        make(map[string]IdempotencyRecord),
 	}
+}
+
+func createBlackboardTaskForTest(service *Service, ctx context.Context, command CreateBlackboardTaskCommand) (domain.Task, error) {
+	if command.Identity.Actor.Kind == domain.ActorAgent && command.CoordinationClaimID == "" {
+		var kind domain.CoordinationClaimKind
+		var candidate bool
+		err := service.repository.View(ctx, func(store ReadStore) error {
+			workItem, err := store.GetWorkItem(command.WorkItemID)
+			if err != nil {
+				return err
+			}
+			kind, candidate, err = coordinationCandidate(store, workItem)
+			return err
+		})
+		if err != nil {
+			return domain.Task{}, err
+		}
+		if candidate {
+			claim, err := service.ClaimWorkCandidate(ctx, ClaimWorkCandidateCommand{
+				WorkItemID: command.WorkItemID, Kind: WorkCandidateKind(kind), Identity: command.Identity,
+			})
+			if err != nil {
+				return domain.Task{}, err
+			}
+			command.CoordinationClaimID = claim.ID
+		}
+	}
+	return service.CreateBlackboardTask(ctx, command)
+}
+
+func submitBlackboardCompletionForTest(service *Service, ctx context.Context, command SubmitBlackboardCompletionCommand) (domain.WorkItem, error) {
+	if command.Identity.Actor.Kind == domain.ActorAgent && command.CoordinationClaimID == "" {
+		var kind domain.CoordinationClaimKind
+		var candidate bool
+		err := service.repository.View(ctx, func(store ReadStore) error {
+			workItem, err := store.GetWorkItem(command.WorkItemID)
+			if err != nil {
+				return err
+			}
+			kind, candidate, err = coordinationCandidate(store, workItem)
+			return err
+		})
+		if err != nil {
+			return domain.WorkItem{}, err
+		}
+		if candidate {
+			claim, err := service.ClaimWorkCandidate(ctx, ClaimWorkCandidateCommand{WorkItemID: command.WorkItemID, Kind: WorkCandidateKind(kind), Identity: command.Identity})
+			if err != nil {
+				return domain.WorkItem{}, err
+			}
+			command.CoordinationClaimID = claim.ID
+		}
+	}
+	return service.SubmitBlackboardCompletion(ctx, command)
+}
+
+func acceptBlackboardCompletionForTest(service *Service, ctx context.Context, command AcceptBlackboardCompletionCommand) (domain.WorkItem, error) {
+	if command.Identity.Actor.Kind == domain.ActorAgent && command.CoordinationClaimID == "" {
+		claim, err := service.ClaimWorkCandidate(ctx, ClaimWorkCandidateCommand{WorkItemID: command.WorkItemID, Kind: WorkCandidateWorkItemAcceptance, Identity: command.Identity})
+		if err != nil {
+			return domain.WorkItem{}, err
+		}
+		command.CoordinationClaimID = claim.ID
+	}
+	return service.AcceptBlackboardCompletion(ctx, command)
 }
 
 func (r *testRepository) View(_ context.Context, operation func(ReadStore) error) error {
@@ -3497,6 +3571,7 @@ func (r *testRepository) ListEmptyBlackboards(tags []string, limit int) ([]domai
 		if workItem.Status == domain.WorkItemStatusOpen &&
 			workItem.CoordinationMode() == domain.CoordinationModeBlackboard &&
 			containsAll(workItem.Tags, tags) &&
+			!r.hasActiveCoordinationClaim(workItem.ID) &&
 			len(r.tasksFor(workItem.ID)) == 0 {
 			result = append(result, workItem)
 		}
@@ -3518,6 +3593,7 @@ func (r *testRepository) ListBlackboardsAwaitingAgentAcceptance(tags []string, l
 	for _, workItem := range r.workItems {
 		if workItem.CoordinationMode() == domain.CoordinationModeBlackboard &&
 			workItem.Status == domain.WorkItemStatusAwaitingAgentAcceptance &&
+			!r.hasActiveCoordinationClaim(workItem.ID) &&
 			containsAll(workItem.Tags, tags) {
 			result = append(result, workItem)
 		}
@@ -3540,6 +3616,7 @@ func (r *testRepository) ListBlackboardsAwaitingCompletion(tags []string, limit 
 		tasks := r.tasksFor(workItem.ID)
 		if workItem.CoordinationMode() == domain.CoordinationModeBlackboard &&
 			workItem.Status == domain.WorkItemStatusOpen &&
+			!r.hasActiveCoordinationClaim(workItem.ID) &&
 			containsAll(workItem.Tags, tags) && len(tasks) > 0 && blackboardTasksConverged(tasks) {
 			result = append(result, workItem)
 		}
@@ -3574,6 +3651,42 @@ func (r *testRepository) ListReapableAgentClaimTasks(now time.Time) ([]domain.Ta
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
 	return result, nil
+}
+
+func (r *testRepository) ListReapableCoordinationClaimWorkItems(now time.Time) ([]domain.WorkItemID, error) {
+	result := make([]domain.WorkItemID, 0)
+	for _, claim := range r.coordinationClaims {
+		if claim.Active() && !now.Before(claim.LeaseUntil) {
+			result = append(result, claim.WorkItemID)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+	return result, nil
+}
+
+func (r *testRepository) ListCoordinationClaims(workItemID domain.WorkItemID) ([]domain.CoordinationClaim, error) {
+	result := make([]domain.CoordinationClaim, 0)
+	for _, claim := range r.coordinationClaims {
+		if claim.WorkItemID == workItemID {
+			result = append(result, claim)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].ClaimedAt.Equal(result[j].ClaimedAt) {
+			return result[i].ClaimedAt.Before(result[j].ClaimedAt)
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result, nil
+}
+
+func (r *testRepository) hasActiveCoordinationClaim(workItemID domain.WorkItemID) bool {
+	for _, claim := range r.coordinationClaims {
+		if claim.WorkItemID == workItemID && claim.Active() {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *testRepository) GetWorkflowDefinition(id domain.DefinitionID, version int64) (domain.WorkflowDefinition, error) {
@@ -3853,6 +3966,22 @@ func (r *testRepository) SaveClaim(value domain.Claim) error {
 		return ErrNotFound
 	}
 	r.claims[value.ID] = value
+	return nil
+}
+
+func (r *testRepository) CreateCoordinationClaim(value domain.CoordinationClaim) error {
+	if _, exists := r.coordinationClaims[value.ID]; exists || r.hasActiveCoordinationClaim(value.WorkItemID) {
+		return ErrConflict
+	}
+	r.coordinationClaims[value.ID] = value
+	return nil
+}
+
+func (r *testRepository) SaveCoordinationClaim(value domain.CoordinationClaim) error {
+	if _, exists := r.coordinationClaims[value.ID]; !exists {
+		return ErrNotFound
+	}
+	r.coordinationClaims[value.ID] = value
 	return nil
 }
 

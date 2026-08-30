@@ -112,12 +112,13 @@ const MaxPageLimit = 200
 // complete history for every accepted operation. A terminal fail_work_item
 // Failure may add one record beyond MaxFailuresPerTask.
 const (
-	MaxClaimsPerTask              = 128
-	MaxSubmissionsPerTask         = 64
-	MaxFailuresPerTask            = 64
-	MaxReviewsPerTask             = 64
-	MaxTransitionDecisionsPerTask = 64
-	MaxArtifactsPerTask           = 64
+	MaxClaimsPerTask                 = 128
+	MaxCoordinationClaimsPerWorkItem = 128
+	MaxSubmissionsPerTask            = 64
+	MaxFailuresPerTask               = 64
+	MaxReviewsPerTask                = 64
+	MaxTransitionDecisionsPerTask    = 64
+	MaxArtifactsPerTask              = 64
 )
 
 type Page[T any] struct {
@@ -183,6 +184,7 @@ type ReadStore interface {
 	ListTaskRelations(domain.WorkItemID) ([]domain.TaskRelation, error)
 	ListClaims(domain.TaskID) ([]domain.Claim, error)
 	ListClaimsByWorkItem(domain.WorkItemID) ([]domain.Claim, error)
+	ListCoordinationClaims(domain.WorkItemID) ([]domain.CoordinationClaim, error)
 	ListHumanAttention(PageRequest[HumanAttentionCursor]) ([]HumanAttentionItem, error)
 	GetArtifact(domain.ArtifactID) (domain.Artifact, error)
 	ListArtifacts(ArtifactFilter) ([]domain.Artifact, error)
@@ -197,6 +199,7 @@ type ReadStore interface {
 	ListBlackboardsAwaitingAgentAcceptance([]string, int) ([]domain.WorkItem, error)
 	ListBlackboardsAwaitingCompletion([]string, int) ([]domain.WorkItem, error)
 	ListReapableAgentClaimTasks(time.Time) ([]domain.TaskID, error)
+	ListReapableCoordinationClaimWorkItems(time.Time) ([]domain.WorkItemID, error)
 
 	GetDefinitionMetadata([]domain.DefinitionBinding) (map[domain.DefinitionBinding]domain.DefinitionMetadata, error)
 	GetWorkflowDefinition(domain.DefinitionID, int64) (domain.WorkflowDefinition, error)
@@ -231,6 +234,8 @@ type WriteStore interface {
 
 	CreateClaim(domain.Claim) error
 	SaveClaim(domain.Claim) error
+	CreateCoordinationClaim(domain.CoordinationClaim) error
+	SaveCoordinationClaim(domain.CoordinationClaim) error
 	CreateArtifact(domain.Artifact) error
 	SaveArtifact(domain.Artifact, time.Time) error
 	DeleteArtifact(domain.ArtifactID) error

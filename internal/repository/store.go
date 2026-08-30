@@ -314,6 +314,39 @@ func (s *sqlStore) listClaims(query string, args ...any) ([]domain.Claim, error)
 	return result, normalizeError(rows.Err())
 }
 
+func (s *sqlStore) ListCoordinationClaims(workItemID domain.WorkItemID) ([]domain.CoordinationClaim, error) {
+	rows, err := s.query(`
+		SELECT payload, kind, executor_kind, executor_id, last_heartbeat_at, lease_until, lease_seconds
+		FROM coordination_claims
+		WHERE work_item_id = ?
+		ORDER BY claimed_at, id`, workItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.CoordinationClaim
+	for rows.Next() {
+		var payload string
+		var kind, executorKind, executorID string
+		var heartbeat, lease scannedTime
+		var leaseSeconds int64
+		if err := rows.Scan(&payload, &kind, &executorKind, &executorID, &heartbeat, &lease, &leaseSeconds); err != nil {
+			return nil, normalizeError(err)
+		}
+		value, err := decodeJSON[domain.CoordinationClaim](payload)
+		if err != nil {
+			return nil, err
+		}
+		value.Kind = domain.CoordinationClaimKind(kind)
+		value.Executor = domain.ActorRef{Kind: domain.ActorKind(executorKind), ID: domain.ActorID(executorID)}
+		value.LastHeartbeatAt = heartbeat.Time
+		value.LeaseUntil = lease.Time
+		value.LeaseSeconds = leaseSeconds
+		result = append(result, value)
+	}
+	return result, normalizeError(rows.Err())
+}
+
 func (s *sqlStore) GetArtifact(id domain.ArtifactID) (domain.Artifact, error) {
 	var artifact domain.Artifact
 	var submissionID sql.NullString
@@ -578,8 +611,12 @@ func (s *sqlStore) ListOpenTasks(filter application.OpenTaskFilter) ([]applicati
 }
 
 func (s *sqlStore) ListEmptyBlackboards(tags []string, limit int) ([]domain.WorkItem, error) {
-	conditions := []string{"w.status = ?", "w.mode = ?", "NOT EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)"}
-	args := []any{domain.WorkItemStatusOpen, domain.CoordinationModeBlackboard}
+	conditions := []string{
+		"w.status = ?", "w.mode = ?",
+		"NOT EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)",
+		"NOT EXISTS (SELECT 1 FROM coordination_claims cc WHERE cc.work_item_id = w.id AND cc.active = ?)",
+	}
+	args := []any{domain.WorkItemStatusOpen, domain.CoordinationModeBlackboard, true}
 	conditions, args = s.appendWorkItemTagConditions(conditions, args, "w", tags)
 	args = append(args, limit)
 	rows, err := s.query(`
@@ -609,8 +646,8 @@ func (s *sqlStore) ListEmptyBlackboards(tags []string, limit int) ([]domain.Work
 
 func (s *sqlStore) ListBlackboardsAwaitingAgentAcceptance(tags []string, limit int) ([]domain.WorkItem, error) {
 	return s.listBlackboardsForWork(
-		[]string{"w.mode = ?", "w.status = ?"},
-		[]any{domain.CoordinationModeBlackboard, domain.WorkItemStatusAwaitingAgentAcceptance},
+		[]string{"w.mode = ?", "w.status = ?", "NOT EXISTS (SELECT 1 FROM coordination_claims cc WHERE cc.work_item_id = w.id AND cc.active = ?)"},
+		[]any{domain.CoordinationModeBlackboard, domain.WorkItemStatusAwaitingAgentAcceptance, true},
 		tags,
 		limit,
 	)
@@ -623,12 +660,14 @@ func (s *sqlStore) ListBlackboardsAwaitingCompletion(tags []string, limit int) (
 			"w.status = ?",
 			"EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id)",
 			"NOT EXISTS (SELECT 1 FROM tasks t WHERE t.work_item_id = w.id AND t.status NOT IN (?, ?))",
+			"NOT EXISTS (SELECT 1 FROM coordination_claims cc WHERE cc.work_item_id = w.id AND cc.active = ?)",
 		},
 		[]any{
 			domain.CoordinationModeBlackboard,
 			domain.WorkItemStatusOpen,
 			domain.TaskStatusCompleted,
 			domain.TaskStatusSkipped,
+			true,
 		},
 		tags,
 		limit,
@@ -706,6 +745,27 @@ func (s *sqlStore) ListReapableAgentClaimTasks(now time.Time) ([]domain.TaskID, 
 			return nil, normalizeError(err)
 		}
 		result = append(result, taskID)
+	}
+	return result, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) ListReapableCoordinationClaimWorkItems(now time.Time) ([]domain.WorkItemID, error) {
+	rows, err := s.query(`
+		SELECT work_item_id
+		FROM coordination_claims
+		WHERE active = ? AND lease_until <= ?
+		ORDER BY lease_until, work_item_id`, true, databaseTime(now))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]domain.WorkItemID, 0)
+	for rows.Next() {
+		var workItemID domain.WorkItemID
+		if err := rows.Scan(&workItemID); err != nil {
+			return nil, normalizeError(err)
+		}
+		result = append(result, workItemID)
 	}
 	return result, normalizeError(rows.Err())
 }
@@ -1262,6 +1322,48 @@ func (s *sqlStore) SaveClaim(value domain.Claim) error {
 	return s.requireUpdated(result, "claims", value.ID)
 }
 
+func (s *sqlStore) CreateCoordinationClaim(value domain.CoordinationClaim) error {
+	value = normalizeCoordinationClaimTimes(value)
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(`
+		INSERT INTO coordination_claims
+			(id, work_item_id, kind, executor_kind, executor_id, active, claimed_at, last_heartbeat_at, lease_until, lease_seconds, updated_at, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		value.ID, value.WorkItemID, value.Kind, value.Executor.Kind, value.Executor.ID, value.Active(),
+		databaseTime(value.ClaimedAt), databaseTime(value.LastHeartbeatAt), databaseTime(value.LeaseUntil), value.LeaseSeconds,
+		databaseTime(coordinationClaimUpdatedAt(value)), payload,
+	)
+	return err
+}
+
+func (s *sqlStore) SaveCoordinationClaim(value domain.CoordinationClaim) error {
+	value = normalizeCoordinationClaimTimes(value)
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	payload, err := encodeJSON(value)
+	if err != nil {
+		return err
+	}
+	result, err := s.exec(`
+		UPDATE coordination_claims
+		SET kind = ?, executor_kind = ?, executor_id = ?, active = ?, last_heartbeat_at = ?, lease_until = ?, lease_seconds = ?, updated_at = ?, payload = ?
+		WHERE id = ?`,
+		value.Kind, value.Executor.Kind, value.Executor.ID, value.Active(), databaseTime(value.LastHeartbeatAt),
+		databaseTime(value.LeaseUntil), value.LeaseSeconds, databaseTime(coordinationClaimUpdatedAt(value)), payload, value.ID,
+	)
+	if err != nil {
+		return err
+	}
+	return s.requireUpdated(result, "coordination claim", value.ID)
+}
+
 func (s *sqlStore) CreateArtifact(value domain.Artifact) error {
 	if err := value.Validate(); err != nil {
 		return err
@@ -1356,6 +1458,21 @@ func claimUpdatedAt(value domain.Claim) time.Time {
 		updatedAt = *value.EndedAt
 	}
 	return updatedAt
+}
+
+func coordinationClaimUpdatedAt(value domain.CoordinationClaim) time.Time {
+	if value.EndedAt != nil {
+		return *value.EndedAt
+	}
+	return value.LastHeartbeatAt
+}
+
+func normalizeCoordinationClaimTimes(value domain.CoordinationClaim) domain.CoordinationClaim {
+	value.ClaimedAt = normalizeTime(value.ClaimedAt)
+	value.LastHeartbeatAt = normalizeTime(value.LastHeartbeatAt)
+	value.LeaseUntil = normalizeTime(value.LeaseUntil)
+	value.EndedAt = normalizeOptionalTime(value.EndedAt)
+	return value
 }
 
 func (s *sqlStore) AppendWorkItemEvent(value domain.WorkItemEvent) error {
