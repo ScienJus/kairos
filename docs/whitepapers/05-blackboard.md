@@ -39,7 +39,7 @@ The Task Graph in Blackboard is a shared representation of the current understan
 
 Blackboard structural appends are committed against the latest server state. When multiple collaborators concurrently create different Tasks or Relations, their operations are serialized and can all succeed. WorkItem Version is a server-maintained structural revision. Operation ID identifies retries that create Tasks, Relation identity prevents duplicate edges, and Task Version protects state changes to one Task.
 
-When the Task Graph is empty, the WorkItem itself is exposed as candidate work. A collaborator reads the overall objective and Blackboard Instructions, then creates the first Task. WorkItem Tags support this initial discovery.
+When the Task Graph is empty, the WorkItem itself is exposed as candidate work. Before an Agent reads the full context or plans it, the Agent creates a leased WorkItem Coordination Claim. The active Claim hides that candidate from other discovery queries until the Agent creates the first Task, submits an already-satisfied completion, releases the Claim, or the lease is reaped. WorkItem Tags support this initial discovery.
 
 Suggested Tags provide an open vocabulary such as `module:*` or `kind:*`. Agents choose concrete tags from actual Task content when creating Tasks. Suggestions are neither permissions nor format constraints.
 
@@ -147,5 +147,7 @@ Every current Task is Completed or Skipped
 ```
 
 New findings can expand the Task Graph at any point. When the objective is already satisfied, remaining low-value Tasks can be marked Skipped. Task convergence leaves the WorkItem `open`; it does not itself declare completion or start acceptance. A collaborator must submit a durable completion result. Then `acceptance_mode` applies: `none` completes immediately, `agent` exposes an Agent acceptance candidate, and `human` enters human acceptance and is shown in the human-attention queue. An acceptance actor may accept the proposal, while an Agent acceptance actor may instead create more Tasks and return the WorkItem to execution. The same explicit completion submission also applies to an empty Blackboard.
+
+Agents reserve each `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance` decision with one leased Coordination Claim. Creating the chosen Task, submitting completion, or accepting completion carries that Claim ID and ends it atomically, so a stale Agent cannot commit a second decision. Expiry returns the candidate to discovery and fences the old ID. Human management actions remain claim-free and revoke any active Agent Coordination Claim before applying their decision.
 
 > Blackboard grows a shared plan while people and agents execute the work.

@@ -79,13 +79,15 @@ func boundedPage[T any](items []T, limit int) Page[T] {
 // WorkItemExecutionContext contains a durable WorkItem view that remains
 // addressable after it leaves the open candidate set.
 type WorkItemExecutionContext struct {
-	WorkItem     domain.WorkItem            `json:"work_item"`
-	Definition   DefinitionExecutionContext `json:"definition"`
-	Tasks        []domain.Task              `json:"tasks"`
-	Relations    []domain.TaskRelation      `json:"relations"`
-	Claims       []domain.Claim             `json:"claims"`
-	ActiveClaims []domain.Claim             `json:"active_claims"`
-	Artifacts    []domain.Artifact          `json:"artifacts"`
+	WorkItem                domain.WorkItem            `json:"work_item"`
+	Definition              DefinitionExecutionContext `json:"definition"`
+	Tasks                   []domain.Task              `json:"tasks"`
+	Relations               []domain.TaskRelation      `json:"relations"`
+	Claims                  []domain.Claim             `json:"claims"`
+	ActiveClaims            []domain.Claim             `json:"active_claims"`
+	CoordinationClaims      []domain.CoordinationClaim `json:"coordination_claims"`
+	ActiveCoordinationClaim *domain.CoordinationClaim  `json:"active_coordination_claim"`
+	Artifacts               []domain.Artifact          `json:"artifacts"`
 }
 
 // GetWorkItemExecutionContextQuery identifies one WorkItem and requesting actor.
@@ -148,6 +150,17 @@ func (s *Service) GetWorkItemExecutionContext(
 		if claims == nil {
 			claims = []domain.Claim{}
 		}
+		coordinationClaims, err := store.ListCoordinationClaims(workItem.ID)
+		if err != nil {
+			return fmt.Errorf("list coordination claims for work item %q: %w", workItem.ID, err)
+		}
+		if coordinationClaims == nil {
+			coordinationClaims = []domain.CoordinationClaim{}
+		}
+		if err := domain.ValidateCoordinationClaimHistory(workItem.ID, coordinationClaims); err != nil {
+			return err
+		}
+		activeCoordination := activeCoordinationClaim(coordinationClaims)
 		activeClaims := []domain.Claim{}
 		if workItem.Status == domain.WorkItemStatusOpen {
 			activeClaimIDs := make(map[domain.ClaimID]struct{})
@@ -164,7 +177,8 @@ func (s *Service) GetWorkItemExecutionContext(
 		}
 		result = WorkItemExecutionContext{
 			WorkItem: normalizeWorkItemCollections(workItem), Definition: normalizeDefinitionContext(definition),
-			Tasks: normalizeTasks(tasks), Relations: relations, Claims: claims, ActiveClaims: activeClaims, Artifacts: committedArtifacts,
+			Tasks: normalizeTasks(tasks), Relations: relations, Claims: claims, ActiveClaims: activeClaims,
+			CoordinationClaims: coordinationClaims, ActiveCoordinationClaim: activeCoordination, Artifacts: committedArtifacts,
 		}
 		return nil
 	})

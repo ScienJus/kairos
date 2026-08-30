@@ -151,6 +151,9 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/v1/work-items", h.createWorkItem)
 	h.mux.HandleFunc("GET /api/v1/work-items/{work_item_id}/context", h.getWorkItemContext)
 	h.mux.HandleFunc("GET /api/v1/work-items/{work_item_id}/artifacts", h.listArtifacts)
+	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/coordination-claims", h.claimWorkCandidate)
+	h.mux.HandleFunc("DELETE /api/v1/work-items/{work_item_id}/coordination-claims/{claim_id}", h.releaseCoordinationClaim)
+	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/coordination-claims/{claim_id}/heartbeat", h.heartbeatCoordinationClaim)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/tasks", h.createBlackboardTask)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/relations", h.addBlackboardRelation)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/completion", h.submitBlackboardCompletion)
@@ -665,12 +668,13 @@ func (h *Handler) getWorkItemContext(writer http.ResponseWriter, request *http.R
 }
 
 type createBlackboardTaskRequest struct {
-	Title              string                     `json:"title"`
-	Description        string                     `json:"description"`
-	AcceptanceCriteria string                     `json:"acceptance_criteria"`
-	Executor           domain.ExecutorRequirement `json:"executor"`
-	AllowedRoles       []string                   `json:"allowed_roles"`
-	Tags               []string                   `json:"tags"`
+	CoordinationClaimID domain.CoordinationClaimID `json:"coordination_claim_id"`
+	Title               string                     `json:"title"`
+	Description         string                     `json:"description"`
+	AcceptanceCriteria  string                     `json:"acceptance_criteria"`
+	Executor            domain.ExecutorRequirement `json:"executor"`
+	AllowedRoles        []string                   `json:"allowed_roles"`
+	Tags                []string                   `json:"tags"`
 }
 
 func (r createBlackboardTaskRequest) spec() application.BlackboardTaskSpec {
@@ -690,8 +694,8 @@ func (h *Handler) createBlackboardTask(writer http.ResponseWriter, request *http
 		return
 	}
 	created, err := h.service.CreateBlackboardTask(request.Context(), application.CreateBlackboardTaskCommand{
-		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")),
-		Identity:   actor, OperationID: operationID(request),
+		WorkItemID:          domain.WorkItemID(request.PathValue("work_item_id")),
+		CoordinationClaimID: body.CoordinationClaimID, Identity: actor, OperationID: operationID(request),
 		Title: body.Title, Description: body.Description, AcceptanceCriteria: body.AcceptanceCriteria,
 		Executor: body.Executor, AllowedRoles: body.AllowedRoles, Tags: body.Tags,
 	})
@@ -728,7 +732,8 @@ func (h *Handler) addBlackboardRelation(writer http.ResponseWriter, request *htt
 }
 
 type submitBlackboardCompletionRequest struct {
-	Result string `json:"result"`
+	CoordinationClaimID domain.CoordinationClaimID `json:"coordination_claim_id"`
+	Result              string                     `json:"result"`
 }
 
 func (h *Handler) submitBlackboardCompletion(writer http.ResponseWriter, request *http.Request) {
@@ -741,7 +746,7 @@ func (h *Handler) submitBlackboardCompletion(writer http.ResponseWriter, request
 		return
 	}
 	workItem, err := h.service.SubmitBlackboardCompletion(request.Context(), application.SubmitBlackboardCompletionCommand{
-		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor,
+		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), CoordinationClaimID: body.CoordinationClaimID, Identity: actor,
 		Result: body.Result,
 	})
 	if err != nil {
@@ -756,14 +761,81 @@ func (h *Handler) acceptBlackboardCompletion(writer http.ResponseWriter, request
 	if !ok {
 		return
 	}
+	var body struct {
+		CoordinationClaimID domain.CoordinationClaimID `json:"coordination_claim_id"`
+	}
+	if request.ContentLength != 0 && !decodeRequest(writer, request, &body) {
+		return
+	}
 	workItem, err := h.service.AcceptBlackboardCompletion(request.Context(), application.AcceptBlackboardCompletionCommand{
-		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor,
+		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), CoordinationClaimID: body.CoordinationClaimID, Identity: actor,
 	})
 	if err != nil {
 		writeError(writer, err)
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataResponse{Data: workItem})
+}
+
+func (h *Handler) claimWorkCandidate(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	var body struct {
+		Kind         application.WorkCandidateKind `json:"kind"`
+		LeaseSeconds int64                         `json:"lease_seconds"`
+	}
+	if !decodeRequest(writer, request, &body) {
+		return
+	}
+	claim, err := h.service.ClaimWorkCandidate(request.Context(), application.ClaimWorkCandidateCommand{
+		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Kind: body.Kind, Identity: actor,
+		OperationID: operationID(request), LeaseSeconds: body.LeaseSeconds,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusCreated, dataResponse{Data: claim})
+}
+
+func (h *Handler) heartbeatCoordinationClaim(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	var body struct {
+		LeaseSeconds int64 `json:"lease_seconds"`
+	}
+	if request.ContentLength != 0 && !decodeRequest(writer, request, &body) {
+		return
+	}
+	claim, err := h.service.HeartbeatCoordinationClaim(request.Context(), application.HeartbeatCoordinationClaimCommand{
+		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")),
+		ClaimID:    domain.CoordinationClaimID(request.PathValue("claim_id")), Identity: actor, LeaseSeconds: body.LeaseSeconds,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: claim})
+}
+
+func (h *Handler) releaseCoordinationClaim(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	err := h.service.ReleaseCoordinationClaim(request.Context(), application.ReleaseCoordinationClaimCommand{
+		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")),
+		ClaimID:    domain.CoordinationClaimID(request.PathValue("claim_id")), Identity: actor,
+	})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 type cancelWorkItemRequest struct {

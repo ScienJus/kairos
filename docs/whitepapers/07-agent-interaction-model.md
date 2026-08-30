@@ -36,6 +36,8 @@ submit result
 
 Before execution, the agent reads necessary context and confirms the Task. The agent creates a leased Claim before work begins, establishing unique execution responsibility; a future Bridge will establish the same Claim for the selected Agent identity. During execution, the agent renews that lease with heartbeat calls and may request a different duration for each interval. The Claim and Task state show active work, while submissions, Reviews, failures, decisions, and Artifacts durably describe its contribution to WorkItem progress. Reaching `lease_until` makes the Claim eligible for reaping but does not revoke it: the current agent may still renew or submit until the reaper commits. After reaping, the agent must stop and cannot revive or submit through the old Claim.
 
+Blackboard lifecycle decisions use a parallel WorkItem Coordination Claim. An Agent claims an `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance` candidate before loading its full context and deciding it. The selected Task creation, completion submission, or acceptance carries that Claim ID and ends it in the same transaction. This protects the reasoning window in which no executable Task exists yet. Coordination Claims use the same lease, heartbeat, reaping, and fencing rules as Agent Task Claims.
+
 ## 2. Discovering Work
 
 An agent discovers only Tasks that permit agent execution:
@@ -52,9 +54,9 @@ The coordination mode determines where candidate Tasks come from:
 | Workflow | Required Tasks whose prerequisites are satisfied, plus optional Tasks that were retained; role and graph state decide eligibility, not tags |
 | Blackboard | Tasks matching tags and query context |
 
-Candidate results provide enough information to compare work, including the WorkItem summary, Task objective, coordination mode, tags, and current eligibility reason. An agent can load full context before creating a Claim.
+Candidate results provide enough information to compare work, including the WorkItem summary, Task objective, coordination mode, tags, and current eligibility reason. An agent can load Task context before creating a Task Claim. For a Blackboard lifecycle candidate, it must first create a Coordination Claim; an active Coordination Claim hides that WorkItem from other discovery queries.
 
-An empty Blackboard exposes its WorkItem directly as a candidate. The agent reads the objective and global instructions, creates the first Task, and then returns to regular Task discovery.
+An empty Blackboard exposes its WorkItem directly as a candidate. The agent claims the candidate, reads the objective and global instructions, creates the first Task with the Coordination Claim ID, and then returns to regular Task discovery.
 
 ## 3. Task Context
 
@@ -104,7 +106,7 @@ Task
 
 A submission can also carry progression decisions allowed by the current coordination mode. Kairos updates the Task Graph according to those decisions and mode rules.
 
-Operation IDs are reserved for HTTP or MCP calls that create WorkItems, Claims, Artifacts, or Blackboard Tasks. Replaying the same request returns the original resource so a lost response does not orphan its server-generated ID; reusing an Operation ID with different arguments returns a conflict. Definition appends use their base version, while lifecycle transitions do not store prior responses: a retry is evaluated against current Task and WorkItem state and may return a conflict after the first call succeeded. Managed Artifact upload additionally uses its Operation ID to recover across database and file-store writes.
+Operation IDs are reserved for HTTP or MCP calls that create WorkItems, Task Claims, Coordination Claims, Artifacts, or Blackboard Tasks. Replaying the same request returns the original resource so a lost response does not orphan its server-generated ID; reusing an Operation ID with different arguments returns a conflict. Definition appends use their base version, while lifecycle transitions do not store prior responses: a retry is evaluated against current Task and WorkItem state and may return a conflict after the first call succeeded. Managed Artifact upload additionally uses its Operation ID to recover across database and file-store writes.
 
 When an agent cannot complete a Task, it can submit a failure reason and either reopen the Task or fail the entire WorkItem. Reopening can add a Retry Prompt. Failure history and prompts enter the full Task context read by future executors.
 
@@ -156,6 +158,6 @@ The Kairos agent interaction model is therefore independent of a specific Harnes
 
 Kairos exposes the proactive execution loop through a stateless Streamable HTTP MCP endpoint. Each HTTP request independently resolves the actor through Trusted or Authenticated Mode, so identity does not depend on an MCP session and is never accepted as a tool argument.
 
-The MCP surface contains work discovery, Task context, terminal-capable WorkItem context, Claim creation and heartbeat, external Artifact registration, Base64 managed Artifact upload, submission, failure, Claim release, and Blackboard Task creation. `claim_task` and `heartbeat_claim` accept an optional requested `lease_seconds`; the server returns the granted duration and `lease_until`. In Blackboard task context, the top-level `task` is the current task; `blackboard.tasks` intentionally excludes it and exposes `blackboard.current_task_id` for correlation. Responses use compact `snake_case` execution views instead of exposing the full persistence model. Definition and Identity administration and human Review decisions stay outside the Agent surface. A repository-level Codex Skill supplies the execution and heartbeat loop plus resource-creation retry discipline to compatible harnesses, while `.codex/config.toml` connects Codex to the local project server.
+The MCP surface contains work discovery, Task context, terminal-capable WorkItem context, Task and Coordination Claim lifecycle, external Artifact registration, Base64 managed Artifact upload, submission, failure, and Blackboard planning and closure. Task and Coordination Claim creation and heartbeat accept an optional requested `lease_seconds`; the server returns the granted duration and `lease_until`. In Blackboard task context, the top-level `task` is the current task; `blackboard.tasks` intentionally excludes it and exposes `blackboard.current_task_id` for correlation. Responses use compact `snake_case` execution views instead of exposing the full persistence model. Definition and Identity administration and human Review decisions stay outside the Agent surface. A repository-level Codex Skill supplies the execution and heartbeat loop plus resource-creation retry discipline to compatible harnesses, while `.codex/config.toml` connects Codex to the local project server.
 
 > One execution protocol, two coordination modes.

@@ -238,6 +238,9 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		"definition_id": "engineering", "mode": "blackboard",
 		"title": "Superseded work", "goal": "Exercise cancellation", "tags": []string{"cancel-test"},
 	}, "create-cancel-target", http.StatusCreated)
+	cancelCoordinationClaim := requestData[domain.CoordinationClaim](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(cancelTarget.ID)+"/coordination-claims", map[string]any{
+		"kind": "empty_blackboard",
+	}, "claim-cancel-planning", http.StatusCreated)
 	firstWorkItemPage := requestPage[domain.WorkItem](t, client, server.URL+"/api/v1/work-items?limit=1")
 	if len(firstWorkItemPage.Data) != 1 || firstWorkItemPage.NextCursor == nil {
 		t.Fatalf("first WorkItem page = %#v", firstWorkItemPage)
@@ -251,7 +254,7 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	requestErrorAs(t, client, http.MethodGet, server.URL+"/api/v1/work-items?cursor=not-a-cursor", nil, "", http.StatusBadRequest, "invalid_request",
 		trustedTestIdentity{ID: "codex-storage", Role: "database"})
 	cancelTask := requestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(cancelTarget.ID)+"/tasks", map[string]any{
-		"title": "Obsolete task", "executor": "agent", "allowed_roles": []string{"database"}, "tags": []string{},
+		"coordination_claim_id": cancelCoordinationClaim.ID, "title": "Obsolete task", "executor": "agent", "allowed_roles": []string{"database"}, "tags": []string{},
 	}, "create-cancel-task", http.StatusCreated)
 	cancelClaim := requestData[domain.Claim](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(cancelTask.ID)+"/claims", nil, "claim-cancel-task", http.StatusCreated)
 	humanOperator := trustedTestIdentity{ID: "operator", Kind: domain.ActorHuman}
@@ -277,14 +280,16 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	requestErrorAs(t, client, http.MethodGet, server.URL+"/api/v1/work?limit=51", nil, "", http.StatusBadRequest, "invalid_request",
 		trustedTestIdentity{ID: "codex-storage", Role: "database"})
 
-	task := requestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
-		"title": "Implement migration", "executor": "agent",
+	planningClaim := requestData[domain.CoordinationClaim](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/coordination-claims", map[string]any{
+		"kind": "empty_blackboard",
+	}, "claim-planning", http.StatusCreated)
+	taskRequest := map[string]any{
+		"coordination_claim_id": planningClaim.ID,
+		"title":                 "Implement migration", "executor": "agent",
 		"allowed_roles": []string{"database"}, "tags": []string{"backend", "database"},
-	}, "create-task", http.StatusCreated)
-	retriedTask := requestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
-		"title": "Implement migration", "executor": "agent",
-		"allowed_roles": []string{"database"}, "tags": []string{"backend", "database"},
-	}, "create-task", http.StatusCreated)
+	}
+	task := requestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", taskRequest, "create-task", http.StatusCreated)
+	retriedTask := requestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", taskRequest, "create-task", http.StatusCreated)
 	if retriedTask.ID != task.ID {
 		t.Fatalf("retried Task ID = %q, want %q", retriedTask.ID, task.ID)
 	}
@@ -381,8 +386,11 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if len(candidates) != 1 || candidates[0].Kind != application.WorkCandidateBlackboardCompletion || candidates[0].WorkItem.ID != workItem.ID {
 		t.Fatalf("completion candidates = %+v", candidates)
 	}
+	completionClaim := requestData[domain.CoordinationClaim](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/coordination-claims", map[string]any{
+		"kind": "blackboard_completion",
+	}, "claim-completion", http.StatusCreated)
 	completed := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/completion", map[string]any{
-		"result": submission.Result,
+		"coordination_claim_id": completionClaim.ID, "result": submission.Result,
 	}, "submit-completion", http.StatusOK)
 	if completed.Status != domain.WorkItemStatusCompleted || completed.Result != submission.Result {
 		t.Fatalf("completed WorkItem = %+v", completed)
@@ -408,8 +416,11 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		"definition_id": "engineering", "mode": "blackboard", "acceptance_mode": "agent",
 		"title": "Confirm delivery", "goal": "Exercise explicit agent acceptance", "tags": []string{"acceptance"},
 	}, "create-agent-acceptance-work-item", http.StatusCreated)
+	emptyAcceptanceClaim := requestData[domain.CoordinationClaim](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(agentAcceptanceWorkItem.ID)+"/coordination-claims", map[string]any{
+		"kind": "empty_blackboard",
+	}, "claim-empty-acceptance", http.StatusCreated)
 	submittedForAcceptance := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(agentAcceptanceWorkItem.ID)+"/completion", map[string]any{
-		"result": "Delivery is ready for acceptance.",
+		"coordination_claim_id": emptyAcceptanceClaim.ID, "result": "Delivery is ready for acceptance.",
 	}, "submit-agent-acceptance", http.StatusOK)
 	if submittedForAcceptance.Status != domain.WorkItemStatusAwaitingAgentAcceptance || submittedForAcceptance.Result != "Delivery is ready for acceptance." {
 		t.Fatalf("submitted agent acceptance WorkItem = %+v", submittedForAcceptance)
@@ -418,7 +429,12 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 	if len(candidates) != 1 || candidates[0].Kind != application.WorkCandidateWorkItemAcceptance || candidates[0].WorkItem.ID != agentAcceptanceWorkItem.ID {
 		t.Fatalf("agent acceptance candidates = %+v", candidates)
 	}
-	accepted := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(agentAcceptanceWorkItem.ID)+"/acceptance", nil, "accept-agent-completion", http.StatusOK)
+	acceptanceClaim := requestData[domain.CoordinationClaim](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(agentAcceptanceWorkItem.ID)+"/coordination-claims", map[string]any{
+		"kind": "work_item_acceptance",
+	}, "claim-agent-acceptance", http.StatusCreated)
+	accepted := requestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(agentAcceptanceWorkItem.ID)+"/acceptance", map[string]any{
+		"coordination_claim_id": acceptanceClaim.ID,
+	}, "accept-agent-completion", http.StatusOK)
 	if accepted.Status != domain.WorkItemStatusCompleted || accepted.Result != submittedForAcceptance.Result {
 		t.Fatalf("accepted WorkItem = %+v", accepted)
 	}
@@ -540,8 +556,11 @@ func TestTrustedHTTPIdentityEnforcementEndToEnd(t *testing.T) {
 		"definition_id": "identity-test", "mode": "blackboard",
 		"title": "Verify identity", "goal": "Enforce execution ownership",
 	}, "create-work-item", http.StatusCreated, owner)
+	planningClaim := requestDataAs[domain.CoordinationClaim](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/coordination-claims", map[string]any{
+		"kind": "empty_blackboard",
+	}, "claim-planning", http.StatusCreated, owner)
 	task := requestDataAs[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
-		"title": "Protected task", "executor": "agent", "allowed_roles": []string{"database"},
+		"coordination_claim_id": planningClaim.ID, "title": "Protected task", "executor": "agent", "allowed_roles": []string{"database"},
 	}, "create-task", http.StatusCreated, owner)
 
 	candidates := requestDataAs[[]application.WorkCandidate](t, client, http.MethodGet, server.URL+"/api/v1/work", nil, "", http.StatusOK, wrongRole)
@@ -576,8 +595,11 @@ func TestTrustedHTTPIdentityEnforcementEndToEnd(t *testing.T) {
 	if review.Status != domain.ReviewStatusApproved || review.DecidedBy == nil || *review.DecidedBy != domain.ActorID(humanReviewer.ID) {
 		t.Fatalf("review = %+v, want approval by %q", review, humanReviewer.ID)
 	}
+	completionClaim := requestDataAs[domain.CoordinationClaim](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/coordination-claims", map[string]any{
+		"kind": "blackboard_completion",
+	}, "claim-completion", http.StatusCreated, owner)
 	requestDataAs[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/completion", map[string]any{
-		"result": "Reviewed work completed.",
+		"coordination_claim_id": completionClaim.ID, "result": "Reviewed work completed.",
 	}, "owner-completion", http.StatusOK, owner)
 
 	err = repo.View(context.Background(), func(store application.ReadStore) error {

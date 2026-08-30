@@ -28,7 +28,7 @@ Kairos gives every participant one durable view of the work:
 - both structured processes and open-ended collaboration use the same execution protocol.
 
 ```text
-find work → choose → claim → execute + heartbeat → submit → complete
+find work → choose → claim Task or lifecycle candidate → heartbeat → decide or execute → complete
                                                   └── Review → approve / reject
 ```
 
@@ -65,6 +65,7 @@ Supported collaboration capabilities:
 - **Dynamic planning**: collaborators continuously add Tasks and organize discovery with tags.
 - **Suggested dependencies**: relations provide shared guidance without blocking execution.
 - **Dynamic skipping**: obsolete Pending Tasks can be skipped with a reason.
+- **Exclusive coordination**: Task Claims protect execution, while Coordination Claims reserve empty-Blackboard planning, completion, and Agent-acceptance decisions before reasoning begins.
 - **Task decomposition**: a claimed Task can be decomposed into nested child Tasks before producing a result.
 - **Open subtrees**: collaborators can append children until an aggregate Task closes; parents complete recursively.
 - **Dynamic Review**: an executor can request human Review when submitting a result.
@@ -96,7 +97,7 @@ A human operator can terminally cancel an active WorkItem from its detail page. 
 The operations console currently provides a workspace overview, a human-attention view, and WorkItem detail. Inside a WorkItem:
 
 - Workflow is shown as a flow graph with execution history.
-- Blackboard is shown as a hierarchical Task workspace. Relations remain available through the HTTP and MCP surfaces but are not yet rendered or created by the console.
+- Blackboard is shown as a hierarchical Task workspace. WorkItem lifecycle decision controls are Human-only; Agents use the MCP Coordination Claim loop. Relations remain available through the HTTP and MCP surfaces but are not yet rendered or created by the console.
 
 Task lifecycle changes, responsibility, submissions, Reviews, failures, and Artifacts together show how the owning WorkItem is advancing. A complete WorkItem event timeline is planned; the underlying events are already persisted.
 
@@ -115,7 +116,7 @@ Available in this repository:
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
 - human-operated WorkItem cancellation with durable actor, time, and reason metadata;
-- agent Claim leases with flexible durations, heartbeat, reaper-mediated recovery, and fencing;
+- agent Task and WorkItem Coordination Claim leases with flexible durations, heartbeat, reaper-mediated recovery, and fencing;
 - deterministic unit tests and randomized collaboration simulations.
 
 Still to be built:
