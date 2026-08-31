@@ -7,7 +7,7 @@
 ## 仓库一次性设置
 
 - 配置 GitHub Description、Homepage 和 Topics。
-- 使用 `Deploy documentation` Workflow 启用 GitHub Pages。预期文档首页为 `https://www.scienjus.com/kairos/`。
+- 使用 `Deploy documentation` Workflow 启用 GitHub Pages。预期文档首页为 `https://scienjus.github.io/kairos/`。
 - 在 Security 页面启用 Private Vulnerability Reporting，确保 [SECURITY.md](../SECURITY.zh-CN.md)中的私密报告渠道可用。
 - 保护 `main` Branch；要求 CI workflow 通过，并在有更多维护者后要求至少一次 Review 通过。
 - 限制 Actions 权限。Release 的 Build Job 只读；独立的构建后 Job 才获得 OIDC 和 Attestation 权限来证明最终产物；只有不安装依赖的 Publish Job 获得 `contents: write` 来创建 GitHub Release。
@@ -17,7 +17,7 @@
 - Description：`Open-source coordination server for human and AI agent teams. Durable tasks, claims, reviews, artifacts, workflows, and blackboard planning over MCP.`
 - Topics：`ai-agents`、`multi-agent`、`agent-coordination`、`agent-workflow`、`mcp`、`mcp-server`、`human-in-the-loop`、`workflow-engine`、`task-orchestration`、`codex`、`claude-code`、`self-hosted`、`golang`
 - Social preview：在仓库的 Social preview 设置中上传 `docs/assets/kairos-social-preview.png`（1280x640）。
-- Homepage：Pages Workflow 成功后设置为 `https://www.scienjus.com/kairos/`。
+- Homepage：Pages Workflow 成功后设置为 `https://scienjus.github.io/kairos/`。
 
 ## 验证发布候选版本
 

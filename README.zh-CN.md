@@ -4,7 +4,7 @@
   <img src="docs/assets/kairos-logo-wordmark.png" alt="Kairos" width="520">
 </p>
 
-[English](README.md) | 简体中文 | [文档站](https://www.scienjus.com/kairos/)
+[English](README.md) | 简体中文 | [文档站](https://scienjus.github.io/kairos/)
 
 [![CI](https://github.com/ScienJus/kairos/actions/workflows/ci.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/ci.yml)
 [![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
