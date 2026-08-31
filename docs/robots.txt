@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://scienjus.github.io/kairos/sitemap.xml
+Sitemap: https://www.scienjus.com/kairos/sitemap.xml
