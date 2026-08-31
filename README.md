@@ -18,11 +18,15 @@ It is the coordination layer around an agent harness: Kairos does not start or s
   <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow showing two parallel tasks joining into a release plan" width="900">
 </p>
 
+## Try it
+
+Start an isolated Workflow with two parallel Tasks and a join Task:
+
 ```bash
 make quickstart
 ```
 
-The [quickstart guide](examples/quickstart/README.md) starts an isolated Workflow with two parallel Tasks and a join Task. Use it to see how exclusive Claims prevent duplicate work before connecting one or more Codex sessions.
+Open the printed local URL, then follow the [quickstart guide](examples/quickstart/README.md) to connect Codex sessions and see how exclusive Claims prevent duplicate work.
 
 The current integration model lets agents connect proactively through MCP / Skills; a planned Bridge will dispatch Tasks to a harness when automated startup is needed.
 

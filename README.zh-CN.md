@@ -18,11 +18,15 @@ Kairos 是 Agent Harness 周围的协调层：它不启动或停止 Agent，不�
   <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow 展示两个并行 Task 汇合到发布计划" width="900">
 </p>
 
+## 快速体验
+
+启动一个包含两个并行 Task 和一个汇合 Task 的隔离 Workflow：
+
 ```bash
 make quickstart
 ```
 
-[快速体验指南](examples/quickstart/README.zh-CN.md) 会启动一个包含两个并行 Task 和一个汇合 Task 的隔离 Workflow。你可以先观察独占 Claim 如何防止重复工作，再接入一个或多个 Codex 会话。
+打开终端打印的本地地址，然后按照[快速体验指南](examples/quickstart/README.zh-CN.md)接入 Codex 会话，观察独占 Claim 如何防止重复工作。
 
 当前集成模型允许 Agent 通过 MCP / Skill 主动接入；规划中的 Bridge 将在需要自动拉起 Agent 时把 Task 派发给外部 Harness。
 
