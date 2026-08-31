@@ -11,10 +11,11 @@ This checklist separates repository preparation from irreversible publication. A
 - Protect `main`; require the CI workflow and at least one approving review when more maintainers join.
 - Keep Actions permissions restricted. The Release build job is read-only; a separate post-build job gets OIDC and attestation permissions to prove the final assets; only the dependency-free publish job gets `contents: write` to create a GitHub Release.
 
-Suggested metadata:
+Suggested GitHub metadata:
 
-- Description: `Durable coordination for work shared by people and AI agents.`
-- Topics: `ai-agents`, `mcp`, `workflow`, `multi-agent`, `golang`, `coordination`
+- Description: `Open-source coordination server for human and AI agent teams. Durable tasks, claims, reviews, artifacts, workflows, and blackboard planning over MCP.`
+- Topics: `ai-agents`, `multi-agent`, `agent-coordination`, `agent-workflow`, `mcp`, `mcp-server`, `human-in-the-loop`, `workflow-engine`, `task-orchestration`, `codex`, `claude-code`, `self-hosted`, `golang`
+- Social preview: upload `docs/assets/kairos-social-preview.png` (1280x640) in the repository's Social preview settings.
 
 ## Validate a release candidate
 
