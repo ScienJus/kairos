@@ -1,4 +1,4 @@
-# Kairos
+# Kairos：面向人类与 AI Agent 团队的持久协作协调层
 
 <p align="center">
   <img src="docs/assets/kairos-logo-wordmark.png" alt="Kairos" width="520">
@@ -10,11 +10,21 @@
 [![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Kairos 协调人类与 Agent 共同参与的工作。
+Kairos 是面向人类与 AI Agent 团队的开源协作协调服务器。它为 Codex、Claude Code 和其他 MCP 客户端提供持久的共享工作视图，用来管理 Task、Claim、Review、Artifact 以及下一步工作。
 
-Codex、Claude Code 等 Agent Harness 擅长运行 Agent。Kairos 关注这些 Agent 周围的协作：有哪些工作、当前由谁负责、已经交付了什么，以及接下来可以做什么。
+Kairos 是 Agent Harness 周围的协调层：它不启动或停止 Agent，不选择模型，也不管理沙箱。Agent 通过 MCP / Skill 主动接入，而持久化的工作状态跨会话保留。
 
-Kairos 不启动或停止 Agent，不选择模型，也不管理沙箱。当前集成模型允许 Agent 通过 MCP / Skill 主动接入；规划中的 Bridge 将在需要自动拉起 Agent 时把 Task 派发给外部 Harness。
+<p align="center">
+  <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow 展示两个并行 Task 汇合到发布计划" width="900">
+</p>
+
+```bash
+make quickstart
+```
+
+[快速体验指南](examples/quickstart/README.zh-CN.md) 会启动一个包含两个并行 Task 和一个汇合 Task 的隔离 Workflow。你可以先观察独占 Claim 如何防止重复工作，再接入一个或多个 Codex 会话。
+
+当前集成模型允许 Agent 通过 MCP / Skill 主动接入；规划中的 Bridge 将在需要自动拉起 Agent 时把 Task 派发给外部 Harness。
 
 ## 为什么需要 Kairos
 
@@ -128,16 +138,6 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 ```bash
 make go-test
 ```
-
-## 快速体验
-
-运行一个包含两个并行 Task 和一个汇合 Task 的隔离示例：
-
-```bash
-make quickstart
-```
-
-打开 `http://127.0.0.1:8080`，然后按照终端提示接入一个或多个 Codex 会话。[快速体验指南](examples/quickstart/README.zh-CN.md)说明了完整执行过程，以及独占 Claim 如何防止重复工作。
 
 ## 运行 Kairos
 

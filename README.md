@@ -1,4 +1,4 @@
-# Kairos
+# Kairos: Durable Coordination for Human and AI Agent Teams
 
 <p align="center">
   <img src="docs/assets/kairos-logo-wordmark.png" alt="Kairos" width="520">
@@ -10,11 +10,21 @@ English | [简体中文](README.zh-CN.md)
 [![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Kairos coordinates tasks shared by people and agents.
+Kairos is an open-source coordination server for human and AI agent teams. It gives Codex, Claude Code, and other MCP clients a durable shared work view for tasks, claims, reviews, artifacts, and next steps.
 
-Agent harnesses such as Codex and Claude Code are good at running an agent. Kairos focuses on the collaboration around those agents: what work exists, who is responsible for it, what has already been delivered, and what can happen next.
+It is the coordination layer around an agent harness: Kairos does not start or stop agents, choose models, or manage sandboxes. Agents connect proactively through MCP / Skills, while the durable work state stays available across sessions.
 
-It does not start or stop agents, choose models, or manage sandboxes. The current integration model lets agents connect proactively through MCP / Skills; a planned Bridge will dispatch Tasks to a harness when automated startup is needed.
+<p align="center">
+  <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow showing two parallel tasks joining into a release plan" width="900">
+</p>
+
+```bash
+make quickstart
+```
+
+The [quickstart guide](examples/quickstart/README.md) starts an isolated Workflow with two parallel Tasks and a join Task. Use it to see how exclusive Claims prevent duplicate work before connecting one or more Codex sessions.
+
+The current integration model lets agents connect proactively through MCP / Skills; a planned Bridge will dispatch Tasks to a harness when automated startup is needed.
 
 ## Why Kairos
 
@@ -129,16 +139,6 @@ For development, use Go 1.26.6 or later and run:
 ```bash
 make go-test
 ```
-
-## Quickstart
-
-Run an isolated example with two parallel Tasks followed by a join Task:
-
-```bash
-make quickstart
-```
-
-Open `http://127.0.0.1:8080`, then follow the printed instructions to connect one or more Codex sessions. The [quickstart guide](examples/quickstart/README.md) explains the execution flow and how exclusive Claims prevent duplicate work.
 
 ## Running Kairos
 
