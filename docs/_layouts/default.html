@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="{{ page.lang | default: site.lang | default: 'en' }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% seo %}
+    <link rel="stylesheet" href="{{ '/assets/css/style.scss' | relative_url }}">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <a class="brand" href="{{ '/' | relative_url }}">Kairos Documentation</a>
+        <nav aria-label="Primary navigation">
+          <a href="{{ '/' | relative_url }}">Docs home</a>
+          <a href="https://github.com/ScienJus/kairos">GitHub</a>
+          <a href="{{ '/README.zh-CN.html' | relative_url }}">简体中文</a>
+        </nav>
+      </div>
+    </header>
+    <main class="container content">
+      {{ content }}
+    </main>
+    <footer class="site-footer">
+      <div class="container">Kairos is open source under the Apache License 2.0.</div>
+    </footer>
+  </body>
+</html>

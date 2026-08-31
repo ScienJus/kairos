@@ -1,0 +1,17 @@
+title: Kairos Documentation
+description: Open-source coordination server for human and AI agent teams. Durable tasks, claims, reviews, artifacts, workflows, and blackboard planning over MCP.
+url: https://scienjus.github.io
+baseurl: /kairos
+repository: ScienJus/kairos
+lang: en
+logo: /kairos/assets/kairos-logo-mark.png
+theme: jekyll-theme-primer
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
