@@ -36,6 +36,13 @@ body {
   min-height: 64px;
 }
 
+.site-header .container::before,
+.site-header .container::after,
+.site-footer .container::before,
+.site-footer .container::after {
+  display: none;
+}
+
 .brand {
   color: var(--ink);
   font-weight: 700;
