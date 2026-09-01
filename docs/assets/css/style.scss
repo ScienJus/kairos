@@ -210,6 +210,8 @@ nav a:hover { color: var(--signal); }
 .reference-list > a { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; padding: 12px 0; border-top: 1px solid var(--line-soft); text-decoration: none; }
 .reference-list > a strong { color: var(--ink); font-size: 14px; font-weight: 600; }
 .reference-list > a span { color: var(--faint); font-size: 12px; text-align: right; }
+.status-note { margin: 48px 0 0; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.65; }
+.status-note a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--signal); text-underline-offset: 3px; }
 
 .site-footer { border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 12px; }
 .site-footer .container { min-height: 62px; }

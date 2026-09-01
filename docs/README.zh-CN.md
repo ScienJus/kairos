@@ -45,3 +45,5 @@ type: home
     <a href="https://github.com/ScienJus/kairos"><strong>GitHub 仓库</strong><span>代码、Issue、Release 和贡献指南。</span></a>
   </div>
 </section>
+
+<p class="status-note">Kairos 目前已经包含 Workflow 与 Blackboard 的运行时语义、SQLite 与 PostgreSQL 持久化、HTTP 与 MCP 执行界面、operations console，以及仓库级 Codex Skill。自动 Bridge 派发和部分控制台流程仍在规划中，详见 <a href="https://github.com/ScienJus/kairos#project-status">项目状态</a>。</p>
