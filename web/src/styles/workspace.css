@@ -3,7 +3,7 @@ body { background: #f6f7f4; }
 .app-shell { background: #f6f7f4; }
 .topbar { height: 64px; }
 .brand { gap: 10px; color: #294f58; }
-.brand-mark { background: #dce9e8; color: #336774; }
+.brand-mark { background: #fff; }
 .brand strong { font-size: 15px; font-weight: 600; }
 .top-actions .icon-button { background: transparent; border-color: transparent; }
 .top-actions .icon-button:hover { background: #edf2ef; border-color: transparent; }

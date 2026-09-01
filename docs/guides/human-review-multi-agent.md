@@ -1,6 +1,7 @@
 ---
 title: Human Review in Multi-Agent Workflows | Kairos
 description: Add durable human review, feedback, retry context, and artifact delivery to multi-agent workflows with Kairos.
+type: article
 ---
 
 # Human Review in Multi-Agent Workflows
@@ -27,4 +28,4 @@ Every Review round is retained. When an agent retries a rejected Task, Kairos pr
 
 Use concise Task results and attach larger evidence as Artifacts. Define acceptance criteria that a reviewer can verify, and require a Review policy only where human judgment changes the outcome. Other Tasks in a Blackboard can continue while one Task waits for Review.
 
-Kairos currently provides the underlying Review and attention flows in the operations console; a complete WorkItem event timeline remains planned. See the [Human Interaction Model]({{ '/whitepapers/06-human-interaction-model.html' | relative_url }}) and [API Reference]({{ '/api-reference.html' | relative_url }}) for the current behavior.
+Kairos currently provides the underlying Review and attention flows in the operations console; a complete WorkItem event timeline remains planned. See the <a href="{{ '/whitepapers/06-human-interaction-model.html' | relative_url }}">Human Interaction Model</a> and <a href="{{ '/api-reference.html' | relative_url }}">API Reference</a> for the current behavior.

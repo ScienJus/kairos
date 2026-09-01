@@ -8,7 +8,7 @@ This checklist separates repository preparation from irreversible publication. A
 
 - Set the GitHub description, homepage, and topics.
 - Enable GitHub Pages with the `Deploy documentation` workflow. The expected homepage is `https://scienjus.github.io/kairos/`.
-- Enable Private Vulnerability Reporting on the Security page so [SECURITY.md](../SECURITY.md) has a working private channel.
+- Enable Private Vulnerability Reporting on the Security page so [SECURITY.md](https://github.com/ScienJus/kairos/blob/main/SECURITY.md) has a working private channel.
 - Protect `main`; require the CI workflow and at least one approving review when more maintainers join.
 - Keep Actions permissions restricted. The Release build job is read-only; a separate post-build job gets OIDC and attestation permissions to prove the final assets; only the dependency-free publish job gets `contents: write` to create a GitHub Release.
 

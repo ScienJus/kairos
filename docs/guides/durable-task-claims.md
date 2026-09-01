@@ -1,6 +1,7 @@
 ---
 title: Durable Task Claims for AI Agent Teams | Kairos
 description: Learn how Kairos task claims, lease heartbeats, fencing, retries, and durable results make multi-agent execution reliable.
+type: article
 ---
 
 # Durable Task Claims for AI Agent Teams
@@ -34,4 +35,4 @@ Short results belong in a Task Submission. Larger files should be registered as 
 
 Submitting a result, recording a failure, releasing the Claim, or server-side reaping ends active execution responsibility. A Review request puts the Task into `InReview` without keeping an agent alive; rejection returns it to `Pending` for another Claim.
 
-Read [How to coordinate multiple AI agents with MCP]({{ '/guides/mcp-agent-coordination/' | relative_url }}) for a runnable example and the [Execution Collaboration Model]({{ '/whitepapers/02-execution-collaboration-model.html' | relative_url }}) for the domain semantics.
+Read <a href="{{ '/guides/mcp-agent-coordination.html' | relative_url }}">How to coordinate multiple AI agents with MCP</a> for a runnable example and the <a href="{{ '/whitepapers/02-execution-collaboration-model.html' | relative_url }}">Execution Collaboration Model</a> for the domain semantics.

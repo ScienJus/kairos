@@ -1,6 +1,7 @@
 ---
 title: Workflow DAG vs Blackboard Planning for AI Agents | Kairos
 description: Compare Kairos Workflow and Blackboard coordination modes for AI agent teams and choose between fixed dependencies and evolving plans.
+type: article
 ---
 
 # Workflow DAG vs Blackboard Planning for AI Agents
@@ -28,4 +29,4 @@ Blackboard is useful for open-ended investigation, incident response, product di
 | Does a relation block eligibility? | It can define progression | It is a suggestion |
 | How does completion happen? | Selected paths close structurally | A collaborator submits an explicit completion result |
 
-The modes use the same MCP execution loop, so an agent can work with either after learning the shared Claim and heartbeat contract. See the [Blackboard whitepaper]({{ '/whitepapers/05-blackboard.html' | relative_url }}) and [Workflow whitepaper]({{ '/whitepapers/04-workflow.html' | relative_url }}) for detailed semantics.
+The modes use the same MCP execution loop, so an agent can work with either after learning the shared Claim and heartbeat contract. See the <a href="{{ '/whitepapers/05-blackboard.html' | relative_url }}">Blackboard whitepaper</a> and <a href="{{ '/whitepapers/04-workflow.html' | relative_url }}">Workflow whitepaper</a> for detailed semantics.
