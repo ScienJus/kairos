@@ -45,7 +45,7 @@ Database timestamps are normalized at the application boundary to UTC with micro
 
 ## HTTP Contract
 
-The machine-readable [OpenAPI 3.1 document](openapi.yaml) is the exact contract for all 43 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
+The machine-readable <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 document</a> is the exact contract for all 43 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
 
 All API JSON field names use `snake_case`. JSON request objects are closed contracts; an unknown field is rejected with `400 invalid_request`, including unknown fields inside nested objects. JSON success responses use `{ "data": ... }`; JSON errors use `{ "error": { "code": string, "message": string } }`. Release and token-revocation operations return `204` without a body, `/healthz` returns `{ "status": "ok" }`, and Artifact content is returned as `application/octet-stream`.
 

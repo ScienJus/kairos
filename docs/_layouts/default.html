@@ -1,18 +1,76 @@
+{% assign source_path = page.path | default: '' %}
+{% if page.lang %}
+  {% assign current_lang = page.lang %}
+{% elsif source_path contains '.zh-CN.md' %}
+  {% assign current_lang = 'zh-CN' %}
+{% else %}
+  {% assign current_lang = site.lang | default: 'en' %}
+{% endif %}
+{% assign document_title = page.title %}
+{% unless document_title %}
+  {% assign document_title = content | split: '</h1>' | first | strip_html | strip %}
+{% endunless %}
 <!doctype html>
-<html lang="{{ page.lang | default: site.lang | default: 'en' }}">
+<html lang="{{ current_lang }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    {% seo %}
+    <title>{{ document_title | escape }}</title>
+    {% seo title=false %}
+    <link rel="icon" href="{{ '/favicon.ico' | relative_url }}">
     <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
   </head>
-  <body>
+  <body class="{% if page.type == 'home' %}home{% else %}article-page{% endif %}">
     <header class="site-header">
       <div class="container">
-        <a class="brand" href="{{ '/' | relative_url }}">Kairos Documentation</a>
+        <a class="brand" href="{{ '/' | relative_url }}" aria-label="Kairos home">
+          <img class="brand-mark" src="{{ '/assets/kairos-logo-mark.png' | relative_url }}" alt="">
+          <span><strong>Kairos</strong><small>Official articles</small></span>
+        </a>
+        {% if current_lang == 'zh-CN' %}
+          {% assign home_label = '主页' %}
+          {% assign language_label = 'English' %}
+          {% if source_path == 'README.zh-CN.md' or page.url == '/README.zh-CN.html' %}
+            {% assign language_url = '/' %}
+          {% elsif source_path contains '.zh-CN.md' %}
+            {% assign english_source = source_path | replace: '.zh-CN.md', '.md' %}
+            {% assign has_english = false %}
+            {% for candidate in site.pages %}
+              {% if candidate.path == english_source %}{% assign has_english = true %}{% endif %}
+            {% endfor %}
+            {% if has_english %}
+              {% assign language_path = source_path | replace: '.zh-CN.md', '.html' %}
+              {% assign language_url = '/' | append: language_path %}
+            {% else %}
+              {% assign language_url = '/' %}
+            {% endif %}
+          {% else %}
+            {% assign language_url = '/' %}
+          {% endif %}
+          {% assign language_aria = '切换语言' %}
+        {% else %}
+          {% assign home_label = 'Home' %}
+          {% assign language_label = '简体中文' %}
+          {% if source_path == 'index.md' or page.url == '/' %}
+            {% assign language_url = '/README.zh-CN.html' %}
+          {% else %}
+            {% assign chinese_source = source_path | replace: '.md', '.zh-CN.md' %}
+            {% assign has_chinese = false %}
+            {% for candidate in site.pages %}
+              {% if candidate.path == chinese_source %}{% assign has_chinese = true %}{% endif %}
+            {% endfor %}
+            {% if has_chinese %}
+              {% assign language_path = source_path | replace: '.md', '.zh-CN.html' %}
+              {% assign language_url = '/' | append: language_path %}
+            {% else %}
+              {% assign language_url = '/' %}
+            {% endif %}
+          {% endif %}
+          {% assign language_aria = 'Switch language' %}
+        {% endif %}
         <nav aria-label="Primary navigation">
-          <a href="{{ '/' | relative_url }}">Docs home</a>
-          <a href="{{ '/README.zh-CN.html' | relative_url }}">简体中文</a>
+          <a href="{{ '/' | relative_url }}">{{ home_label }}</a>
+          <a href="{{ language_url | relative_url }}" aria-label="{{ language_aria }}">{{ language_label }}</a>
           <a href="https://github.com/ScienJus/kairos">GitHub</a>
         </nav>
       </div>
@@ -23,5 +81,12 @@
     <footer class="site-footer">
       <div class="container">Kairos is open source under the Apache License 2.0.</div>
     </footer>
+    {% if page.type != 'home' %}
+      <script>
+        document.querySelectorAll('.article-page .content pre, .article-page .content table').forEach(function (block) {
+          block.tabIndex = 0;
+        });
+      </script>
+    {% endif %}
   </body>
 </html>

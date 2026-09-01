@@ -152,7 +152,7 @@ function AuthenticationPage({ mode, errorSource, onRetry }: { mode: 'loading' | 
   const { locale, setLocale, t } = useI18n()
   return <div className="auth-shell">
     <header className="auth-header">
-      <div className="auth-brand"><div className="brand-mark"><span>K</span></div><strong>Kairos</strong></div>
+      <div className="auth-brand"><img className="brand-mark" src="/kairos-logo-mark.png" alt="" /><strong>Kairos</strong></div>
       <button className="language-button" onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')} aria-label={locale === 'en' ? '切换到中文' : 'Switch to English'}><Languages size={16} /><span>{locale === 'en' ? '中文' : 'EN'}</span></button>
     </header>
     <main className="auth-main">
@@ -182,7 +182,7 @@ function TokenLogin({ error, onLogin }: { error?: AuthenticationError; onLogin: 
 
   return <div className="auth-shell">
     <header className="auth-header">
-      <div className="auth-brand"><div className="brand-mark"><span>K</span></div><strong>Kairos</strong></div>
+      <div className="auth-brand"><img className="brand-mark" src="/kairos-logo-mark.png" alt="" /><strong>Kairos</strong></div>
       <button className="language-button" onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')} aria-label={locale === 'en' ? '切换到中文' : 'Switch to English'}><Languages size={16} /><span>{locale === 'en' ? '中文' : 'EN'}</span></button>
     </header>
     <main className="auth-main">
@@ -254,7 +254,7 @@ function ConsoleApp({ identity: initialIdentity, authenticationMode, onLogout }:
 
   return <div className="app-shell">
     <header className="topbar">
-      <button className="brand" onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all' })}><div className="brand-mark"><span>K</span></div><strong>Kairos</strong></button>
+      <button className="brand" onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all' })}><img className="brand-mark" src="/kairos-logo-mark.png" alt="" /><strong>Kairos</strong></button>
       <nav className="top-nav" aria-label={t('blackboardLibrary')}>
         <button className={`library-link ${route.blackboardID !== undefined ? 'active' : ''}`} title={t('blackboards')} onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', blackboardID: null })}><Library size={16} />{t('blackboards')}</button>
         <button className={`library-link ${route.workflowID !== undefined ? 'active' : ''}`} title={t('workflows')} onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', workflowID: null })}><GitBranch size={16} />{t('workflows')}</button>

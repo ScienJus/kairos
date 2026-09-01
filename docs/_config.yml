@@ -5,6 +5,7 @@ baseurl: /kairos
 repository: ScienJus/kairos
 lang: en
 logo: /assets/kairos-logo-mark.png
+image: /assets/kairos-social-preview.png
 theme: jekyll-theme-primer
 plugins:
   - jekyll-seo-tag
@@ -15,3 +16,4 @@ defaults:
       path: ""
     values:
       layout: default
+      image: /assets/kairos-social-preview.png

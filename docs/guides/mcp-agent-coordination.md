@@ -1,6 +1,7 @@
 ---
 title: How to Coordinate Multiple AI Agents with MCP | Kairos
 description: Connect Codex, Claude Code, and other MCP clients to one durable work queue with Kairos, using exclusive claims to prevent duplicate agent execution.
+type: article
 ---
 
 # How to coordinate multiple AI agents with MCP
@@ -49,4 +50,4 @@ Each session sees the shared WorkItem, but an exclusive Claim means only one ses
 - **Delivery**: submissions, Reviews, failures, and Artifacts stay with the Task.
 - **Continuation**: Workflow dependencies or Blackboard planning determine what can happen next.
 
-See the [API Reference]({{ '/api-reference.html' | relative_url }}) for transport and MCP contracts, or the [Agent Interaction Model]({{ '/whitepapers/07-agent-interaction-model.html' | relative_url }}) for the full execution protocol.
+See the <a href="{{ '/api-reference.html' | relative_url }}">API Reference</a> for transport and MCP contracts, or the <a href="{{ '/whitepapers/07-agent-interaction-model.html' | relative_url }}">Agent Interaction Model</a> for the full execution protocol.
