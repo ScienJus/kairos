@@ -45,4 +45,4 @@ type: home
   </div>
 </section>
 
-Kairos currently includes Workflow and Blackboard runtime semantics, SQLite and PostgreSQL persistence, HTTP and MCP execution surfaces, an operations console, and a repository-level Codex Skill. Automatic Bridge dispatch and some console workflows remain planned; see [Project Status](https://github.com/ScienJus/kairos#project-status).
+<p class="status-note">Kairos currently includes Workflow and Blackboard runtime semantics, SQLite and PostgreSQL persistence, HTTP and MCP execution surfaces, an operations console, and a repository-level Codex Skill. Automatic Bridge dispatch and some console workflows remain planned; see <a href="https://github.com/ScienJus/kairos#project-status">Project Status</a>.</p>
