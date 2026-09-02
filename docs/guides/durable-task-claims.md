@@ -1,14 +1,14 @@
 ---
-title: Durable Task Claims for AI Agent Teams | Kairos
-description: Learn how Kairos task claims, lease heartbeats, fencing, retries, and durable results make multi-agent execution reliable.
+title: Use Task Claims for Reliable Agent Execution | Kairos
+description: Use exclusive ownership, renewable leases, stale-claim fencing, recovery, and traceable results to keep agent execution reliable.
 type: article
 ---
 
-# Durable Task Claims for AI Agent Teams
+# Use Task Claims for reliable agent execution
 
-A model session can disappear, retry, or lose its network connection. A coordination system still needs to know who owns the work and whether another agent may safely continue. Kairos represents execution responsibility with a durable Task Claim.
+Agent sessions are temporary: a process can crash, a connection can drop, or a retry can arrive late. The work still needs one unambiguous owner—and a safe point at which someone else may take over. In Kairos, a Task Claim records that responsibility outside the agent session.
 
-## Claim lifecycle
+## What happens after an agent claims a Task
 
 ```text
 Pending → Claim → Working → submit / fail / release
@@ -16,23 +16,23 @@ Pending → Claim → Working → submit / fail / release
              └── heartbeat → lease_until
 ```
 
-An agent discovers a Task, claims it, and receives a lease. Heartbeats renew the lease while the agent works. If the lease expires and the server reaper ends the Claim, the Task becomes available again. The old Claim ID is fenced, so a delayed request cannot mutate the Task after ownership has moved on.
+When an agent claims a Task, Kairos gives the Claim a lease. Regular heartbeats tell the server that the agent is still working. If those heartbeats stop, the server eventually ends the Claim and makes the Task available again. Requests from the old Claim are then rejected, so a delayed agent cannot overwrite the new owner's work.
 
-## Why a lease matters
+## Why the Claim outlives the session
 
-The Claim is not a lock held in an agent process. It is persisted coordination state that other agents can observe and the server can recover. This gives a team:
+The Claim is not a lock inside the agent process. Kairos stores it where the server and other agents can observe it. That gives the team:
 
 - exclusive execution for one Task at a time;
 - recovery after process or network failure;
-- explicit retry context containing earlier results and Review feedback;
-- a durable link from the result to the responsible Claim and executor.
+- retry context that includes earlier results and Review feedback;
+- a traceable link from each result to its Claim and executor.
 
-## Keep deliverables durable
+## Keep the result with the work
 
-Short results belong in a Task Submission. Larger files should be registered as Artifacts, using an external durable URI or Kairos's managed upload path, and then bound to the submission. This keeps execution context bounded without losing the actual deliverable.
+Put a short result in the Task Submission. Register larger files as Artifacts—either at a stable external URI or through Kairos's managed upload—and attach them to the same submission. Future executors can then find the deliverable without loading a large file into every prompt.
 
-## When a Claim ends
+## How ownership ends
 
-Submitting a result, recording a failure, releasing the Claim, or server-side reaping ends active execution responsibility. A Review request puts the Task into `InReview` without keeping an agent alive; rejection returns it to `Pending` for another Claim.
+Ownership ends when the agent submits a result, reports a failure, releases the Claim, or stops checking in long enough for the server to reclaim it. If the result needs Review, the Task moves to `InReview` and the agent can exit. A rejection returns the Task to `Pending`, ready for a new Claim.
 
-Read <a href="{{ '/guides/mcp-agent-coordination.html' | relative_url }}">How to coordinate multiple AI agents with MCP</a> for a runnable example and the <a href="{{ '/whitepapers/02-execution-collaboration-model.html' | relative_url }}">Execution Collaboration Model</a> for the domain semantics.
+Try the flow in <a href="{{ '/guides/mcp-agent-coordination.html' | relative_url }}">Coordinate multiple AI agents over MCP</a>, or read the <a href="{{ '/whitepapers/02-execution-collaboration-model.html' | relative_url }}">Execution Collaboration Model</a> for the full rules.

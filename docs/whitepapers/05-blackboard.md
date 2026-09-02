@@ -1,12 +1,12 @@
 # Kairos Blackboard Mode
 
-> A shared Task Graph formed continuously during execution
+> How a team builds and revises its plan while the work is already under way
 
 ## Abstract
 
-Blackboard begins with an explicit WorkItem objective while allowing the Task Graph to be empty or incomplete. People and agents jointly create, select, decompose, extend, and skip Tasks during execution, allowing the plan to evolve with their understanding of the work.
+Use Blackboard when the team knows the objective but cannot yet describe the whole path. A WorkItem may begin with an empty or partial Task list. As evidence arrives, people and agents can create work, break it down, connect related Tasks, follow new leads, and abandon dead ends.
 
-In Blackboard, Task Relation expresses progression guidance. It helps executors understand the work structure while preserving their judgment over execution order and next steps.
+Task Relations record the team's current view of how the work should proceed. They help the next executor understand the plan without turning every suggestion into a blocking dependency.
 
 ## 1. Blackboard Structure
 
@@ -150,4 +150,4 @@ New findings can expand the Task Graph at any point. When the objective is alrea
 
 Agents reserve each `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance` decision with one leased Coordination Claim. Creating the chosen Task, submitting completion, or accepting completion carries that Claim ID and ends it atomically, so a stale Agent cannot commit a second decision. Expiry returns the candidate to discovery and fences the old ID. Human management actions remain claim-free and revoke any active Agent Coordination Claim before applying their decision.
 
-> Blackboard grows a shared plan while people and agents execute the work.
+> Blackboard keeps the plan visible and editable while people and agents carry it out.

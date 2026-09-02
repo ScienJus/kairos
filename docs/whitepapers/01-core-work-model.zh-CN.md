@@ -1,12 +1,12 @@
 # Kairos 核心工作模型
 
-> WorkItem、Task、Workflow 与 Blackboard 的概念定义及统一建模
+> 一个共同目标如何拆成可执行的 Task，以及固定计划和动态计划如何共享同一套基础模型
 
 ## 摘要
 
-Kairos 使用 `WorkItem` 表达完整工作目标，使用 `Task` 表达人或 Agent 可执行和交付的工作单元。一个 WorkItem 内的 Task 及其关系组成 Task Graph。
+团队既要知道最终希望得到什么，也要看清接下来可以做什么。Kairos 把完整目标称为 `WorkItem`，把每一项可执行、可交付的工作称为 `Task`。一个 WorkItem 中的 Task 及其关系共同组成 Task Graph。
 
-Workflow 和 Blackboard 是 Task Graph 的两种组织语义。Workflow 使用正式且具有约束力的计划，Blackboard 由协作者在执行过程中持续形成和调整计划。两者共享相同的底层工作模型。
+团队可以用两种方式组织这张图。Workflow 执行开始前已经确定的计划；Blackboard 允许协作者边做边建立和调整计划。规划方式不同，但底层对象及其工作记录保持一致。
 
 ## 1. WorkItem 与 Task
 
@@ -232,4 +232,4 @@ Workflow   = 正式定义且具有约束力的 Task Graph
 Blackboard = 由协作者动态规划和演化的 Task Graph
 ```
 
-> Workflow executes an authoritative plan; Blackboard grows a shared plan while executing the work.
+> Workflow 按预先确定的计划推进；Blackboard 让团队在执行过程中共同长出计划。

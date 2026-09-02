@@ -1,12 +1,12 @@
 # Kairos Coordination Semantics
 
-> How Workflow and Blackboard produce candidate work from the same Task Graph
+> Why the same Task Graph produces different next steps in Workflow and Blackboard
 
 ## Abstract
 
-Workflow and Blackboard share the same WorkItem, Task, and Task Relation. Their core difference is the authority assigned to the Task Graph and how the system uses it to produce current candidate Tasks.
+Workflow and Blackboard store work with the same WorkItem, Task, and Task Relation objects. What changes is how much authority the graph has when Kairos decides which Tasks can be worked on now.
 
-Workflow interprets the graph as a formal plan. Blackboard interprets it as the collaborators’ current shared judgment about the work. People and agents can choose from the candidate set in either mode.
+In Workflow, the graph is a set of rules: unmet dependencies block a Task. In Blackboard, the graph records the team's current recommendation: it guides the next choice without turning every relation into a gate. In both modes, people and agents still choose a specific Task from the available candidates.
 
 ## 1. Unified Form
 
@@ -149,4 +149,4 @@ The Kairos coordination semantics can be summarized as:
 4. Both modes preserve the executor’s choice of a specific Task.
 5. Every Task Relation in one WorkItem follows the semantics of that WorkItem’s mode.
 
-> Workflow executes an authoritative graph; Blackboard evolves a shared graph while executing the work.
+> Workflow uses the graph to enforce the path. Blackboard uses it to share the team's current best plan.

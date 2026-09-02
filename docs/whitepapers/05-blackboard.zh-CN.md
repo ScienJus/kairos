@@ -1,12 +1,12 @@
 # Kairos Blackboard 模式
 
-> 执行过程中持续形成的共享 Task Graph
+> 工作已经开始后，团队如何共同建立并不断修订计划
 
 ## 摘要
 
-Blackboard 从明确的 WorkItem 目标开始，Task Graph 可以为空或不完整。人和 Agent 在执行过程中共同创建、选择、拆分、扩展和 Skip Task，使计划随着工作认知持续演化。
+当团队知道目标，却还无法说清完整路径时，适合使用 Blackboard。WorkItem 可以从空白或不完整的 Task 列表开始。随着证据出现，人和 Agent 可以创建工作、拆分大任务、连接相关 Task、追踪新线索，也可以放弃已经证实无效的方向。
 
-Task Relation 在 Blackboard 中表达推进建议。它帮助执行者理解工作结构，同时保留对执行顺序和下一步工作的判断权。
+Task Relation 记录团队当前认为合适的推进方式。它帮助下一个执行者理解计划，但不会把每一条建议都变成阻塞依赖。
 
 ## 1. Blackboard 结构
 
@@ -89,7 +89,7 @@ Blackboard 使用 Task Relation 表达当前建议的推进顺序：
 
 例如，实现 Task 可以在设计尚未完全结束时提前开始。协作者可以在建立共享结构时新增建议 Relation；当前 API 中已有 Relation 不可变，不支持更新或删除。
 
-> Task Relation records shared judgment about how work should proceed.
+> Task Relation 记录团队当前对推进方式的共同判断。
 
 ## 4. Task 发现与执行
 
@@ -150,4 +150,4 @@ Blackboard 的自主性来自持续规划，因此无需通过预配置的 optio
 
 Agent 使用一个带 lease 的 Coordination Claim 预留每次 `empty_blackboard`、`blackboard_completion` 或 `work_item_acceptance` 判断。创建所选 Task、提交完成或接受完成时携带该 Claim ID，并在同一事务内结束 Claim，过期 Agent 因而不能再提交第二份决定。lease 过期后候选重新进入发现，旧 ID 继续作为 fencing token。Human 管理动作不需要领取 Claim，但会先撤销 Active Agent Coordination Claim，再应用人的决定。
 
-> Blackboard grows a shared plan while people and agents execute the work.
+> Blackboard 让计划在执行期间始终可见、可调整。
