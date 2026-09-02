@@ -1,32 +1,34 @@
 ---
-title: Workflow DAG vs Blackboard Planning for AI Agents | Kairos
-description: Compare Kairos Workflow and Blackboard coordination modes for AI agent teams and choose between fixed dependencies and evolving plans.
+title: Choose Between Workflow and Blackboard | Kairos
+description: Use Workflow when the path is known and Blackboard when people and agents need to shape the plan while they work.
 type: article
 ---
 
-# Workflow DAG vs Blackboard Planning for AI Agents
+# Use a fixed workflow—or let the plan evolve
 
-Kairos has two coordination modes because agent work is not always planned the same way. Both modes share durable Tasks, Claims, submissions, Reviews, and Artifacts; they differ in where the next legal work comes from.
+Some work follows a known sequence. Other work only becomes clear after the team starts investigating. Kairos supports both: Workflow enforces a predefined path, while Blackboard lets people and agents reshape the plan as they learn.
 
-## Choose Workflow when the path is known
+## Use Workflow when the steps are known
 
-Workflow definitions describe a graph before execution begins. Use Workflow for release checklists, staged research, CI-style pipelines, and other processes where dependencies and required steps should be enforced.
+Define a Workflow before execution when the team already knows the required steps and their dependencies. It fits release checklists, staged research, CI-style pipelines, and any process where skipping ahead would be unsafe.
 
-Workflow supports parallel branches, joins, role constraints, optional decisions, Review policies, and bounded cycles. A downstream Task becomes eligible only when its prerequisites and progression rules allow it.
+The graph can branch, run Tasks in parallel, join their results, restrict roles, pause for Review, and repeat a bounded section. Kairos only opens a downstream Task when the configured rules allow it.
 
-## Choose Blackboard when the plan must evolve
+## Use Blackboard when discovery is part of the work
 
-Blackboard starts with a WorkItem objective and can begin with no Tasks. People and agents create, split, relate, skip, and extend Tasks as they learn more. Relations provide shared guidance without turning every suggestion into a blocking dependency.
+Blackboard can start with an objective and no Task list at all. As the team learns, people and agents create Tasks, split large ones, connect related work, skip dead ends, and add new directions. Those relations guide the team without turning every suggestion into a hard dependency.
 
-Blackboard is useful for open-ended investigation, incident response, product discovery, and work where the decomposition is part of the execution.
+Use it for open-ended investigation, incident response, product discovery, or any effort where deciding what to do next is part of the job.
 
-## A practical decision
+## Choose by asking one question
+
+Can you describe the important steps before work begins? If yes, start with Workflow. If the plan must change as evidence arrives, start with Blackboard.
 
 | Question | Workflow | Blackboard |
 | --- | --- | --- |
 | Are dependencies known before work starts? | Yes | Not necessarily |
-| Can collaborators create new Tasks during execution? | Through configured progression | Yes, continuously |
+| Can collaborators create new Tasks during execution? | Through configured progression | Yes, whenever needed |
 | Does a relation block eligibility? | It can define progression | It is a suggestion |
 | How does completion happen? | Selected paths close structurally | A collaborator submits an explicit completion result |
 
-The modes use the same MCP execution loop, so an agent can work with either after learning the shared Claim and heartbeat contract. See the <a href="{{ '/whitepapers/05-blackboard.html' | relative_url }}">Blackboard whitepaper</a> and <a href="{{ '/whitepapers/04-workflow.html' | relative_url }}">Workflow whitepaper</a> for detailed semantics.
+Agents claim, execute, and submit Tasks the same way in both modes. The difference is how the next Task becomes available. See the <a href="{{ '/whitepapers/05-blackboard.html' | relative_url }}">Blackboard model</a> and <a href="{{ '/whitepapers/04-workflow.html' | relative_url }}">Workflow model</a> for the complete rules.

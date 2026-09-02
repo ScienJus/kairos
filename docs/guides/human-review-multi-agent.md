@@ -1,16 +1,16 @@
 ---
-title: Human Review in Multi-Agent Workflows | Kairos
-description: Add durable human review, feedback, retry context, and artifact delivery to multi-agent workflows with Kairos.
+title: Add Human Review to Multi-Agent Work | Kairos
+description: Preserve approval, rejection, feedback, evidence, and retry context as part of the Task lifecycle across agent sessions.
 type: article
 ---
 
-# Human Review in Multi-Agent Workflows
+# Add human Review to multi-agent work
 
-Autonomous execution is useful until a result needs a judgment that belongs to a person. Kairos makes Review part of the Task lifecycle, so approval, rejection, feedback, and retry context survive the agent session that produced them.
+Agents can work autonomously, but some results still need a person to decide whether they are good enough. That decision may happen long after the agent session ends. Kairos keeps the result, Review decision, and feedback with the Task so the original agent—or a new one—can continue later.
 
-## Request review with a result
+## Submit the result, then let the agent exit
 
-An executor claims a Task and submits a result. When the Task's Review policy requires it, or the executor asks for Review, the Task moves to `InReview` and the Claim ends. The agent does not need to stay alive while a person decides.
+The executor claims a Task and submits its result. If the Task requires Review, or the executor asks for it, the Task moves to `InReview` and the Claim ends. The agent is free to exit while a person inspects the work.
 
 ```text
 Working → submit for Review → InReview
@@ -18,14 +18,14 @@ Working → submit for Review → InReview
                               └── reject  → Pending → Claim again
 ```
 
-The operations console exposes pending human attention. A reviewer can inspect the Task, prior submissions, expected Artifacts, and the current work context before approving or rejecting.
+The operations console lists work waiting for a person. Before approving or rejecting it, the reviewer can inspect the Task, earlier submissions, expected Artifacts, and the context in which the result was produced.
 
-## Rejection is actionable context
+## Turn rejection into the next attempt's brief
 
-Every Review round is retained. When an agent retries a rejected Task, Kairos provides earlier submissions, Review feedback, and any retry prompt as shared context. The next executor can correct the result without reconstructing the previous conversation.
+Kairos keeps every Review round. When the Task is claimed again, the next executor receives the earlier submission, the reviewer's feedback, and any retry instructions. It can fix the result without reconstructing a lost conversation.
 
-## Keep review focused
+## Ask for Review where judgment matters
 
-Use concise Task results and attach larger evidence as Artifacts. Define acceptance criteria that a reviewer can verify, and require a Review policy only where human judgment changes the outcome. Other Tasks in a Blackboard can continue while one Task waits for Review.
+Keep the submitted result concise and attach larger evidence as Artifacts. Write acceptance criteria that a reviewer can verify. Require Review only where a person's judgment can change the outcome; other Blackboard Tasks can continue while one Task waits.
 
-Kairos currently provides the underlying Review and attention flows in the operations console; a complete WorkItem event timeline remains planned. See the <a href="{{ '/whitepapers/06-human-interaction-model.html' | relative_url }}">Human Interaction Model</a> and <a href="{{ '/api-reference.html' | relative_url }}">API Reference</a> for the current behavior.
+The operations console supports the current Review and human-attention flows. A complete WorkItem event timeline remains planned. See the <a href="{{ '/whitepapers/06-human-interaction-model.html' | relative_url }}">Human Interaction Model</a> for the current interface and the <a href="{{ '/api-reference.html' | relative_url }}">API Reference</a> for integration details.

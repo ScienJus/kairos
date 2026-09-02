@@ -1,20 +1,22 @@
 ---
-title: How to Coordinate Multiple AI Agents with MCP | Kairos
-description: Connect Codex, Claude Code, and other MCP clients to one durable work queue with Kairos, using exclusive claims to prevent duplicate agent execution.
+title: Coordinate Multiple AI Agents over MCP | Kairos
+description: Connect Codex, Claude Code, and other MCP clients to shared Tasks, ownership, results, and next steps across agent sessions.
 type: article
 ---
 
-# How to coordinate multiple AI agents with MCP
+# Coordinate multiple AI agents over MCP
 
-When two AI agents work from separate chat sessions, they do not automatically share ownership, progress, or deliverables. Kairos adds a durable coordination layer: agents discover eligible Tasks, acquire an exclusive Claim, send heartbeats while working, and submit a result that remains attached to the Task.
+Separate agent sessions do not know what the others have claimed or completed. Without a shared record, two agents can start the same job, miss an upstream result, or leave work stranded when a session closes. Kairos gives them one queue and one clear owner for each Task.
 
-## The short version
+## From finding work to submitting a result
 
 ```text
 shared WorkItem → find work → claim Task → heartbeat → submit result
 ```
 
-The same protocol works for Codex, Claude Code, and any MCP client that can call the Kairos execution tools. Kairos does not run the model or sandbox; it coordinates the work around them.
+An agent finds work, claims one Task, checks in while it runs, and submits a result. The Claim prevents another agent from taking the same Task. The submitted result stays with the work instead of disappearing with the chat session.
+
+Codex, Claude Code, and any other MCP client can use the same process. Kairos does not run the model or provide its sandbox; it keeps the surrounding teamwork in sync.
 
 ## Try the parallel example
 
@@ -24,9 +26,9 @@ From a checkout with Go 1.26.6 or later, Node.js, npm, and curl:
 make quickstart
 ```
 
-Open `http://127.0.0.1:8080`. The example contains two immediately available review Tasks and a join Task that becomes available only after both upstream results are submitted.
+Open `http://127.0.0.1:8080`. You will see two review Tasks that can start immediately. A final join Task appears only after both reviews have results.
 
-Start separate agent sessions with unique identities:
+Start each agent session with its own identity:
 
 ```bash
 KAIROS_ACTOR_ID=quickstart-agent-1 \
@@ -35,19 +37,19 @@ KAIROS_ACTOR_ROLE=contributor \
 codex
 ```
 
-Ask each session to use the repository Skill:
+In each session, ask the agent to use the repository Skill:
 
 ```text
 Use $kairos-agent to find and complete one available Task.
 ```
 
-Each session sees the shared WorkItem, but an exclusive Claim means only one session can execute a given Task. When both parallel Tasks finish, Kairos exposes the join Task with their durable results in context.
+Both sessions see the same WorkItem. Each can claim a different Task, but neither can take work already owned by the other. When the two parallel Tasks finish, the join Task opens with both results already in its context.
 
-## What Kairos coordinates
+## What stays in sync
 
-- **Discovery**: agents compare currently eligible work from one WorkItem.
-- **Ownership**: a Claim fences competing executors and expires if heartbeats stop.
-- **Delivery**: submissions, Reviews, failures, and Artifacts stay with the Task.
-- **Continuation**: Workflow dependencies or Blackboard planning determine what can happen next.
+- **Ready work**: every agent sees the Tasks it can act on now.
+- **Ownership**: a Claim gives one executor the Task and expires when its check-ins stop.
+- **Results**: submissions, Reviews, failures, and Artifacts remain attached to the Task.
+- **Next steps**: Workflow dependencies or Blackboard planning decide what becomes available next.
 
-See the <a href="{{ '/api-reference.html' | relative_url }}">API Reference</a> for transport and MCP contracts, or the <a href="{{ '/whitepapers/07-agent-interaction-model.html' | relative_url }}">Agent Interaction Model</a> for the full execution protocol.
+For integration details, see the <a href="{{ '/api-reference.html' | relative_url }}">API Reference</a>. To follow the complete agent lifecycle, read the <a href="{{ '/whitepapers/07-agent-interaction-model.html' | relative_url }}">Agent Interaction Model</a>.

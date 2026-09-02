@@ -1,12 +1,12 @@
 # Kairos Agent 交互模型
 
-> Agent 参与 Workflow 与 Blackboard 的统一交互方式
+> Agent 如何找到工作、承担责任、在中断后可恢复，并最终交回结果
 
 ## 摘要
 
-Kairos 为 Agent 提供统一的 Task 交互过程。当前 Agent 可以主动发现和选择工作；未来也可以由 Bridge 根据 Role 选择 Task 并启动 Agent。两种方式都围绕同一个 Task 建立执行责任、读取工作上下文、执行并提交持久成果，其生命周期影响共同构成 WorkItem 进展。
+每个 Agent 都遵循同一条基本路径：找到或接收 Task，读取上下文，领取责任，在执行期间持续续租，最后提交结果。目前 Agent 可以主动发现工作；未来也可以由 Bridge 根据 Role 选择 Task 并启动 Agent。无论从哪里开始，真正记录进度的是 Task 历史，而不是临时的 Agent 会话。
 
-Workflow 与 Blackboard 共享执行过程，同时向 Agent 开放不同的规划能力。Workflow 允许 Agent 在预先配置的位置作出判断，Blackboard 允许 Agent 持续调整 Task Graph。
+Workflow 和 Blackboard 共用这套执行过程，但给予 Agent 的规划自由不同。Workflow 只开放预先配置好的决策点；Blackboard 允许 Agent 随着理解变化增加和调整 Task。
 
 ## 1. 交互过程
 
@@ -160,4 +160,4 @@ Kairos 通过无状态 Streamable HTTP MCP 端点暴露主动执行闭环。每�
 
 MCP 接入面包含工作发现、Task 上下文、可读取终态的 WorkItem 上下文、Task 与 Coordination Claim 生命周期、外部 Artifact 登记、Base64 托管 Artifact 上传、提交、失败，以及 Blackboard 规划与关闭。Task 与 Coordination Claim 的创建和 heartbeat 都接受可选的 `lease_seconds`，服务端返回实际批准的时长与 `lease_until`。Blackboard Task 上下文中的顶层 `task` 是当前任务；`blackboard.tasks` 会有意排除当前任务，并通过 `blackboard.current_task_id` 提供关联。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行与 heartbeat 循环及资源创建重试纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
 
-> One execution protocol, two coordination modes.
+> 一套执行协议，两种协调模式。

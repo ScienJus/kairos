@@ -1,12 +1,12 @@
 # Kairos Workflow Mode
 
-> Constraints and executor autonomy in a predefined Task Graph
+> How a predefined process enforces dependencies without removing every executor decision
 
 ## Abstract
 
-Workflow organizes a WorkItem with a versioned formal definition. The WorkItem is bound to a fixed Workflow ID and Version at creation. During execution, the system creates Tasks on demand and advances them according to formal relations.
+Use Workflow when the important steps and dependencies are known before work begins. A WorkItem is attached to one versioned definition, so later edits cannot silently change a process already in flight. Kairos creates runtime Tasks as the graph advances and opens each one only when its rules are satisfied.
 
-Workflow can also reserve explicit decision space for executors. Each Task can configure its executor type and, for Agent execution, allowed roles, whether it may be skipped, and whether human Review is required. An executor makes progression decisions while completing the current Task. When the executor is an agent, deciding about optional Tasks does not require an extra agent invocation.
+A predefined graph does not mean every decision is hard-coded. A Task can specify who may execute it, whether that Task may be skipped, and whether a person must Review the result. The current executor makes those configured decisions while finishing its Task, without starting a separate agent session just to choose the next branch.
 
 ## 1. Workflow Structure
 
@@ -243,4 +243,4 @@ Workflow completion is structural and does not synthesize a WorkItem-level resul
 
 When the Task instance count reaches `MaxTaskExecutions`, the WorkItem becomes Failed.
 
-> Workflow defines the constraints; executor autonomy operates at explicitly configured decision points.
+> Workflow fixes the guardrails. Executors make choices only at the decision points the definition leaves open.

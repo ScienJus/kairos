@@ -1,10 +1,12 @@
 # Kairos 执行协作模型
 
-> Task 责任、共享上下文与执行方式无关的协作设计
+> 单个执行者如何负责一个 Task，同时让整个团队共享上下文和结果
 
 ## 摘要
 
-人和 Agent 可以围绕同一个 WorkItem，通过各自负责的 Task 协同推进完整工作。Task 的执行者类型限定谁有资格参与，`AllowedRoles` 只进一步限制 Agent Identity；符合条件的 Actor 通过 Claim 建立具体责任。未来的外部 Bridge 也可以自动完成同一套面向 Agent Role 的选择和 Claim。Task 生命周期变化与持久成果共同表达共享 WorkItem 的进展。
+一个 WorkItem 可以由许多人和 Agent 共同推进，但每个 Task 在同一时间只能有一个负责人。Kairos 先判断某个人或 Agent 是否具备执行资格，再通过 Claim 记录实际责任。无论执行者主动领取 Task，还是未来由 Bridge 自动启动 Agent，这条规则都不变。
+
+工作进度不依赖聊天会话持续在线。Task 状态、提交结果、Review、失败记录和 Artifact 会共同留下可共享的上下文，供后续执行者继续使用。
 
 ## 1. Task 是执行者的执行边界
 
@@ -190,5 +192,5 @@ Kairos Core 表达工作、提供候选 Task、建立执行责任并保存共享
 4. Task 生命周期变化与成果共同表达共享 WorkItem 的进展。
 5. Task 的组织方式与执行者的参与方式彼此独立。
 
-> People and agents share a WorkItem, while each Task has one responsible executor.
-> Kairos coordinates work independently of how that executor participates.
+> 人和 Agent 共享同一个目标及其工作记录；Task 执行期间只由一个执行者负责。
+> 无论执行者主动参与还是由自动化流程启动，这份责任都保持一致。

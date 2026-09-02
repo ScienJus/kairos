@@ -1,12 +1,12 @@
 # Kairos Agent Interaction Model
 
-> One interaction model for agents participating in Workflow and Blackboard
+> How an agent finds work, takes responsibility, stays recoverable, and hands back a result
 
 ## Abstract
 
-Kairos provides agents with one Task interaction process. An agent can proactively discover and choose work today; a future Bridge can start it with a Task selected for its role. Both paths establish responsibility around one Task, load work context, execute, and submit durable results whose lifecycle effects contribute to WorkItem progress.
+Every agent follows the same basic loop: find or receive a Task, inspect its context, claim responsibility, keep the lease alive while working, and submit a result. Today an agent can discover work itself; a future Bridge can start it with a Task chosen for its role. Either way, the Task history—not the agent session—holds the record of progress.
 
-Workflow and Blackboard share the execution process while exposing different planning capabilities to agents. Workflow lets an agent make decisions at configured points; Blackboard lets an agent continuously adjust the Task Graph.
+Workflow and Blackboard use this same execution loop but give agents different planning freedom. Workflow exposes only the decisions configured in advance. Blackboard lets agents add and reshape Tasks as their understanding changes.
 
 ## 1. Interaction Process
 

@@ -1,12 +1,12 @@
 # Kairos 协调语义
 
-> Workflow 与 Blackboard 如何从同一个 Task Graph 产生候选工作
+> 为什么同一张 Task Graph 会在 Workflow 和 Blackboard 中产生不同的下一步
 
 ## 摘要
 
-Workflow 和 Blackboard 共享相同的 WorkItem、Task 与 Task Relation。两者的核心差异在于 Task Graph 具有怎样的权威性，以及系统如何据此产生当前候选 Task。
+Workflow 和 Blackboard 使用相同的 WorkItem、Task 与 Task Relation 保存工作。真正不同的是：Kairos 在判断“现在可以做哪些 Task”时，会赋予这张图多大的约束力。
 
-Workflow 将图解释为正式计划，Blackboard 将图解释为协作者对工作的当前共同判断。人和 Agent 在两种模式下都可以从候选集合中选择工作。
+在 Workflow 中，图是一组必须遵守的规则，前置依赖不满足就不能执行下游 Task。在 Blackboard 中，图记录团队当前建议的推进方式，用来引导选择，但不会把每一条关系都变成门槛。无论哪种模式，人和 Agent 最终都从可用候选中选择具体 Task。
 
 ## 1. 统一形式
 
@@ -149,4 +149,4 @@ Kairos 的协调语义可以归纳为：
 4. 两种模式都保留执行者对具体 Task 的选择权。
 5. 一个 WorkItem 的 Task Relation 在同一时刻采用统一的模式语义。
 
-> Workflow executes an authoritative graph; Blackboard evolves a shared graph while executing the work.
+> Workflow 用图约束推进路径；Blackboard 用图分享团队当前认为最合适的计划。

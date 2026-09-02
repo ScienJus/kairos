@@ -1,12 +1,12 @@
 # Kairos Agent 身份模型
 
-> 可信身份、Role 与 Agent 可参与的工作范围
+> Kairos 如何确认正在行动的是哪个 Agent，以及它可以领取哪些 Task
 
 ## 摘要
 
-Kairos 为 Agent 提供原生身份。一个 Agent Identity 包含稳定、可读的标识和一个 Role，并通过 Token 进行认证。Agent 只需携带 Token，Kairos 即可识别其身份，并返回它具备执行资格、可以发现和领取的 Task。
+每次收到 Agent 请求时，Kairos 都要回答两个问题：是谁在行动，它可以领取哪些工作？Agent Identity 提供稳定标识和一个 Role。在 Authenticated Mode 下，Token 用来证明身份，Kairos 只返回这个 Agent 有资格发现和领取的 Task。
 
-Kairos 也支持 Trusted Mode。在受信环境中，Agent 可以直接声明 id 和 role，无需 Token。两种模式使用相同的任务发现和执行模型，但提供不同程度的身份可信性。
+本地或已经受信的环境可以使用 Trusted Mode，由运行环境直接提供 id 和 role。两种模式下的 Task 发现和执行方式相同，区别只在于身份由谁提供、可信程度有多高。
 
 ## 1. Agent Identity
 
@@ -139,4 +139,4 @@ Kairos 可以在 Task 上提供仓库和工作目录信息，使 Agent 找到对
 
 Kairos 可以托管轻量的 Agent Profile，例如 role、展示标签和描述；项目级执行规则仍由仓库维护。
 
-> Agent identity establishes who is acting; its role defines which work the agent may participate in.
+> Identity 告诉 Kairos 是谁在行动，Role 则限定这个 Agent 可以领取哪些工作。

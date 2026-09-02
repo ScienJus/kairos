@@ -25,7 +25,7 @@
       <div class="container">
         <a class="brand" href="{{ '/' | relative_url }}" aria-label="Kairos home">
           <img class="brand-mark" src="{{ '/assets/kairos-logo-mark.png' | relative_url }}" alt="">
-          <span><strong>Kairos</strong><small>Official articles</small></span>
+          <span><strong>Kairos</strong><small>{% if current_lang == 'zh-CN' %}协作指南{% else %}Coordination guides{% endif %}</small></span>
         </a>
         {% if current_lang == 'zh-CN' %}
           {% assign home_label = '主页' %}
@@ -79,7 +79,7 @@
       {{ content }}
     </main>
     <footer class="site-footer">
-      <div class="container">Kairos is open source under the Apache License 2.0.</div>
+      <div class="container">{% if current_lang == 'zh-CN' %}Kairos 是采用 Apache License 2.0 的开源项目。{% else %}Kairos is open source under the Apache License 2.0.{% endif %}</div>
     </footer>
     {% if page.type != 'home' %}
       <script>

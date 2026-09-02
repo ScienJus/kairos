@@ -1,10 +1,12 @@
 # Kairos Execution Collaboration Model
 
-> Task responsibility, shared context, and collaboration independent of execution method
+> How one executor owns a Task while the wider team shares context and results
 
 ## Abstract
 
-People and agents can advance one complete WorkItem together through the Tasks they each own. A Task's executor kind restricts who is eligible, and `AllowedRoles` further restricts Agent identities only; a matching actor establishes concrete responsibility by Claiming it. A future external Bridge can automate the same Agent role-aware selection and Claim process. Task lifecycle changes and durable results then express progress of the shared WorkItem.
+A WorkItem may involve many people and agents, but each Task needs one responsible executor at a time. Kairos first checks whether a person or agent is eligible, then records actual ownership with a Claim. The same rule applies whether an executor chooses the Task directly or a future Bridge starts an agent automatically.
+
+Progress does not depend on a chat session staying alive. It is visible through Task state, submitted results, Reviews, failures, and Artifacts that every later executor can use as shared context.
 
 ## 1. Task as the Executor Boundary
 
@@ -190,5 +192,5 @@ This collaboration model can be summarized in five principles:
 4. Task lifecycle changes and results express progress of the shared WorkItem.
 5. Task organization and executor participation are independent.
 
-> People and agents share a WorkItem, while each Task has one responsible executor.
-> Kairos coordinates work independently of how that executor participates.
+> People and agents share the objective and its history. While a Task is running, one executor owns it.
+> That responsibility stays the same whether the executor arrived manually or through automation.

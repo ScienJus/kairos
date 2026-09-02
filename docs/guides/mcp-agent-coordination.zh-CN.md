@@ -1,21 +1,23 @@
 ---
-title: 使用 MCP 协调多个 AI Agent | Kairos
-description: 使用 Kairos 将 Codex、Claude Code 和其他 MCP 客户端接入一个持久工作队列，并通过独占 Claim 避免重复执行。
+title: 使用 MCP 让多个 AI Agent 协同推进工作 | Kairos
+description: 让 Codex、Claude Code 和其他 MCP 客户端跨会话共享 Task、执行责任、工作结果和下一步。
 lang: zh-CN
 type: article
 ---
 
-# 使用 MCP 协调多个 AI Agent
+# 使用 MCP 让多个 AI Agent 协同推进工作
 
-两个 AI Agent 在不同聊天会话中工作时，不会自动共享所有权、进度或交付物。Kairos 增加了一层持久协调：Agent 发现可执行 Task，获取独占 Claim，工作期间发送 heartbeat，并提交仍然挂在 Task 上的结果。
+彼此独立的 Agent 会话并不知道其他会话领取了什么、完成了什么。缺少共享记录时，两个 Agent 可能同时开始同一个 Task，也可能看不到上游结果，甚至在会话关闭后把工作丢在半路。Kairos 用一个共享队列和明确的 Task 负责人解决这些问题。
 
-## 简要流程
+## 从发现工作到提交结果
 
 ```text
 shared WorkItem → find work → claim Task → heartbeat → submit result
 ```
 
-只要 MCP 客户端能够调用 Kairos 的执行工具，这套协议就适用于 Codex、Claude Code 以及其他 MCP 客户端。Kairos 不运行模型或沙箱，而是负责围绕它们协调工作。
+Agent 先找到可执行的工作，领取一个 Task，在执行期间定期续租，最后提交结果。Claim 会阻止其他 Agent 重复领取同一个 Task；结果会保留在工作记录中，不会随着聊天会话结束而消失。
+
+Codex、Claude Code 和其他能够调用 Kairos 工具的 MCP 客户端都使用同一套过程。Kairos 不运行模型，也不提供沙箱；它只负责让这些执行环境围绕同一份工作保持同步。
 
 ## 试用并行示例
 
@@ -25,9 +27,9 @@ shared WorkItem → find work → claim Task → heartbeat → submit result
 make quickstart
 ```
 
-打开 `http://127.0.0.1:8080`。示例包含两个立即可执行的 Review Task，以及一个只有在两个上游结果都提交后才会变为可执行的汇合 Task。
+打开 `http://127.0.0.1:8080`，你会看到两个可以立即开始的 Review Task。只有两份 Review 都有结果后，最后的汇总 Task 才会出现。
 
-为每个 Agent 会话使用不同的身份：
+为每个 Agent 会话设置不同的身份：
 
 ```bash
 KAIROS_ACTOR_ID=quickstart-agent-1 \
@@ -36,19 +38,19 @@ KAIROS_ACTOR_ROLE=contributor \
 codex
 ```
 
-让每个会话使用仓库 Skill：
+在每个会话中，让 Agent 使用仓库 Skill：
 
 ```text
 Use $kairos-agent to find and complete one available Task.
 ```
 
-每个会话都能看到共享 WorkItem，但独占 Claim 保证一个 Task 同时只有一个会话可以执行。当两个并行 Task 完成后，Kairos 会在汇合 Task 的上下文中提供它们的持久结果。
+两个会话会看到同一个 WorkItem。它们可以分别领取不同的 Task，但不能抢走对方已经领取的工作。两个并行 Task 完成后，汇总 Task 会自动开放，并直接带上两份上游结果。
 
-## Kairos 协调什么
+## 哪些信息会保持同步
 
-- **发现**：Agent 从同一个 WorkItem 中比较当前可执行的工作。
-- **所有权**：Claim 会 fencing 竞争执行者，并在 heartbeat 停止后过期。
-- **交付**：Submission、Review、失败记录和 Artifact 都会保留在 Task 上。
-- **继续推进**：Workflow 依赖或 Blackboard 规划决定下一步可以做什么。
+- **当前可做的工作**：每个 Agent 都能看到自己此刻可以执行的 Task。
+- **负责人**：Claim 把 Task 交给一个执行者；续租停止后，Task 可以安全地重新开放。
+- **执行结果**：Submission、Review、失败记录和 Artifact 都会留在 Task 上。
+- **下一步**：Workflow 依赖或 Blackboard 规划决定接下来开放什么工作。
 
-参阅 <a href="{{ '/api-reference.zh-CN.html' | relative_url }}">API 参考</a>了解传输和 MCP 契约，参阅 <a href="{{ '/whitepapers/07-agent-interaction-model.zh-CN.html' | relative_url }}">Agent 交互模型</a>了解完整执行协议。
+接入细节请参阅 <a href="{{ '/api-reference.zh-CN.html' | relative_url }}">API 参考</a>；完整的 Agent 执行过程请参阅 <a href="{{ '/whitepapers/07-agent-interaction-model.zh-CN.html' | relative_url }}">Agent 交互模型</a>。

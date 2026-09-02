@@ -1,12 +1,12 @@
 # Kairos Workflow 模式
 
-> 预定义 Task Graph 中的约束与执行者自主性
+> 预定义流程如何约束依赖，同时为执行者保留必要的判断空间
 
 ## 摘要
 
-Workflow 使用带版本的正式定义组织一个 WorkItem。WorkItem 创建时绑定固定的 Workflow ID 与 Version，系统在执行过程中按需产生 Task，并根据正式关系决定如何继续推进。
+当重要步骤和依赖在开始前已经确定时，适合使用 Workflow。WorkItem 会绑定一个带版本的流程定义，后续修改不会悄悄改变已经运行中的工作。Kairos 随着流程推进创建实际 Task，并且只在规则满足后开放下一项工作。
 
-Workflow 也可以显式保留执行者的判断空间。每个 Task 可以配置执行者类型、仅用于 Agent 执行的 allowed roles、是否允许跳过，以及是否需要人工 Review。执行者在完成当前 Task 时可以同时作出推进决策；执行者为 Agent 时，无需为判断 optional Task 额外启动一次 Agent。
+预定义流程图并不意味着所有决定都要写死。Task 可以规定由谁执行、该 Task 能否跳过，以及结果是否必须由人 Review。当前执行者会在完成 Task 时作出这些预留的决定，无需为了选择下一条分支额外启动一次 Agent。
 
 ## 1. Workflow 结构
 
@@ -243,4 +243,4 @@ Workflow 完成是结构性结果，不会自动合成 WorkItem 级 Result。完
 
 Task 实例总数达到 `MaxTaskExecutions` 时，WorkItem 进入 Failed。
 
-> Workflow defines the constraints; executor autonomy operates at explicitly configured decision points.
+> Workflow 划定边界；执行者只在流程明确留下的决策点作出选择。

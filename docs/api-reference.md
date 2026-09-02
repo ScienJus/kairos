@@ -2,9 +2,9 @@
 
 [简体中文](api-reference.zh-CN.md)
 
-This reference covers transport, authentication, HTTP resources, MCP tools, and execution response contracts. Product concepts and coordination semantics remain in the README and whitepapers.
+Use this page when you are configuring a Kairos server or integrating a client. It documents authentication, HTTP resources, MCP tools, request limits, and exact response shapes. For an introduction to the product, start with the README; for the reasoning behind the model, use the whitepapers.
 
-## Server
+## Start the server
 
 The default server uses SQLite and Trusted Mode:
 
@@ -43,7 +43,7 @@ Database timestamps are normalized at the application boundary to UTC with micro
 
 `GET /healthz` is unauthenticated. HTTP management and execution routes use `/api/v1`; Streamable HTTP MCP uses `/mcp`.
 
-## HTTP Contract
+## HTTP response contract
 
 The machine-readable <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 document</a> is the exact contract for all 43 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
 
@@ -62,7 +62,7 @@ Collection fields and list responses are always arrays, including when empty. Op
 | `413` | `artifact_too_large` |
 | `500` | `internal_error` |
 
-## Identity Modes
+## Choose an identity mode
 
 Trusted Mode accepts transport headers inside a trusted boundary:
 
@@ -90,7 +90,7 @@ The operations console discovers the configured mode through the public `GET /ap
 
 `GET /api/v1/auth/config` is unauthenticated and returns `{ "data": { "mode": "trusted" | "authenticated" } }`. `GET /api/v1/session` uses the normal work-route authentication and returns the transport-resolved identity as `{ "data": { "id": string, "kind": "human" | "agent", "role": string } }`. Clients should use this resolved identity rather than deriving identity fields from a Token.
 
-## HTTP Resources
+## HTTP resources
 
 | Resource | Routes |
 | --- | --- |
@@ -147,15 +147,15 @@ Artifact GC runs every `KAIROS_ARTIFACT_GC_INTERVAL` (15 minutes by default). An
 
 `GET /api/v1/tasks/{id}` is a viewer-facing Task Detail endpoint and does not require the current identity to be able to execute the Task. It returns backend-projected `responsibility`, `outcome`, `current_review`, normalized `history`, submitted `artifacts` belonging to that Task, and identity-specific `capabilities`. The `artifacts` collection is `[]` when the Task has no submitted deliverables. `GET /api/v1/tasks/{id}/context` remains an executor context protected by execution authorization; clients must not use it to load ordinary detail or human Review operations.
 
-## Claim Leases
+## Claim leases and recovery
 
 Agent Task Claims and WorkItem Coordination Claims use leases; human operations do not. Agent claim and heartbeat requests may choose a duration from 15 seconds through 30 minutes. Omitted durations use `KAIROS_AGENT_CLAIM_LEASE`, five minutes by default. `lease_until` is the earliest time when the background reaper may end the Claim and return its Task or lifecycle candidate to discovery; reaching that timestamp does not itself change ownership. Until the reaper commits that transition, the current Agent may continue the protected operation or renew the Claim, while every other Agent remains unable to claim that work. After reaping, the old Claim ID remains fenced and cannot be renewed or used for a lifecycle mutation.
 
-## MCP
+## MCP tools
 
 MCP shares the HTTP identity resolver. Trusted Mode supplies actor headers at transport level; Authenticated Mode supplies `Authorization: Bearer <identity-token>`. Identity never appears in tool arguments.
 
-The execution surface contains twenty tools:
+Agents use twenty MCP tools to discover work, hold responsibility, submit results, and extend a Blackboard:
 
 - discovery and context: `find_work`, `get_task_context`, `get_work_item_context`;
 - Task Claim lifecycle and delivery: `claim_task`, `heartbeat_claim`, `create_artifact`, `upload_artifact`, `release_claim`, `submit_task`, `fail_task`;
