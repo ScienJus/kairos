@@ -157,7 +157,7 @@ Agent Task Claim 与 WorkItem Coordination Claim 都使用 lease，Human 操作�
 
 ## MCP 工具
 
-MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>` 或绑定 Claim 的 Executor Token；身份不会出现在工具参数中。Executor 会话只暴露其 Profile 允许的工具，应用层对 HTTP 和 MCP 执行相同的权限边界。
+MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>` 或绑定 Claim 的 Executor Token；身份不会出现在工具参数中。Executor 会话只暴露其 Profile 允许的工具，并在 `initialize` 响应中收到对应指令，Claim 生命周期交由 Agent Daemon 管理。普通 Identity 会话保留完整的 Agent 指令。应用层对 HTTP 和 MCP 执行相同的权限边界。
 
 Agent 通过 20 个 MCP 工具发现工作、承担责任、提交结果，并扩展 Blackboard：
 

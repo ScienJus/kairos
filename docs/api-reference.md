@@ -157,7 +157,7 @@ Agent Task Claims and WorkItem Coordination Claims use leases; human operations 
 
 ## MCP tools
 
-MCP shares the HTTP identity resolver. Trusted Mode supplies actor headers at transport level; Authenticated Mode supplies `Authorization: Bearer <identity-token>` or a Claim-bound Executor token. Identity never appears in tool arguments. Executor sessions expose only the tools allowed by their profile; the application layer enforces the same boundary for HTTP and MCP.
+MCP shares the HTTP identity resolver. Trusted Mode supplies actor headers at transport level; Authenticated Mode supplies `Authorization: Bearer <identity-token>` or a Claim-bound Executor token. Identity never appears in tool arguments. Executor sessions expose only the tools allowed by their profile and receive matching instructions in the `initialize` response, leaving Claim lifecycle management to the Agent Daemon. Ordinary Identity sessions retain the full Agent instructions. The application layer enforces the same boundary for HTTP and MCP.
 
 Agents use twenty MCP tools to discover work, hold responsibility, submit results, and extend a Blackboard:
 
