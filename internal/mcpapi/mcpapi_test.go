@@ -383,23 +383,87 @@ func TestAuthenticatedMCPRequiresBearerAndUsesManagedIdentity(t *testing.T) {
 
 	session := connectMCP(t, ctx, server.URL, http.Header{"Authorization": {"Bearer " + issued.Token}})
 	t.Cleanup(func() { _ = session.Close() })
+	if initialized := session.InitializeResult(); initialized == nil || initialized.Instructions != serverInstructions {
+		t.Fatalf("identity instructions = %#v, want native Agent guidance", initialized)
+	}
 	find := callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{})
 	if len(find.Candidates) != 1 || find.Candidates[0].Kind != string(application.WorkCandidateEmptyBlackboard) {
 		t.Fatalf("authenticated candidates = %+v", find.Candidates)
 	}
 	planningClaim := callTool[coordinationClaimOutput](t, ctx, session, "claim_work_candidate", claimWorkCandidateInput{
 		WorkItemID: find.Candidates[0].WorkItem.ID, Kind: "empty_blackboard", OperationID: "authenticated-coordination-1",
+		ExecutorToken: mcpExecutorToken(1),
 	})
+	coordSession := connectMCP(t, ctx, server.URL, http.Header{"Authorization": {"Bearer " + mcpExecutorToken(1)}})
+	t.Cleanup(func() { _ = coordSession.Close() })
+	assertExecutorInstructions(t, coordSession, coordinationExecutorInstructions)
+	assertMCPTools(t, ctx, coordSession, []string{"get_task_context", "get_work_item_context"})
+	callTool[workItemContextOutput](t, ctx, coordSession, "get_work_item_context", workItemContextInput{WorkItemID: find.Candidates[0].WorkItem.ID})
 
 	created := callTool[taskOutput](t, ctx, session, "create_blackboard_task", createBlackboardTaskInput{
 		WorkItemID: find.Candidates[0].WorkItem.ID, CoordinationClaimID: planningClaim.Claim.ID, OperationID: "authenticated-plan-1",
 		Title: "Authenticated task", Executor: "agent", AllowedRoles: []string{"backend"},
 	})
 	claimed := callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
-		TaskID: created.Task.ID, OperationID: "authenticated-claim-1",
+		TaskID: created.Task.ID, OperationID: "authenticated-claim-1", ExecutorToken: mcpExecutorToken(2),
 	})
 	if claimed.Claim.Executor.ID != "authenticated-agent" || claimed.Claim.Executor.Kind != string(domain.ActorAgent) {
 		t.Fatalf("authenticated claim executor = %+v", claimed.Claim.Executor)
+	}
+	taskSession := connectMCP(t, ctx, server.URL, http.Header{"Authorization": {"Bearer " + mcpExecutorToken(2)}})
+	t.Cleanup(func() { _ = taskSession.Close() })
+	assertExecutorInstructions(t, taskSession, taskExecutorInstructions)
+	assertMCPTools(t, ctx, taskSession, []string{
+		"add_blackboard_child_task", "add_blackboard_relation", "create_artifact", "create_blackboard_task",
+		"get_task_context", "get_work_item_context", "upload_artifact",
+	})
+	callTool[taskContextOutput](t, ctx, taskSession, "get_task_context", taskContextInput{TaskID: created.Task.ID})
+
+	nativeSession := connectMCP(t, ctx, server.URL, http.Header{"Authorization": {"Bearer " + issued.Token}})
+	t.Cleanup(func() { _ = nativeSession.Close() })
+	if initialized := nativeSession.InitializeResult(); initialized == nil || initialized.Instructions != serverInstructions {
+		t.Fatalf("identity instructions after Executor sessions = %#v, want native Agent guidance", initialized)
+	}
+}
+
+func assertExecutorInstructions(t *testing.T, session *mcp.ClientSession, want string) {
+	t.Helper()
+	initialized := session.InitializeResult()
+	if initialized == nil || initialized.Instructions != want {
+		t.Fatalf("Executor instructions = %#v, want %q", initialized, want)
+	}
+	for _, name := range []string{"find_work", "claim_task", "claim_work_candidate", "heartbeat_claim", "heartbeat_coordination_claim", "submit_task", "fail_task", "release_claim", "release_coordination_claim", "decompose_blackboard_task", "skip_blackboard_task", "submit_blackboard_completion", "accept_blackboard_completion"} {
+		if strings.Contains(initialized.Instructions, name) {
+			t.Errorf("Executor instructions reference unavailable tool %q", name)
+		}
+	}
+	if want == coordinationExecutorInstructions {
+		for _, name := range []string{"create_artifact", "upload_artifact", "create_blackboard_task", "add_blackboard_relation", "add_blackboard_child_task"} {
+			if strings.Contains(initialized.Instructions, name) {
+				t.Errorf("Coordination Executor instructions reference write tool %q", name)
+			}
+		}
+	}
+}
+
+func mcpExecutorToken(seed byte) string {
+	return identity.ExecutorTokenPrefix + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{seed}, 32))
+}
+
+func assertMCPTools(t *testing.T, ctx context.Context, session *mcp.ClientSession, want []string) {
+	t.Helper()
+	result, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("list MCP tools: %v", err)
+	}
+	got := make([]string, 0, len(result.Tools))
+	for _, tool := range result.Tools {
+		got = append(got, tool.Name)
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("MCP tools = %v, want %v", got, want)
 	}
 }
 

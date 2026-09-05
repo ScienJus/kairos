@@ -45,7 +45,7 @@ Database timestamps are normalized at the application boundary to UTC with micro
 
 ## HTTP response contract
 
-The machine-readable <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 document</a> is the exact contract for all 43 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
+The machine-readable <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 document</a> is the exact contract for all 46 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
 
 All API JSON field names use `snake_case`. JSON request objects are closed contracts; an unknown field is rejected with `400 invalid_request`, including unknown fields inside nested objects. JSON success responses use `{ "data": ... }`; JSON errors use `{ "error": { "code": string, "message": string } }`. Release and token-revocation operations return `204` without a body, `/healthz` returns `{ "status": "ok" }`, and Artifact content is returned as `application/octet-stream`.
 
@@ -82,7 +82,11 @@ KAIROS_ADMIN_TOKEN='<at-least-32-character-high-entropy-token>' \
 go run ./cmd/kairos-server
 ```
 
-Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes require an issued identity token. Authenticated Mode ignores trusted actor headers.
+Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes normally use an issued identity token. Authenticated Mode ignores trusted actor headers.
+
+An Agent may include an optional client-generated `executor_token` when it creates a Task Claim or Coordination Claim. The token must use the `krs_claim_` prefix followed by 256 random bits encoded as unpadded base64url; Core stores only its SHA-256 hash. In Authenticated Mode the token can then be used as the Bearer credential for the lifetime of that exact active Claim. It can read Task and WorkItem contexts and submitted Artifacts inside the bound WorkItem. A Task Executor may also create or upload Artifacts for its exact Task Claim and extend a Blackboard plan; a Coordination Executor is read-only. All other operations are denied. Ending or reaping the Claim invalidates the token, while rotating or revoking the Agent's identity token does not affect an already active Executor token.
+
+Only a complete, canonical Executor Token format routes to Claim authentication; all other formats use Identity authentication. A failed Claim lookup never falls back to Identity authentication. This preserves the built-in generator's legacy 43-character Identity Tokens, including prefix collisions. Custom legacy Tokens matching the complete Executor format must be rotated before upgrading.
 
 Authentication establishes caller identity and operation-specific rules still constrain actions such as Task discovery, claiming, and Claim-owned execution. It is not a data-isolation boundary: all issued identities belong to one global trust domain, and Kairos does not currently partition reads or writes by tenant, team, project, or object. Deploy separate Kairos instances when groups must not access one another's data.
 
@@ -153,7 +157,7 @@ Agent Task Claims and WorkItem Coordination Claims use leases; human operations 
 
 ## MCP tools
 
-MCP shares the HTTP identity resolver. Trusted Mode supplies actor headers at transport level; Authenticated Mode supplies `Authorization: Bearer <identity-token>`. Identity never appears in tool arguments.
+MCP shares the HTTP identity resolver. Trusted Mode supplies actor headers at transport level; Authenticated Mode supplies `Authorization: Bearer <identity-token>` or a Claim-bound Executor token. Identity never appears in tool arguments. Executor sessions expose only the tools allowed by their profile and receive matching instructions in the `initialize` response, leaving Claim lifecycle management to the Agent Daemon. Ordinary Identity sessions retain the full Agent instructions. The application layer enforces the same boundary for HTTP and MCP.
 
 Agents use twenty MCP tools to discover work, hold responsibility, submit results, and extend a Blackboard:
 

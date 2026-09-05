@@ -126,6 +126,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - Workflow Artifact 交付契约，以及数据库优先上传、完整性 Digest、可配置上传上限和垃圾回收的内置 `kairos://` Artifact Store；
 - 并发保护，以及面向 API 资源创建和托管上传的重放保护；
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
+- 绑定 Claim 的 Executor 凭据，以及受限的 HTTP/MCP 上下文读取、Artifact 和 Blackboard 规划权限；
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
 - 包含 workspace 总览、人工关注、Workflow 图、Blackboard Task 层级和 Definition 编辑器的 operations console；
 - 记录操作者、时间和原因的人工 WorkItem 取消能力；

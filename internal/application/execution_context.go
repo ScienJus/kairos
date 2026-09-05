@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
+	credential "github.com/ScienJus/kairos/internal/identity"
 )
 
 // DefinitionExecutionContext contains collaboration guidance shared by both modes.
@@ -104,7 +105,7 @@ func (s *Service) GetTaskExecutionContext(
 	if strings.TrimSpace(string(query.TaskID)) == "" {
 		return TaskExecutionContext{}, invalidCommand("task id is required")
 	}
-	if err := query.Identity.Validate(); err != nil {
+	if err := query.Identity.ValidateCapability(credential.ScopedRead); err != nil {
 		return TaskExecutionContext{}, err
 	}
 
@@ -118,15 +119,22 @@ func (s *Service) GetTaskExecutionContext(
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", task.WorkItemID, err)
 		}
-		if err := identityCanExecute(query.Identity, task); err != nil {
+		if err := authorizeExecutor(store, query.Identity, credential.ScopedRead, workItem.ID); err != nil {
 			return err
+		}
+		if query.Identity.Executor == nil {
+			if err := identityCanExecute(query.Identity, task); err != nil {
+				return err
+			}
 		}
 		claims, err := store.ListClaims(task.ID)
 		if err != nil {
 			return fmt.Errorf("list claims for task %q: %w", task.ID, err)
 		}
-		if err := executionContextVisibleTo(query.Identity, task, claims); err != nil {
-			return err
+		if query.Identity.Executor == nil {
+			if err := executionContextVisibleTo(query.Identity, task, claims); err != nil {
+				return err
+			}
 		}
 
 		artifacts, err := store.ListArtifacts(ArtifactFilter{WorkItemID: workItem.ID})
@@ -185,7 +193,7 @@ func (s *Service) GetTaskExecutionContext(
 				relations = []domain.TaskRelation{}
 			}
 			canDecompose := false
-			if task.ActiveClaimID != nil {
+			if task.ActiveClaimID != nil && query.Identity.Executor == nil {
 				canDecompose = validateBlackboardTaskDecomposition(workItem, task, claims, query.Identity, *task.ActiveClaimID) == nil
 			}
 			result.Blackboard = &BlackboardExecutionContext{CurrentTaskID: task.ID, Tasks: otherTasks, Relations: relations, CanDecompose: canDecompose}
@@ -224,6 +232,9 @@ func (s *Service) GetTaskExecutionContext(
 }
 
 func claimOwnedByIdentity(claims []domain.Claim, claimID domain.ClaimID, identity Identity) bool {
+	if identity.Executor != nil {
+		return false
+	}
 	for _, claim := range claims {
 		if claim.ID == claimID && claim.Active() && sameActor(claim.Executor, identity.Actor) {
 			return true

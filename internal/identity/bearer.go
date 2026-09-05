@@ -15,7 +15,8 @@ type Authenticator interface {
 // AuthenticatedResolver resolves identities exclusively from Bearer tokens.
 // Trusted identity headers are intentionally ignored.
 type AuthenticatedResolver struct {
-	Authenticator Authenticator
+	Authenticator         Authenticator
+	ExecutorAuthenticator Authenticator
 }
 
 // Resolve authenticates the request Authorization header.
@@ -26,6 +27,14 @@ func (r AuthenticatedResolver) Resolve(request *http.Request) (Identity, error) 
 	parts := strings.Fields(request.Header.Get("Authorization"))
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 		return Identity{}, fmt.Errorf("%w: Authorization Bearer token is required", ErrUnauthenticated)
+	}
+	// Only canonical Claim credentials enter the Claim namespace. Legacy
+	// Identity tokens may happen to start with the same prefix.
+	if _, err := ExecutorTokenHash(parts[1]); err == nil {
+		if r.ExecutorAuthenticator == nil {
+			return Identity{}, ErrUnauthenticated
+		}
+		return r.ExecutorAuthenticator.Authenticate(request.Context(), parts[1])
 	}
 	return r.Authenticator.Authenticate(request.Context(), parts[1])
 }

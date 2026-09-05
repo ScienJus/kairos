@@ -76,10 +76,11 @@ func (r CoordinationClaimEndReason) validFor(kind CoordinationClaimKind) bool {
 
 // CoordinationClaim reserves one Blackboard lifecycle candidate for an Agent.
 type CoordinationClaim struct {
-	ID         CoordinationClaimID   `json:"id"`
-	WorkItemID WorkItemID            `json:"work_item_id"`
-	Kind       CoordinationClaimKind `json:"kind"`
-	Executor   ActorRef              `json:"executor"`
+	ID                CoordinationClaimID   `json:"id"`
+	WorkItemID        WorkItemID            `json:"work_item_id"`
+	Kind              CoordinationClaimKind `json:"kind"`
+	Executor          ActorRef              `json:"executor"`
+	ExecutorTokenHash string                `json:"-"`
 
 	ClaimedAt       time.Time                  `json:"claimed_at"`
 	LastHeartbeatAt time.Time                  `json:"last_heartbeat_at"`
@@ -94,6 +95,9 @@ func (c CoordinationClaim) Active() bool {
 }
 
 func (c CoordinationClaim) Validate() error {
+	if err := validateExecutorTokenHash(c.ExecutorTokenHash, c.Executor); err != nil {
+		return err
+	}
 	if strings.TrimSpace(string(c.ID)) == "" {
 		return invalid("coordination_claim.id", "is required")
 	}

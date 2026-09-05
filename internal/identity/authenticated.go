@@ -205,8 +205,8 @@ func (s *Service) newToken() (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	if strings.TrimSpace(token) == "" || token != strings.TrimSpace(token) {
-		return "", "", fmt.Errorf("%w: generated token is empty or untrimmed", ErrInvalid)
+	if strings.TrimSpace(token) == "" || token != strings.TrimSpace(token) || strings.HasPrefix(token, ExecutorTokenPrefix) {
+		return "", "", fmt.Errorf("%w: generated token is empty, untrimmed, or uses a reserved prefix", ErrInvalid)
 	}
 	return token, hashToken(token), nil
 }

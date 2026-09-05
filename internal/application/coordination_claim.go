@@ -11,11 +11,13 @@ import (
 
 // ClaimWorkCandidateCommand reserves one Blackboard lifecycle candidate.
 type ClaimWorkCandidateCommand struct {
-	WorkItemID   domain.WorkItemID
-	Kind         WorkCandidateKind
-	Identity     Identity
-	OperationID  string
-	LeaseSeconds int64
+	ExecutorToken     string `json:"-"`
+	ExecutorTokenHash string `json:",omitempty"`
+	WorkItemID        domain.WorkItemID
+	Kind              WorkCandidateKind
+	Identity          Identity
+	OperationID       string
+	LeaseSeconds      int64
 }
 
 // ClaimWorkCandidate atomically reserves a currently discoverable lifecycle candidate.
@@ -34,9 +36,16 @@ func (s *Service) ClaimWorkCandidate(ctx context.Context, command ClaimWorkCandi
 		return domain.CoordinationClaim{}, invalidCommand("unsupported work candidate kind %q", command.Kind)
 	}
 
+	hash, err := executorClaimTokenHash(command.Identity, command.ExecutorToken)
+	if err != nil {
+		return domain.CoordinationClaim{}, err
+	}
+	command.ExecutorTokenHash = hash
+	command.ExecutorToken = ""
+
 	var created domain.CoordinationClaim
 	var terminalErr error
-	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "claim_work_candidate", command, &created, func(store WriteStore) error {
+	err = s.replayableCreate(ctx, command.Identity, command.OperationID, "claim_work_candidate", command, &created, func(store WriteStore) error {
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)
@@ -77,7 +86,7 @@ func (s *Service) ClaimWorkCandidate(ctx context.Context, command ClaimWorkCandi
 		now := s.clock.Now()
 		lease := normalizeClaimLease(command.LeaseSeconds, s.claimLease)
 		created = domain.CoordinationClaim{
-			ID: domain.CoordinationClaimID(id), WorkItemID: workItem.ID, Kind: kind, Executor: command.Identity.Actor,
+			ExecutorTokenHash: hash, ID: domain.CoordinationClaimID(id), WorkItemID: workItem.ID, Kind: kind, Executor: command.Identity.Actor,
 			ClaimedAt: now, LastHeartbeatAt: now, LeaseUntil: now.Add(lease), LeaseSeconds: int64(lease / time.Second),
 		}
 		if err := created.Validate(); err != nil {

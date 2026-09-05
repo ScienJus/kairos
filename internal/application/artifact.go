@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ScienJus/kairos/internal/domain"
+	credential "github.com/ScienJus/kairos/internal/identity"
 )
 
 const (
@@ -68,7 +69,7 @@ func (s *Service) UploadArtifact(ctx context.Context, command UploadArtifactComm
 	if source == nil {
 		return domain.Artifact{}, invalidCommand("artifact content is required")
 	}
-	if err := command.Identity.Validate(); err != nil {
+	if err := command.Identity.ValidateCapability(credential.TaskArtifactWrite); err != nil {
 		return domain.Artifact{}, err
 	}
 	command.Name = strings.TrimSpace(command.Name)
@@ -150,7 +151,7 @@ func (s *Service) createArtifact(ctx context.Context, command CreateArtifactComm
 	if strings.TrimSpace(string(command.TaskID)) == "" || strings.TrimSpace(string(command.ClaimID)) == "" {
 		return domain.Artifact{}, invalidCommand("task id and claim id are required")
 	}
-	if err := command.Identity.Validate(); err != nil {
+	if err := command.Identity.ValidateCapability(credential.TaskArtifactWrite); err != nil {
 		return domain.Artifact{}, err
 	}
 	command.Name = strings.TrimSpace(command.Name)
@@ -228,6 +229,9 @@ func (s *Service) reserveArtifactUpload(ctx context.Context, command UploadArtif
 	err = s.repository.Update(ctx, func(store WriteStore) error {
 		if err := store.LockIdempotencyKey(command.Identity.Actor, command.OperationID); err != nil {
 			return fmt.Errorf("lock operation %q: %w", command.OperationID, err)
+		}
+		if err := authorizeExecutorArtifact(store, command.Identity, command.TaskID, command.ClaimID); err != nil {
+			return err
 		}
 		record, err := store.GetIdempotencyRecord(command.Identity.Actor, command.OperationID)
 		switch {
@@ -330,6 +334,9 @@ func (s *Service) saveArtifactUploadState(ctx context.Context, command UploadArt
 		if err := store.LockIdempotencyKey(command.Identity.Actor, command.OperationID); err != nil {
 			return err
 		}
+		if err := authorizeExecutorArtifact(store, command.Identity, command.TaskID, command.ClaimID); err != nil {
+			return err
+		}
 		record, err := store.GetIdempotencyRecord(command.Identity.Actor, command.OperationID)
 		if err != nil {
 			return err
@@ -354,6 +361,9 @@ func (s *Service) finalizeArtifactUpload(ctx context.Context, command UploadArti
 	err = s.repository.Update(ctx, func(store WriteStore) error {
 		if err := store.LockIdempotencyKey(command.Identity.Actor, command.OperationID); err != nil {
 			return fmt.Errorf("lock operation %q: %w", command.OperationID, err)
+		}
+		if err := authorizeExecutorArtifact(store, command.Identity, command.TaskID, command.ClaimID); err != nil {
+			return err
 		}
 		record, err := store.GetIdempotencyRecord(command.Identity.Actor, command.OperationID)
 		if err != nil {
@@ -483,7 +493,7 @@ func (s *Service) ListArtifacts(ctx context.Context, workItemID domain.WorkItemI
 	if strings.TrimSpace(string(workItemID)) == "" {
 		return Page[domain.Artifact]{}, invalidCommand("work item id is required")
 	}
-	if err := identity.Validate(); err != nil {
+	if err := identity.ValidateCapability(credential.ScopedRead); err != nil {
 		return Page[domain.Artifact]{}, err
 	}
 	if err := validatePageRequest(page.Limit); err != nil {
@@ -491,6 +501,9 @@ func (s *Service) ListArtifacts(ctx context.Context, workItemID domain.WorkItemI
 	}
 	result := make([]domain.Artifact, 0)
 	err := s.repository.View(ctx, func(store ReadStore) error {
+		if err := authorizeExecutor(store, identity, credential.ScopedRead, workItemID); err != nil {
+			return err
+		}
 		if _, err := store.GetWorkItem(workItemID); err != nil {
 			return fmt.Errorf("get work item %q: %w", workItemID, err)
 		}
@@ -509,7 +522,7 @@ func (s *Service) ListArtifacts(ctx context.Context, workItemID domain.WorkItemI
 
 // OpenArtifact opens managed content after checking staged Artifact ownership.
 func (s *Service) OpenArtifact(ctx context.Context, artifactID domain.ArtifactID, identity Identity) (domain.Artifact, io.ReadCloser, error) {
-	if err := identity.Validate(); err != nil {
+	if err := identity.ValidateCapability(credential.ScopedRead); err != nil {
 		return domain.Artifact{}, nil, err
 	}
 	var artifact domain.Artifact
@@ -519,8 +532,14 @@ func (s *Service) OpenArtifact(ctx context.Context, artifactID domain.ArtifactID
 		if err != nil {
 			return err
 		}
+		if err := authorizeExecutor(store, identity, credential.ScopedRead, artifact.WorkItemID); err != nil {
+			return err
+		}
 		if artifact.SubmissionID != nil {
 			return nil
+		}
+		if identity.Executor != nil {
+			return forbidden("executor reads require a committed artifact")
 		}
 		claims, err := store.ListClaims(artifact.TaskID)
 		if err != nil {

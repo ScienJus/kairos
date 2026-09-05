@@ -45,7 +45,7 @@ HTTP read timeout 限制读取完整请求的总时间，包含 JSON、MCP 和�
 
 ## HTTP 响应约定
 
-机器可读的 <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 文档</a>是当前全部 43 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
+机器可读的 <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 文档</a>是当前全部 46 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
 
 所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim 和撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
 
@@ -82,7 +82,11 @@ KAIROS_ADMIN_TOKEN='<至少-32-字符的高熵-token>' \
 go run ./cmd/kairos-server
 ```
 
-身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由使用签发的 identity token。Authenticated Mode 忽略 Trusted actor headers。
+身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由通常使用签发的 identity token。Authenticated Mode 忽略 Trusted actor headers。
+
+Agent 创建 Task Claim 或 Coordination Claim 时，可以附带一个由客户端生成的 `executor_token`。Token 必须以 `krs_claim_` 开头，后接按无填充 base64url 编码的 256 位随机值；Core 只保存其 SHA-256 hash。在 Authenticated Mode 中，该 Token 可在对应 Claim 保持 Active 期间作为 Bearer 凭据使用。它可以读取绑定 WorkItem 内的 Task、WorkItem context 和已提交 Artifact；Task Executor 还可以为其精确绑定的 Task Claim 创建或上传 Artifact，并扩展 Blackboard 计划，Coordination Executor 只读。其他操作一律拒绝。Claim 结束或被 reaper 回收后 Token 失效；Agent identity token 的轮换或撤销不影响已经 Active 的 Executor Token。
+
+只有完整且规范的 Executor Token 格式进入 Claim 认证，其他格式仍走 Identity 认证；Claim 认证失败不回退。内置生成器的旧 43 字符 Identity Token 因而保持兼容，包括前缀碰撞的情况。自定义旧 Token 若完整匹配新 Executor 格式，需要在升级前轮换。
 
 认证用于确定调用方身份；Task 发现、领取以及基于 Claim 的执行等操作仍受各自规则约束。但认证不是数据隔离边界：所有已签发身份都属于同一个全局信任域，Kairos 当前不会按租户、Team、项目或对象隔离读写。需要阻止不同群体访问彼此数据时，应分别部署 Kairos 实例。
 
@@ -153,7 +157,7 @@ Agent Task Claim 与 WorkItem Coordination Claim 都使用 lease，Human 操作�
 
 ## MCP 工具
 
-MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>`；身份不会出现在工具参数中。
+MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>` 或绑定 Claim 的 Executor Token；身份不会出现在工具参数中。Executor 会话只暴露其 Profile 允许的工具，并在 `initialize` 响应中收到对应指令，Claim 生命周期交由 Agent Daemon 管理。普通 Identity 会话保留完整的 Agent 指令。应用层对 HTTP 和 MCP 执行相同的权限边界。
 
 Agent 通过 20 个 MCP 工具发现工作、承担责任、提交结果，并扩展 Blackboard：
 

@@ -3,14 +3,17 @@ package httpapi_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
 	"github.com/ScienJus/kairos/internal/application"
+	"github.com/ScienJus/kairos/internal/artifactstore"
 	"github.com/ScienJus/kairos/internal/domain"
 	"github.com/ScienJus/kairos/internal/httpapi"
 	"github.com/ScienJus/kairos/internal/identity"
@@ -29,6 +32,13 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 	applicationService, err := application.NewService(repo, endToEndClock{}, &endToEndIDs{})
 	if err != nil {
 		t.Fatalf("new application service: %v", err)
+	}
+	localArtifacts, err := artifactstore.NewLocal(privateArtifactDir(t))
+	if err != nil {
+		t.Fatalf("new local Artifact Store: %v", err)
+	}
+	if err := applicationService.ConfigureArtifactStore(localArtifacts); err != nil {
+		t.Fatalf("configure Artifact Store: %v", err)
 	}
 	identityService, err := identity.NewService(repo, endToEndClock{}, identity.SecureTokenGenerator{})
 	if err != nil {
@@ -90,17 +100,52 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 		"definition_id": "authenticated", "mode": "blackboard",
 		"title": "Authenticated execution", "goal": "Verify bearer authentication",
 	}, agent.Token, http.StatusCreated)
+	coordExecutorToken := testExecutorToken(1)
 	planningClaim := authenticatedRequestData[domain.CoordinationClaim](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/coordination-claims", map[string]any{
-		"kind": "empty_blackboard",
+		"kind": "empty_blackboard", "executor_token": coordExecutorToken,
 	}, agent.Token, http.StatusCreated)
+	authenticatedRequestData[application.WorkItemExecutionContext](t, client, http.MethodGet,
+		server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", nil, coordExecutorToken, http.StatusOK)
+	requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
+		"definition_id": "authenticated", "mode": "blackboard", "title": "Denied", "goal": "Denied",
+	}, coordExecutorToken, http.StatusForbidden, "forbidden")
 	task := authenticatedRequestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
 		"coordination_claim_id": planningClaim.ID, "title": "Protected task", "executor": "agent", "allowed_roles": []string{"database"},
 	}, agent.Token, http.StatusCreated)
+	requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", nil,
+		coordExecutorToken, http.StatusUnauthorized, "unauthenticated")
 
-	claim := authenticatedRequestData[domain.Claim](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/claims", nil, agent.Token, http.StatusCreated)
+	taskExecutorToken := testExecutorToken(2)
+	requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/claims", map[string]any{
+		"executor_token": identity.ExecutorTokenPrefix + "invalid",
+	}, agent.Token, http.StatusBadRequest, "invalid_request")
+	claim := authenticatedRequestData[domain.Claim](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/claims", map[string]any{
+		"executor_token": taskExecutorToken,
+	}, agent.Token, http.StatusCreated)
 	if claim.Executor.ID != "codex-database" || claim.Executor.Kind != domain.ActorAgent {
 		t.Fatalf("claim executor = %+v, trusted spoofing headers should be ignored", claim.Executor)
 	}
+	authenticatedRequestData[application.TaskExecutionContext](t, client, http.MethodGet,
+		server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, taskExecutorToken, http.StatusOK)
+	for _, path := range []string{"/api/v1/session", "/api/v1/tasks/" + string(task.ID), "/api/v1/work", "/api/v1/work-items", "/api/v1/definitions/workflows"} {
+		requestAuthenticatedError(t, client, http.MethodGet, server.URL+path, nil, taskExecutorToken, http.StatusForbidden, "forbidden")
+	}
+	otherWorkItem := authenticatedRequestData[domain.WorkItem](t, client, http.MethodPost, server.URL+"/api/v1/work-items", map[string]any{
+		"definition_id": "authenticated", "mode": "blackboard", "title": "Other scope", "goal": "Remain isolated",
+	}, agent.Token, http.StatusCreated)
+	requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/work-items/"+string(otherWorkItem.ID)+"/context", nil,
+		taskExecutorToken, http.StatusForbidden, "forbidden")
+	requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/submissions", map[string]any{
+		"claim_id": claim.ID, "result": "Denied direct lifecycle mutation",
+	}, taskExecutorToken, http.StatusForbidden, "forbidden")
+	externalArtifact := authenticatedRequestData[domain.Artifact](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/artifacts", map[string]any{
+		"claim_id": claim.ID, "name": "executor-note", "uri": "https://example.com/executor-note",
+	}, taskExecutorToken, http.StatusCreated)
+	managedArtifact := uploadAuthenticatedArtifact(t, client, server.URL+"/api/v1/tasks/"+string(task.ID)+"/artifact-uploads",
+		claim.ID, "executor-report", []byte("executor managed report"), "executor-upload-1", taskExecutorToken)
+	nextTask := authenticatedRequestData[domain.Task](t, client, http.MethodPost, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/tasks", map[string]any{
+		"title": "Executor planned task", "executor": "agent", "allowed_roles": []string{"database"},
+	}, taskExecutorToken, http.StatusCreated)
 
 	rotated := authenticatedRequestData[issuedTokenPayload](t, client, http.MethodPost,
 		server.URL+"/api/v1/identities/agent/codex-database/token", nil, authenticatedTestAdminToken, http.StatusOK)
@@ -111,12 +156,23 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 		agent.Token, http.StatusUnauthorized, "unauthenticated")
 	authenticatedRequestData[application.TaskExecutionContext](t, client, http.MethodGet,
 		server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, rotated.Token, http.StatusOK)
+	authenticatedRequestData[application.TaskExecutionContext](t, client, http.MethodGet,
+		server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, taskExecutorToken, http.StatusOK)
+	authenticatedRequestNoContent(t, client, http.MethodDelete,
+		server.URL+"/api/v1/identities/agent/codex-database/token", authenticatedTestAdminToken, http.StatusNoContent)
+	authenticatedRequestData[application.TaskExecutionContext](t, client, http.MethodGet,
+		server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, taskExecutorToken, http.StatusOK)
+	resumed := authenticatedRequestData[issuedTokenPayload](t, client, http.MethodPost,
+		server.URL+"/api/v1/identities/agent/codex-database/token", nil, authenticatedTestAdminToken, http.StatusOK)
 
 	authenticatedRequestData[domain.TaskSubmission](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/submissions", map[string]any{
 		"claim_id": claim.ID, "result": "Authenticated result", "request_review": true,
-	}, rotated.Token, http.StatusCreated)
+		"artifact_ids": []domain.ArtifactID{externalArtifact.ID, managedArtifact.ID},
+	}, resumed.Token, http.StatusCreated)
+	requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil,
+		taskExecutorToken, http.StatusUnauthorized, "unauthenticated")
 	executionContext := authenticatedRequestData[application.TaskExecutionContext](t, client, http.MethodGet,
-		server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, rotated.Token, http.StatusOK)
+		server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, resumed.Token, http.StatusOK)
 	if len(executionContext.Task.Reviews) != 1 {
 		t.Fatalf("reviews = %+v, want one", executionContext.Task.Reviews)
 	}
@@ -127,6 +183,33 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 	if review.Status != domain.ReviewStatusApproved {
 		t.Fatalf("review status = %q", review.Status)
 	}
+
+	nextExecutorToken := testExecutorToken(3)
+	nextClaim := authenticatedRequestData[domain.Claim](t, client, http.MethodPost,
+		server.URL+"/api/v1/tasks/"+string(nextTask.ID)+"/claims", map[string]any{"executor_token": nextExecutorToken}, resumed.Token, http.StatusCreated)
+	artifacts := authenticatedRequestData[[]domain.Artifact](t, client, http.MethodGet,
+		server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/artifacts?limit=50", nil, nextExecutorToken, http.StatusOK)
+	if len(artifacts) != 2 {
+		t.Fatalf("executor submitted artifacts = %+v, want two", artifacts)
+	}
+	contentRequest, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/artifacts/"+string(managedArtifact.ID)+"/content", nil)
+	if err != nil {
+		t.Fatalf("new executor Artifact content request: %v", err)
+	}
+	contentRequest.Header.Set("Authorization", "Bearer "+nextExecutorToken)
+	contentResponse, err := client.Do(contentRequest)
+	if err != nil {
+		t.Fatalf("read executor Artifact content: %v", err)
+	}
+	content, readErr := io.ReadAll(contentResponse.Body)
+	_ = contentResponse.Body.Close()
+	if readErr != nil || contentResponse.StatusCode != http.StatusOK || string(content) != "executor managed report" {
+		t.Fatalf("executor Artifact content status=%d content=%q err=%v", contentResponse.StatusCode, content, readErr)
+	}
+	authenticatedRequestNoContent(t, client, http.MethodDelete,
+		server.URL+"/api/v1/tasks/"+string(nextTask.ID)+"/claims/"+string(nextClaim.ID), resumed.Token, http.StatusNoContent)
+	requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/work-items/"+string(workItem.ID)+"/context", nil,
+		nextExecutorToken, http.StatusUnauthorized, "unauthenticated")
 
 	authenticatedRequestNoContent(t, client, http.MethodDelete,
 		server.URL+"/api/v1/identities/agent/codex-database/token", authenticatedTestAdminToken, http.StatusNoContent)
@@ -143,6 +226,64 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 			t.Fatal("revoked agent identity still reports an active token")
 		}
 	}
+}
+
+func uploadAuthenticatedArtifact(
+	t *testing.T,
+	client *http.Client,
+	endpoint string,
+	claimID domain.ClaimID,
+	name string,
+	content []byte,
+	operationID string,
+	token string,
+) domain.Artifact {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("claim_id", string(claimID)); err != nil {
+		t.Fatalf("write authenticated upload claim: %v", err)
+	}
+	if err := writer.WriteField("name", name); err != nil {
+		t.Fatalf("write authenticated upload name: %v", err)
+	}
+	part, err := writer.CreateFormFile("file", name)
+	if err != nil {
+		t.Fatalf("create authenticated upload file: %v", err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatalf("write authenticated upload file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close authenticated upload body: %v", err)
+	}
+	request, err := http.NewRequest(http.MethodPost, endpoint, &body)
+	if err != nil {
+		t.Fatalf("create authenticated upload request: %v", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Idempotency-Key", operationID)
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("upload authenticated Artifact: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		responseContent, _ := io.ReadAll(response.Body)
+		t.Fatalf("upload authenticated Artifact status = %d: %s", response.StatusCode, responseContent)
+	}
+	var envelope struct {
+		Data domain.Artifact `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode authenticated uploaded Artifact: %v", err)
+	}
+	return envelope.Data
+}
+
+func testExecutorToken(seed byte) string {
+	return identity.ExecutorTokenPrefix + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{seed}, 32))
 }
 
 type issuedTokenPayload struct {
