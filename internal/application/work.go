@@ -133,10 +133,12 @@ func containsAll(values, required []string) bool {
 
 // ClaimTaskCommand establishes execution responsibility for one pending Task.
 type ClaimTaskCommand struct {
-	TaskID       domain.TaskID
-	Identity     Identity
-	OperationID  string
-	LeaseSeconds int64
+	ExecutorToken     string `json:"-"`
+	ExecutorTokenHash string `json:",omitempty"`
+	TaskID            domain.TaskID
+	Identity          Identity
+	OperationID       string
+	LeaseSeconds      int64
 }
 
 // ClaimTask atomically claims one pending Task.
@@ -148,9 +150,16 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 		return domain.Claim{}, err
 	}
 
+	hash, err := executorClaimTokenHash(command.Identity, command.ExecutorToken)
+	if err != nil {
+		return domain.Claim{}, err
+	}
+	command.ExecutorTokenHash = hash
+	command.ExecutorToken = ""
+
 	var created domain.Claim
 	var terminalErr error
-	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "claim_task", command, &created, func(store WriteStore) error {
+	err = s.replayableCreate(ctx, command.Identity, command.OperationID, "claim_task", command, &created, func(store WriteStore) error {
 		task, err := store.GetTask(command.TaskID)
 		if err != nil {
 			return fmt.Errorf("get task %q: %w", command.TaskID, err)
@@ -201,7 +210,7 @@ func (s *Service) ClaimTask(ctx context.Context, command ClaimTaskCommand) (doma
 		}
 		now := s.clock.Now()
 		claimID := domain.ClaimID(id)
-		claim := domain.Claim{ID: claimID, TaskID: task.ID, Executor: command.Identity.Actor, ClaimedAt: now}
+		claim := domain.Claim{ExecutorTokenHash: hash, ID: claimID, TaskID: task.ID, Executor: command.Identity.Actor, ClaimedAt: now}
 		if command.Identity.Actor.Kind == domain.ActorAgent {
 			lease := normalizeClaimLease(command.LeaseSeconds, s.claimLease)
 			claim.LastHeartbeatAt = now

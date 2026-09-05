@@ -127,6 +127,7 @@ Available in this repository:
 - Workflow Artifact delivery contracts and a built-in `kairos://` Artifact Store with database-first uploads, integrity digests, configurable limits, and garbage collection;
 - concurrency guards plus replay protection for resource-creating API calls and managed uploads;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
+- Claim-bound Executor credentials with scoped HTTP/MCP read, Artifact, and Blackboard-planning permissions;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
 - human-operated WorkItem cancellation with durable actor, time, and reason metadata;

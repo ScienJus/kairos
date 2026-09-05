@@ -389,17 +389,50 @@ func TestAuthenticatedMCPRequiresBearerAndUsesManagedIdentity(t *testing.T) {
 	}
 	planningClaim := callTool[coordinationClaimOutput](t, ctx, session, "claim_work_candidate", claimWorkCandidateInput{
 		WorkItemID: find.Candidates[0].WorkItem.ID, Kind: "empty_blackboard", OperationID: "authenticated-coordination-1",
+		ExecutorToken: mcpExecutorToken(1),
 	})
+	coordSession := connectMCP(t, ctx, server.URL, http.Header{"Authorization": {"Bearer " + mcpExecutorToken(1)}})
+	t.Cleanup(func() { _ = coordSession.Close() })
+	assertMCPTools(t, ctx, coordSession, []string{"get_task_context", "get_work_item_context"})
+	callTool[workItemContextOutput](t, ctx, coordSession, "get_work_item_context", workItemContextInput{WorkItemID: find.Candidates[0].WorkItem.ID})
 
 	created := callTool[taskOutput](t, ctx, session, "create_blackboard_task", createBlackboardTaskInput{
 		WorkItemID: find.Candidates[0].WorkItem.ID, CoordinationClaimID: planningClaim.Claim.ID, OperationID: "authenticated-plan-1",
 		Title: "Authenticated task", Executor: "agent", AllowedRoles: []string{"backend"},
 	})
 	claimed := callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
-		TaskID: created.Task.ID, OperationID: "authenticated-claim-1",
+		TaskID: created.Task.ID, OperationID: "authenticated-claim-1", ExecutorToken: mcpExecutorToken(2),
 	})
 	if claimed.Claim.Executor.ID != "authenticated-agent" || claimed.Claim.Executor.Kind != string(domain.ActorAgent) {
 		t.Fatalf("authenticated claim executor = %+v", claimed.Claim.Executor)
+	}
+	taskSession := connectMCP(t, ctx, server.URL, http.Header{"Authorization": {"Bearer " + mcpExecutorToken(2)}})
+	t.Cleanup(func() { _ = taskSession.Close() })
+	assertMCPTools(t, ctx, taskSession, []string{
+		"add_blackboard_child_task", "add_blackboard_relation", "create_artifact", "create_blackboard_task",
+		"get_task_context", "get_work_item_context", "upload_artifact",
+	})
+	callTool[taskContextOutput](t, ctx, taskSession, "get_task_context", taskContextInput{TaskID: created.Task.ID})
+}
+
+func mcpExecutorToken(seed byte) string {
+	return identity.ExecutorTokenPrefix + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{seed}, 32))
+}
+
+func assertMCPTools(t *testing.T, ctx context.Context, session *mcp.ClientSession, want []string) {
+	t.Helper()
+	result, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("list MCP tools: %v", err)
+	}
+	got := make([]string, 0, len(result.Tools))
+	for _, tool := range result.Tools {
+		got = append(got, tool.Name)
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("MCP tools = %v, want %v", got, want)
 	}
 }
 

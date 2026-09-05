@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
+	credential "github.com/ScienJus/kairos/internal/identity"
 )
 
 // DecomposeBlackboardTaskCommand turns one claimed execution Task into an aggregate Task.
@@ -181,7 +182,7 @@ func (s *Service) AddBlackboardChildTask(
 	if strings.TrimSpace(string(command.ParentTaskID)) == "" {
 		return domain.Task{}, invalidCommand("parent task id is required")
 	}
-	if err := command.Identity.Validate(); err != nil {
+	if err := command.Identity.ValidateCapability(credential.BlackboardPlanningWrite); err != nil {
 		return domain.Task{}, err
 	}
 

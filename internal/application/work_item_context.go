@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ScienJus/kairos/internal/domain"
+	credential "github.com/ScienJus/kairos/internal/identity"
 )
 
 // ListWorkItemsQuery filters the durable WorkItem collection for operational views.
@@ -105,12 +106,15 @@ func (s *Service) GetWorkItemExecutionContext(
 	if strings.TrimSpace(string(query.WorkItemID)) == "" {
 		return WorkItemExecutionContext{}, invalidCommand("work item id is required")
 	}
-	if err := query.Identity.Validate(); err != nil {
+	if err := query.Identity.ValidateCapability(credential.ScopedRead); err != nil {
 		return WorkItemExecutionContext{}, err
 	}
 
 	var result WorkItemExecutionContext
 	err := s.repository.View(ctx, func(store ReadStore) error {
+		if err := authorizeExecutor(store, query.Identity, credential.ScopedRead, query.WorkItemID); err != nil {
+			return err
+		}
 		workItem, err := store.GetWorkItem(query.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", query.WorkItemID, err)

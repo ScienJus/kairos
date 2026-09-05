@@ -264,14 +264,14 @@ func (s *sqlStore) ListTaskRelations(workItemID domain.WorkItemID) ([]domain.Tas
 
 func (s *sqlStore) ListClaims(taskID domain.TaskID) ([]domain.Claim, error) {
 	return s.listClaims(
-		"SELECT c.payload, c.executor_kind, c.executor_id, c.last_heartbeat_at, c.lease_until, c.lease_seconds FROM claims c WHERE c.task_id = ? ORDER BY c.claimed_at, c.id",
+		"SELECT c.payload, c.executor_kind, c.executor_id, c.last_heartbeat_at, c.lease_until, c.lease_seconds, c.executor_token_hash FROM claims c WHERE c.task_id = ? ORDER BY c.claimed_at, c.id",
 		taskID,
 	)
 }
 
 func (s *sqlStore) ListClaimsByWorkItem(workItemID domain.WorkItemID) ([]domain.Claim, error) {
 	return s.listClaims(`
-		SELECT c.payload, c.executor_kind, c.executor_id, c.last_heartbeat_at, c.lease_until, c.lease_seconds
+		SELECT c.payload, c.executor_kind, c.executor_id, c.last_heartbeat_at, c.lease_until, c.lease_seconds, c.executor_token_hash
 		FROM claims c
 		JOIN tasks t ON t.id = c.task_id
 		WHERE t.work_item_id = ?
@@ -292,13 +292,15 @@ func (s *sqlStore) listClaims(query string, args ...any) ([]domain.Claim, error)
 		var executorKind, executorID string
 		var heartbeat, lease nullableScannedTime
 		var leaseSeconds sql.NullInt64
-		if err := rows.Scan(&payload, &executorKind, &executorID, &heartbeat, &lease, &leaseSeconds); err != nil {
+		var tokenHash sql.NullString
+		if err := rows.Scan(&payload, &executorKind, &executorID, &heartbeat, &lease, &leaseSeconds, &tokenHash); err != nil {
 			return nil, normalizeError(err)
 		}
 		value, err := decodeJSON[domain.Claim](payload)
 		if err != nil {
 			return nil, err
 		}
+		value.ExecutorTokenHash = tokenHash.String
 		value.Executor = domain.ActorRef{Kind: domain.ActorKind(executorKind), ID: domain.ActorID(executorID)}
 		if heartbeat.Valid {
 			value.LastHeartbeatAt = heartbeat.Time
@@ -316,7 +318,7 @@ func (s *sqlStore) listClaims(query string, args ...any) ([]domain.Claim, error)
 
 func (s *sqlStore) ListCoordinationClaims(workItemID domain.WorkItemID) ([]domain.CoordinationClaim, error) {
 	rows, err := s.query(`
-		SELECT payload, kind, executor_kind, executor_id, last_heartbeat_at, lease_until, lease_seconds
+		SELECT payload, kind, executor_kind, executor_id, last_heartbeat_at, lease_until, lease_seconds, executor_token_hash
 		FROM coordination_claims
 		WHERE work_item_id = ?
 		ORDER BY claimed_at, id`, workItemID)
@@ -330,13 +332,15 @@ func (s *sqlStore) ListCoordinationClaims(workItemID domain.WorkItemID) ([]domai
 		var kind, executorKind, executorID string
 		var heartbeat, lease scannedTime
 		var leaseSeconds int64
-		if err := rows.Scan(&payload, &kind, &executorKind, &executorID, &heartbeat, &lease, &leaseSeconds); err != nil {
+		var tokenHash sql.NullString
+		if err := rows.Scan(&payload, &kind, &executorKind, &executorID, &heartbeat, &lease, &leaseSeconds, &tokenHash); err != nil {
 			return nil, normalizeError(err)
 		}
 		value, err := decodeJSON[domain.CoordinationClaim](payload)
 		if err != nil {
 			return nil, err
 		}
+		value.ExecutorTokenHash = tokenHash.String
 		value.Kind = domain.CoordinationClaimKind(kind)
 		value.Executor = domain.ActorRef{Kind: domain.ActorKind(executorKind), ID: domain.ActorID(executorID)}
 		value.LastHeartbeatAt = heartbeat.Time
@@ -1293,9 +1297,9 @@ func (s *sqlStore) CreateClaim(value domain.Claim) error {
 	}
 	heartbeat, lease, leaseSeconds := claimLeaseColumns(value)
 	_, err = s.exec(`
-		INSERT INTO claims (id, task_id, executor_kind, executor_id, active, claimed_at, last_heartbeat_at, lease_until, lease_seconds, updated_at, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		value.ID, value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), databaseTime(value.ClaimedAt), heartbeat, lease, leaseSeconds, databaseTime(claimUpdatedAt(value)), payload,
+		INSERT INTO claims (id, task_id, executor_kind, executor_id, active, claimed_at, last_heartbeat_at, lease_until, lease_seconds, updated_at, payload, executor_token_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		value.ID, value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), databaseTime(value.ClaimedAt), heartbeat, lease, leaseSeconds, databaseTime(claimUpdatedAt(value)), payload, nullTokenHash(value.ExecutorTokenHash),
 	)
 	return err
 }
@@ -1312,9 +1316,9 @@ func (s *sqlStore) SaveClaim(value domain.Claim) error {
 	heartbeat, lease, leaseSeconds := claimLeaseColumns(value)
 	result, err := s.exec(`
 		UPDATE claims
-		SET task_id = ?, executor_kind = ?, executor_id = ?, active = ?, claimed_at = ?, last_heartbeat_at = ?, lease_until = ?, lease_seconds = ?, updated_at = ?, payload = ?
+		SET task_id = ?, executor_kind = ?, executor_id = ?, active = ?, claimed_at = ?, last_heartbeat_at = ?, lease_until = ?, lease_seconds = ?, updated_at = ?, payload = ?, executor_token_hash = ?
 		WHERE id = ?`,
-		value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), databaseTime(value.ClaimedAt), heartbeat, lease, leaseSeconds, databaseTime(claimUpdatedAt(value)), payload, value.ID,
+		value.TaskID, value.Executor.Kind, value.Executor.ID, value.Active(), databaseTime(value.ClaimedAt), heartbeat, lease, leaseSeconds, databaseTime(claimUpdatedAt(value)), payload, nullTokenHash(value.ExecutorTokenHash), value.ID,
 	)
 	if err != nil {
 		return err
@@ -1333,11 +1337,11 @@ func (s *sqlStore) CreateCoordinationClaim(value domain.CoordinationClaim) error
 	}
 	_, err = s.exec(`
 		INSERT INTO coordination_claims
-			(id, work_item_id, kind, executor_kind, executor_id, active, claimed_at, last_heartbeat_at, lease_until, lease_seconds, updated_at, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, work_item_id, kind, executor_kind, executor_id, active, claimed_at, last_heartbeat_at, lease_until, lease_seconds, updated_at, payload, executor_token_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID, value.WorkItemID, value.Kind, value.Executor.Kind, value.Executor.ID, value.Active(),
 		databaseTime(value.ClaimedAt), databaseTime(value.LastHeartbeatAt), databaseTime(value.LeaseUntil), value.LeaseSeconds,
-		databaseTime(coordinationClaimUpdatedAt(value)), payload,
+		databaseTime(coordinationClaimUpdatedAt(value)), payload, nullTokenHash(value.ExecutorTokenHash),
 	)
 	return err
 }
@@ -1353,10 +1357,10 @@ func (s *sqlStore) SaveCoordinationClaim(value domain.CoordinationClaim) error {
 	}
 	result, err := s.exec(`
 		UPDATE coordination_claims
-		SET kind = ?, executor_kind = ?, executor_id = ?, active = ?, last_heartbeat_at = ?, lease_until = ?, lease_seconds = ?, updated_at = ?, payload = ?
+		SET kind = ?, executor_kind = ?, executor_id = ?, active = ?, last_heartbeat_at = ?, lease_until = ?, lease_seconds = ?, updated_at = ?, payload = ?, executor_token_hash = ?
 		WHERE id = ?`,
 		value.Kind, value.Executor.Kind, value.Executor.ID, value.Active(), databaseTime(value.LastHeartbeatAt),
-		databaseTime(value.LeaseUntil), value.LeaseSeconds, databaseTime(coordinationClaimUpdatedAt(value)), payload, value.ID,
+		databaseTime(value.LeaseUntil), value.LeaseSeconds, databaseTime(coordinationClaimUpdatedAt(value)), payload, nullTokenHash(value.ExecutorTokenHash), value.ID,
 	)
 	if err != nil {
 		return err

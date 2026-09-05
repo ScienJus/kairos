@@ -43,7 +43,12 @@ func (s *Service) replayableCreate(
 		return err
 	}
 	if operationID == "" {
-		if err := s.repository.Update(ctx, apply); err != nil {
+		if err := s.repository.Update(ctx, func(store WriteStore) error {
+			if err := authorizeExecutorCreation(store, identity, request); err != nil {
+				return err
+			}
+			return apply(store)
+		}); err != nil {
 			return err
 		}
 		return committedErr
@@ -56,9 +61,18 @@ func (s *Service) replayableCreate(
 		return err
 	}
 
+	if identity.Executor != nil {
+		requestHash, err = idempotencyRequestHash(struct{ RequestHash, ClaimID string }{requestHash, identity.Executor.ClaimID})
+		if err != nil {
+			return err
+		}
+	}
 	err = s.repository.Update(ctx, func(store WriteStore) error {
 		if err := store.LockIdempotencyKey(identity.Actor, operationID); err != nil {
 			return fmt.Errorf("lock operation %q: %w", operationID, err)
+		}
+		if err := authorizeExecutorCreation(store, identity, request); err != nil {
+			return err
 		}
 		record, err := store.GetIdempotencyRecord(identity.Actor, operationID)
 		switch {

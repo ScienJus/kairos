@@ -1,8 +1,10 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/ScienJus/kairos/internal/application"
 	"github.com/ScienJus/kairos/internal/domain"
+	"github.com/ScienJus/kairos/internal/identity"
 )
 
 func createBlackboardTaskForTest(service *application.Service, ctx context.Context, command application.CreateBlackboardTaskCommand) (domain.Task, error) {
@@ -85,6 +88,9 @@ func TestSQLRepositoryContract(t *testing.T) {
 		t.Run("workflow round trip", func(t *testing.T) {
 			testWorkflowRoundTrip(t, repository, workflow)
 		})
+		t.Run("executor credential round trip", func(t *testing.T) {
+			testExecutorCredentialRoundTrip(t, repository, blackboard)
+		})
 		t.Run("definition metadata batch", func(t *testing.T) {
 			testDefinitionMetadataBatch(t, repository, workflow, blackboard)
 		})
@@ -105,6 +111,9 @@ func TestSQLRepositoryContract(t *testing.T) {
 		})
 		t.Run("concurrent claim", func(t *testing.T) {
 			testConcurrentClaim(t, repository, openPeer(t), blackboard)
+		})
+		t.Run("executor mutation release race", func(t *testing.T) {
+			testConcurrentExecutorRelease(t, repository, openPeer(t), blackboard)
 		})
 		t.Run("concurrent Definition versions", func(t *testing.T) {
 			testConcurrentDefinitionVersions(t, repository, openPeer(t), workflow)
@@ -1326,6 +1335,98 @@ func testCoordinationClaimHistoryLimit(t *testing.T, repository *SQLRepository, 
 	}
 }
 
+func testExecutorCredentialRoundTrip(t *testing.T, repository *SQLRepository, definition domain.BlackboardDefinition) {
+	t.Helper()
+	ctx := context.Background()
+	service := repositoryTestService(t, repository)
+	agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "executor-round-trip"}, Role: "backend"}
+	workItem, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Executor credentials", Goal: "Round trip claim credentials",
+	})
+	if err != nil {
+		t.Fatalf("create executor work item: %v", err)
+	}
+	coordToken := identity.ExecutorTokenPrefix + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32))
+	coord, err := service.ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{
+		WorkItemID: workItem.ID, Kind: application.WorkCandidateEmptyBlackboard, Identity: agent, ExecutorToken: coordToken,
+	})
+	if err != nil {
+		t.Fatalf("claim executor coordination: %v", err)
+	}
+	principal, err := service.Authenticate(ctx, coordToken)
+	if err != nil || principal.Executor == nil || principal.Executor.Profile != identity.CoordinationExecutor {
+		t.Fatalf("coordination principal = %+v, err %v", principal, err)
+	}
+	task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, CoordinationClaimID: coord.ID, Identity: agent,
+		Title: "Execute", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"},
+	})
+	if err != nil {
+		t.Fatalf("create executor task: %v", err)
+	}
+	if _, err := service.Authenticate(ctx, coordToken); !errors.Is(err, identity.ErrUnauthenticated) {
+		t.Fatalf("ended coordination token error = %v", err)
+	}
+	taskToken := identity.ExecutorTokenPrefix + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32))
+	claimCommand := application.ClaimTaskCommand{TaskID: task.ID, Identity: agent, OperationID: "executor-task-claim", ExecutorToken: taskToken}
+	claim, err := service.ClaimTask(ctx, claimCommand)
+	if err != nil {
+		t.Fatalf("claim executor task: %v", err)
+	}
+	replayed, err := service.ClaimTask(ctx, claimCommand)
+	if err != nil || replayed.ID != claim.ID {
+		t.Fatalf("replay executor task claim = %+v, err %v", replayed, err)
+	}
+	changedToken := identity.ExecutorTokenPrefix + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{5}, 32))
+	claimCommand.ExecutorToken = changedToken
+	if _, err := service.ClaimTask(ctx, claimCommand); !errors.Is(err, application.ErrConflict) {
+		t.Fatalf("changed executor token replay error = %v, want conflict", err)
+	}
+	claimCommand.ExecutorToken = taskToken
+	principal, err = service.Authenticate(ctx, taskToken)
+	if err != nil || principal.Executor == nil || principal.Executor.Profile != identity.TaskExecutor || principal.Executor.ClaimID != string(claim.ID) {
+		t.Fatalf("task principal = %+v, err %v", principal, err)
+	}
+	var storedHash sql.NullString
+	var payload string
+	if err := repository.db.QueryRowContext(ctx, rebind(repository.dialect, "SELECT executor_token_hash, payload FROM claims WHERE id = ?"), claim.ID).Scan(&storedHash, &payload); err != nil {
+		t.Fatalf("query executor credential: %v", err)
+	}
+	if !storedHash.Valid || len(storedHash.String) != 64 || strings.Contains(payload, taskToken) || strings.Contains(payload, storedHash.String) {
+		t.Fatalf("stored executor credential leaked into payload: hash=%q payload=%s", storedHash.String, payload)
+	}
+	if err := service.ReleaseClaim(ctx, application.ReleaseClaimCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: agent}); err != nil {
+		t.Fatalf("release executor task claim: %v", err)
+	}
+	endedReplay, err := service.ClaimTask(ctx, claimCommand)
+	if err != nil || endedReplay.ID != claim.ID {
+		t.Fatalf("ended executor claim replay = %+v, err %v", endedReplay, err)
+	}
+	if _, err := service.Authenticate(ctx, taskToken); !errors.Is(err, identity.ErrUnauthenticated) {
+		t.Fatalf("ended task token error = %v, want unauthenticated", err)
+	}
+	ambiguousWorkItem, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Ambiguous credential", Goal: "Fail closed",
+	})
+	if err != nil {
+		t.Fatalf("create ambiguous executor work item: %v", err)
+	}
+	ambiguousClaim, err := service.ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{
+		WorkItemID: ambiguousWorkItem.ID, Kind: application.WorkCandidateEmptyBlackboard, Identity: agent, ExecutorToken: taskToken,
+	})
+	if err != nil {
+		t.Fatalf("create ambiguous executor credential: %v", err)
+	}
+	if _, err := service.Authenticate(ctx, taskToken); !errors.Is(err, identity.ErrUnauthenticated) {
+		t.Fatalf("ambiguous executor token error = %v, want unauthenticated", err)
+	}
+	if err := service.ReleaseCoordinationClaim(ctx, application.ReleaseCoordinationClaimCommand{
+		WorkItemID: ambiguousWorkItem.ID, ClaimID: ambiguousClaim.ID, Identity: agent,
+	}); err != nil {
+		t.Fatalf("release ambiguous coordination claim: %v", err)
+	}
+}
+
 func forEachSQLRepository(
 	t *testing.T,
 	test func(*testing.T, *SQLRepository, func(*testing.T) *SQLRepository),
@@ -1347,6 +1448,9 @@ func forEachSQLRepository(
 
 	dsn := os.Getenv("KAIROS_TEST_POSTGRES_DSN")
 	if dsn == "" {
+		t.Run("postgres", func(t *testing.T) {
+			t.Skip("KAIROS_TEST_POSTGRES_DSN is not configured")
+		})
 		return
 	}
 	t.Run("postgres", func(t *testing.T) {
@@ -1567,6 +1671,87 @@ func testConcurrentClaim(
 	}
 	if succeeded != 1 || conflicted != 1 {
 		t.Fatalf("claim results: success=%d conflict=%d", succeeded, conflicted)
+	}
+}
+
+func testConcurrentExecutorRelease(
+	t *testing.T,
+	repository *SQLRepository,
+	peer *SQLRepository,
+	definition domain.BlackboardDefinition,
+) {
+	t.Helper()
+	ctx := context.Background()
+	ownerService := repositoryTestService(t, repository)
+	executorService := repositoryTestService(t, peer)
+	agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "executor-race"}, Role: "generalist"}
+	workItem, err := ownerService.CreateWorkItem(ctx, application.CreateWorkItemCommand{
+		Definition: definition.Binding(), Identity: agent, Title: "Executor race", Goal: "Serialize release and mutation",
+	})
+	if err != nil {
+		t.Fatalf("create executor race work item: %v", err)
+	}
+	task, err := createBlackboardTaskForTest(ownerService, ctx, application.CreateBlackboardTaskCommand{
+		WorkItemID: workItem.ID, Identity: agent, Title: "Race task", Executor: domain.ExecutorAgent,
+	})
+	if err != nil {
+		t.Fatalf("create executor race task: %v", err)
+	}
+	token := identity.ExecutorTokenPrefix + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	claim, err := ownerService.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: task.ID, Identity: agent, ExecutorToken: token})
+	if err != nil {
+		t.Fatalf("claim executor race task: %v", err)
+	}
+	principal, err := executorService.Authenticate(ctx, token)
+	if err != nil {
+		t.Fatalf("authenticate executor race token: %v", err)
+	}
+
+	start := make(chan struct{})
+	artifactResult := make(chan error, 1)
+	releaseResult := make(chan error, 1)
+	go func() {
+		<-start
+		_, err := executorService.CreateArtifact(ctx, application.CreateArtifactCommand{
+			TaskID: task.ID, ClaimID: claim.ID, Identity: principal, OperationID: "executor-race-artifact", Name: "race", URI: "https://example.com/race",
+		})
+		artifactResult <- err
+	}()
+	go func() {
+		<-start
+		releaseResult <- ownerService.ReleaseClaim(ctx, application.ReleaseClaimCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: agent})
+	}()
+	close(start)
+	artifactErr := <-artifactResult
+	if releaseErr := <-releaseResult; releaseErr != nil {
+		t.Fatalf("release executor race claim: %v", releaseErr)
+	}
+	if artifactErr != nil && !errors.Is(artifactErr, identity.ErrUnauthenticated) {
+		t.Fatalf("executor mutation race error = %v", artifactErr)
+	}
+
+	if err := repository.View(ctx, func(store application.ReadStore) error {
+		persistedTask, err := store.GetTask(task.ID)
+		if err != nil {
+			return err
+		}
+		if persistedTask.Status != domain.TaskStatusPending || persistedTask.ActiveClaimID != nil {
+			return fmt.Errorf("released task = %#v", persistedTask)
+		}
+		artifacts, err := store.ListArtifacts(application.ArtifactFilter{WorkItemID: workItem.ID, TaskID: task.ID})
+		if err != nil {
+			return err
+		}
+		want := 0
+		if artifactErr == nil {
+			want = 1
+		}
+		if len(artifacts) != want {
+			return fmt.Errorf("artifact count = %d, want %d", len(artifacts), want)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verify executor mutation release race: %v", err)
 	}
 }
 
