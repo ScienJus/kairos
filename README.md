@@ -128,6 +128,7 @@ Available in this repository:
 - concurrency guards plus replay protection for resource-creating API calls and managed uploads;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - Claim-bound Executor credentials with scoped HTTP/MCP read, Artifact, and Blackboard-planning permissions;
+- an internal single-dispatch engine with a Core HTTP client, independent heartbeat, outcome reconciliation, and fake-Adapter tests; continuous scheduling and a real Harness Adapter remain unimplemented;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
 - human-operated WorkItem cancellation with durable actor, time, and reason metadata;
