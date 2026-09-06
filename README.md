@@ -1,20 +1,34 @@
-# Kairos
+# Kairos: Durable Coordination for Human and AI Agent Teams
 
 <p align="center">
   <img src="docs/assets/kairos-logo-wordmark.png" alt="Kairos" width="520">
 </p>
 
-English | [简体中文](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md) | [Documentation](https://scienjus.github.io/kairos/)
 
 [![CI](https://github.com/ScienJus/kairos/actions/workflows/ci.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/ci.yml)
 [![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Kairos coordinates tasks shared by people and agents.
+Kairos is an open-source coordination server for human and AI agent teams. It gives Codex, Claude Code, and other MCP clients a durable shared work view for tasks, claims, reviews, artifacts, and next steps.
 
-Agent harnesses such as Codex and Claude Code are good at running an agent. Kairos focuses on the collaboration around those agents: what work exists, who is responsible for it, what has already been delivered, and what can happen next.
+It is the coordination layer around an agent harness: Kairos does not start or stop agents, choose models, or manage sandboxes. Agents connect proactively through MCP / Skills, while the durable work state stays available across sessions.
 
-It does not start or stop agents, choose models, or manage sandboxes. The current integration model lets agents connect proactively through MCP / Skills; a planned Bridge will dispatch Tasks to a harness when automated startup is needed.
+<p align="center">
+  <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow showing two parallel tasks joining into a release plan" width="900">
+</p>
+
+## Try it
+
+Start an isolated Workflow with two parallel Tasks and a join Task:
+
+```bash
+make quickstart
+```
+
+Open the printed local URL, then follow the [quickstart guide](examples/quickstart/README.md) to connect Codex sessions and see how exclusive Claims prevent duplicate work.
+
+Agents connect proactively through MCP / Skills. Agent Daemon provides continuous scheduling and an opt-in local Codex Adapter; real-provider smoke validation remains separate from automated tests.
 
 ## Why Kairos
 
@@ -113,6 +127,8 @@ Available in this repository:
 - Workflow Artifact delivery contracts and a built-in `kairos://` Artifact Store with database-first uploads, integrity digests, configurable limits, and garbage collection;
 - concurrency guards plus replay protection for resource-creating API calls and managed uploads;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
+- Claim-bound Executor credentials with scoped HTTP/MCP read, Artifact, and Blackboard-planning permissions;
+- an Agent Daemon scheduler and [local Codex Adapter](internal/daemon/codexadapter/README.md), with shared slots, health probes, candidate-generation suppression, scoped managed execution, and real-process HTTP/MCP tests without model calls;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
 - human-operated WorkItem cancellation with durable actor, time, and reason metadata;
@@ -121,7 +137,7 @@ Available in this repository:
 
 Still to be built:
 
-- a Bridge for automatic dispatch;
+- live-provider validation and production Agent Daemon delivery;
 - the remaining operational-console workflows, including a WorkItem event timeline.
 
 For development, use Go 1.26.6 or later and run:
@@ -129,16 +145,6 @@ For development, use Go 1.26.6 or later and run:
 ```bash
 make go-test
 ```
-
-## Quickstart
-
-Run an isolated example with two parallel Tasks followed by a join Task:
-
-```bash
-make quickstart
-```
-
-Open `http://127.0.0.1:8080`, then follow the printed instructions to connect one or more Codex sessions. The [quickstart guide](examples/quickstart/README.md) explains the execution flow and how exclusive Claims prevent duplicate work.
 
 ## Running Kairos
 

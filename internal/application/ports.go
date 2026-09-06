@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
+	"github.com/ScienJus/kairos/internal/identity"
 )
 
 const DefaultClaimLease = 5 * time.Minute
@@ -200,6 +201,7 @@ type ReadStore interface {
 	ListBlackboardsAwaitingCompletion([]string, int) ([]domain.WorkItem, error)
 	ListReapableAgentClaimTasks(time.Time) ([]domain.TaskID, error)
 	ListReapableCoordinationClaimWorkItems(time.Time) ([]domain.WorkItemID, error)
+	FindExecutorPrincipals(string) ([]identity.Principal, error)
 
 	GetDefinitionMetadata([]domain.DefinitionBinding) (map[domain.DefinitionBinding]domain.DefinitionMetadata, error)
 	GetWorkflowDefinition(domain.DefinitionID, int64) (domain.WorkflowDefinition, error)

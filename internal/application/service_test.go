@@ -17,6 +17,7 @@ import (
 
 	"github.com/ScienJus/kairos/internal/artifactstore"
 	"github.com/ScienJus/kairos/internal/domain"
+	"github.com/ScienJus/kairos/internal/identity"
 )
 
 func TestGetWorkflowTaskExecutionContext(t *testing.T) {
@@ -3282,6 +3283,45 @@ func (r *testRepository) GetWorkItem(id domain.WorkItemID) (domain.WorkItem, err
 		return domain.WorkItem{}, ErrNotFound
 	}
 	return value, nil
+}
+
+func (r *testRepository) FindExecutorPrincipals(hash string) ([]identity.Principal, error) {
+	result := make([]identity.Principal, 0, 2)
+	for _, claim := range r.claims {
+		if claim.ExecutorTokenHash != hash {
+			continue
+		}
+		task, ok := r.tasks[claim.TaskID]
+		if !ok {
+			return nil, ErrNotFound
+		}
+		result = append(result, identity.Principal{
+			Actor: claim.Executor,
+			Executor: &identity.ExecutorScope{
+				Profile: identity.TaskExecutor, ClaimID: string(claim.ID), TaskID: claim.TaskID,
+				WorkItemID: task.WorkItemID, TokenHash: hash,
+			},
+		})
+		if len(result) == 2 {
+			return result, nil
+		}
+	}
+	for _, claim := range r.coordinationClaims {
+		if claim.ExecutorTokenHash != hash {
+			continue
+		}
+		result = append(result, identity.Principal{
+			Actor: claim.Executor,
+			Executor: &identity.ExecutorScope{
+				Profile: identity.CoordinationExecutor, ClaimID: string(claim.ID), WorkItemID: claim.WorkItemID,
+				CandidateKind: claim.Kind, TokenHash: hash,
+			},
+		})
+		if len(result) == 2 {
+			return result, nil
+		}
+	}
+	return result, nil
 }
 
 func (r *testRepository) ListWorkItems(filter WorkItemFilter) ([]domain.WorkItem, error) {

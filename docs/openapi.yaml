@@ -53,6 +53,7 @@ paths:
         '200': { $ref: '#/components/responses/Session' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/identities:
     get:
@@ -143,6 +144,7 @@ paths:
               schema: { $ref: '#/components/schemas/WorkflowDefinitionListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/definitions/workflows/{definition_id}:
     parameters:
@@ -156,6 +158,7 @@ paths:
         '200': { $ref: '#/components/responses/WorkflowDefinition' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/definitions/workflows/{definition_id}/versions:
@@ -177,6 +180,7 @@ paths:
               schema: { $ref: '#/components/schemas/WorkflowDefinitionListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     post:
@@ -192,6 +196,7 @@ paths:
         '201': { $ref: '#/components/responses/WorkflowDefinition' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/definitions/workflows/{definition_id}/versions/{version}:
@@ -207,6 +212,7 @@ paths:
         '200': { $ref: '#/components/responses/WorkflowDefinition' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/definitions/blackboards:
@@ -228,6 +234,7 @@ paths:
               schema: { $ref: '#/components/schemas/BlackboardDefinitionListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/definitions/blackboards/{definition_id}:
     parameters:
@@ -241,6 +248,7 @@ paths:
         '200': { $ref: '#/components/responses/BlackboardDefinition' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/definitions/blackboards/{definition_id}/versions:
@@ -262,6 +270,7 @@ paths:
               schema: { $ref: '#/components/schemas/BlackboardDefinitionListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     post:
@@ -277,6 +286,7 @@ paths:
         '201': { $ref: '#/components/responses/BlackboardDefinition' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/definitions/blackboards/{definition_id}/versions/{version}:
@@ -292,6 +302,7 @@ paths:
         '200': { $ref: '#/components/responses/BlackboardDefinition' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/work:
@@ -315,6 +326,7 @@ paths:
               schema: { $ref: '#/components/schemas/WorkCandidateListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/human-attention:
     parameters:
@@ -334,6 +346,7 @@ paths:
               schema: { $ref: '#/components/schemas/HumanAttentionListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/work-items:
     parameters:
@@ -366,6 +379,7 @@ paths:
               schema: { $ref: '#/components/schemas/WorkItemListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     post:
       operationId: createWorkItem
@@ -380,6 +394,7 @@ paths:
         '201': { $ref: '#/components/responses/WorkItem' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -399,6 +414,7 @@ paths:
               schema: { $ref: '#/components/schemas/WorkItemContextResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/work-items/{work_item_id}/artifacts:
@@ -420,6 +436,7 @@ paths:
               schema: { $ref: '#/components/schemas/ArtifactListResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/work-items/{work_item_id}/coordination-claims:
@@ -501,6 +518,7 @@ paths:
         '201': { $ref: '#/components/responses/Task' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -521,6 +539,7 @@ paths:
         '201': { $ref: '#/components/responses/TaskRelation' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -547,6 +566,7 @@ paths:
         '200': { $ref: '#/components/responses/WorkItem' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -616,6 +636,7 @@ paths:
               schema: { $ref: '#/components/schemas/TaskDetailResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/tasks/{task_id}/context:
@@ -650,7 +671,7 @@ paths:
         required: false
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/LeaseRequest' }
+            schema: { $ref: '#/components/schemas/TaskClaimRequest' }
       responses:
         '201': { $ref: '#/components/responses/Claim' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -843,6 +864,7 @@ paths:
         '200': { $ref: '#/components/responses/Task' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -899,6 +921,7 @@ paths:
         '201': { $ref: '#/components/responses/Task' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -935,7 +958,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: Identity token for business routes; administrator token for identity routes.
+      description: Identity or `krs_claim_` Executor token for business routes; administrator token for identity routes.
     trustedActorId:
       type: apiKey
       in: header
@@ -1532,6 +1555,7 @@ components:
       required: [kind]
       properties:
         kind: { type: string, enum: [empty_blackboard, blackboard_completion, work_item_acceptance] }
+        executor_token: { $ref: '#/components/schemas/ExecutorToken' }
         lease_seconds:
           type: integer
           format: int64
@@ -1701,6 +1725,25 @@ components:
           format: int64
           default: 0
           description: Positive values are clamped to the supported 15-1800 second range; zero or a negative value uses the server default.
+    TaskClaimRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        executor_token: { $ref: '#/components/schemas/ExecutorToken' }
+        lease_seconds:
+          type: integer
+          format: int64
+          default: 0
+          description: Positive values are clamped to the supported 15-1800 second range; zero or a negative value uses the server default.
+    ExecutorToken:
+      type: string
+      oneOf:
+        - const: ''
+        - minLength: 53
+          maxLength: 53
+          pattern: '^krs_claim_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+      writeOnly: true
+      description: Optional client-generated Claim credential containing 256 random bits as canonical unpadded base64url. Omitted or empty means no Executor credential. Core stores only its SHA-256 hash.
     WorkflowTransitionRequest:
       type: object
       additionalProperties: false

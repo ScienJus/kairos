@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ScienJus/kairos/internal/domain"
+	credential "github.com/ScienJus/kairos/internal/identity"
 )
 
 // Blackboard resource limits keep one dynamically planned WorkItem bounded.
@@ -36,7 +37,7 @@ func (s *Service) CreateBlackboardTask(ctx context.Context, command CreateBlackb
 	if strings.TrimSpace(string(command.WorkItemID)) == "" {
 		return domain.Task{}, invalidCommand("work item id is required")
 	}
-	if err := command.Identity.Validate(); err != nil {
+	if err := command.Identity.ValidateCapability(credential.BlackboardPlanningWrite); err != nil {
 		return domain.Task{}, err
 	}
 
@@ -190,12 +191,15 @@ func (s *Service) AddBlackboardRelation(ctx context.Context, command AddBlackboa
 		strings.TrimSpace(string(command.ToTaskID)) == "" {
 		return domain.TaskRelation{}, invalidCommand("work item id, from task id and to task id are required")
 	}
-	if err := command.Identity.Validate(); err != nil {
+	if err := command.Identity.ValidateCapability(credential.BlackboardPlanningWrite); err != nil {
 		return domain.TaskRelation{}, err
 	}
 
 	var created domain.TaskRelation
 	err := s.repository.Update(ctx, func(store WriteStore) error {
+		if err := authorizeExecutor(store, command.Identity, credential.BlackboardPlanningWrite, command.WorkItemID); err != nil {
+			return err
+		}
 		workItem, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return fmt.Errorf("get work item %q: %w", command.WorkItemID, err)

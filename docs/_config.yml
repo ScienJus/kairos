@@ -1,0 +1,19 @@
+title: Kairos Documentation
+description: Kairos gives human and AI agent teams one shared place to assign work, avoid duplicate execution, review results, and pick up where another session stopped.
+url: https://scienjus.github.io
+baseurl: /kairos
+repository: ScienJus/kairos
+lang: en
+logo: /assets/kairos-logo-mark.png
+image: /assets/kairos-social-preview.png
+theme: jekyll-theme-primer
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+      image: /assets/kairos-social-preview.png

@@ -22,7 +22,7 @@ body { background: var(--bg); }
 .app-shell { background: #f1f3f2; background-image: none; }
 .topbar { background: rgba(252,250,242,.98); border-color: var(--border); }
 .brand { border-color: var(--border); }
-.brand-mark { color: #fff; background: var(--signal); clip-path: none; border-radius: 5px; }
+.brand-mark { border-radius: 5px; }
 .brand strong { color: var(--text); }
 .brand small { color: var(--faint); }
 .system-state { color: var(--muted); }

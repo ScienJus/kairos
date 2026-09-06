@@ -1,20 +1,34 @@
-# Kairos
+# Kairos：面向人类与 AI Agent 团队的持久协作协调层
 
 <p align="center">
   <img src="docs/assets/kairos-logo-wordmark.png" alt="Kairos" width="520">
 </p>
 
-[English](README.md) | 简体中文
+[English](README.md) | 简体中文 | [文档站](https://scienjus.github.io/kairos/)
 
 [![CI](https://github.com/ScienJus/kairos/actions/workflows/ci.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/ci.yml)
 [![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Kairos 协调人类与 Agent 共同参与的工作。
+Kairos 是面向人类与 AI Agent 团队的开源协作协调服务器。它为 Codex、Claude Code 和其他 MCP 客户端提供持久的共享工作视图，用来管理 Task、Claim、Review、Artifact 以及下一步工作。
 
-Codex、Claude Code 等 Agent Harness 擅长运行 Agent。Kairos 关注这些 Agent 周围的协作：有哪些工作、当前由谁负责、已经交付了什么，以及接下来可以做什么。
+Kairos 是 Agent Harness 周围的协调层：它不启动或停止 Agent，不选择模型，也不管理沙箱。Agent 通过 MCP / Skill 主动接入，而持久化的工作状态跨会话保留。
 
-Kairos 不启动或停止 Agent，不选择模型，也不管理沙箱。当前集成模型允许 Agent 通过 MCP / Skill 主动接入；规划中的 Bridge 将在需要自动拉起 Agent 时把 Task 派发给外部 Harness。
+<p align="center">
+  <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow 展示两个并行 Task 汇合到发布计划" width="900">
+</p>
+
+## 快速体验
+
+启动一个包含两个并行 Task 和一个汇合 Task 的隔离 Workflow：
+
+```bash
+make quickstart
+```
+
+打开终端打印的本地地址，然后按照[快速体验指南](examples/quickstart/README.zh-CN.md)接入 Codex 会话，观察独占 Claim 如何防止重复工作。
+
+Agent 可以通过 MCP / Skill 主动接入。Agent Daemon 已提供连续调度与显式启用的本地 Codex Adapter；真实 Provider smoke 验证与自动化测试分开进行。
 
 ## 为什么需要 Kairos
 
@@ -112,6 +126,8 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - Workflow Artifact 交付契约，以及数据库优先上传、完整性 Digest、可配置上传上限和垃圾回收的内置 `kairos://` Artifact Store；
 - 并发保护，以及面向 API 资源创建和托管上传的重放保护；
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
+- 绑定 Claim 的 Executor 凭据，以及受限的 HTTP/MCP 上下文读取、Artifact 和 Blackboard 规划权限；
+- Agent Daemon 连续调度与[本地 Codex Adapter](internal/daemon/codexadapter/README.md)，支持共享 slots、健康探测、按候选代次的抑制和受限执行；通过真实进程与 HTTP/MCP 测试，不调用模型；
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
 - 包含 workspace 总览、人工关注、Workflow 图、Blackboard Task 层级和 Definition 编辑器的 operations console；
 - 记录操作者、时间和原因的人工 WorkItem 取消能力；
@@ -120,7 +136,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 
 仍需实现：
 
-- 用于自动派发的 Bridge；
+- 真实 Provider 验证与 Agent Daemon 生产交付；
 - 剩余的控制台运营流程，包括 WorkItem 事件时间线。
 
 开发需要 Go 1.26.6 或更高版本：
@@ -128,16 +144,6 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 ```bash
 make go-test
 ```
-
-## 快速体验
-
-运行一个包含两个并行 Task 和一个汇合 Task 的隔离示例：
-
-```bash
-make quickstart
-```
-
-打开 `http://127.0.0.1:8080`，然后按照终端提示接入一个或多个 Codex 会话。[快速体验指南](examples/quickstart/README.zh-CN.md)说明了完整执行过程，以及独占 Claim 如何防止重复工作。
 
 ## 运行 Kairos
 

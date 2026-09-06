@@ -17,7 +17,7 @@ Kairos is under active development. This roadmap communicates direction rather t
 ## Near-term priorities
 
 1. **Reliable releases**: reproducible binaries and container images, checksums, migration guidance, and upgrade verification.
-2. **Bridge integration**: dispatch eligible Tasks to external agent harnesses while keeping Kairos independent of model and sandbox management.
+2. **Agent Daemon**: dispatch eligible Tasks to external agent harnesses while keeping Kairos independent of model and sandbox management. See the [phased implementation plan (Chinese)](docs/agent-daemon-implementation-plan.zh-CN.md).
 3. **Operational workflows**: complete the remaining console actions, improve failure recovery visibility, and add practical backup and restore guidance.
 4. **Integration examples**: document real multi-agent workflows and provide reusable Workflow and Blackboard templates.
 5. **Observability**: expose useful structured logs and runtime metrics without making telemetry a coordination dependency.

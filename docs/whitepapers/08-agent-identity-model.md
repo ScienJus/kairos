@@ -1,12 +1,12 @@
 # Kairos Agent Identity Model
 
-> Trusted identity, role, and the work an agent may participate in
+> How Kairos knows which agent is acting and which Tasks it is allowed to take
 
 ## Abstract
 
-Kairos provides agents with native identity. An Agent Identity contains a stable, readable identifier and one role, and is authenticated with a Token. An agent only needs to carry its Token; Kairos resolves its identity and returns the Tasks it is eligible to discover and claim for execution.
+Kairos needs to answer two questions for every agent request: who is acting, and which work may that agent take? An Agent Identity provides a stable identifier and one role. In Authenticated Mode, a Token proves that identity and Kairos returns only the Tasks it is eligible to discover and claim.
 
-Kairos also supports Trusted Mode. In a trusted environment, an agent can declare its own id and role without a Token. Both modes use the same Task discovery and execution model but provide different levels of identity assurance.
+Local and already trusted environments can use Trusted Mode, where the runtime supplies the id and role directly. Task discovery and execution behave the same in both modes; only the strength and source of the identity proof changes.
 
 ## 1. Agent Identity
 
@@ -139,4 +139,4 @@ Kairos can provide repository and working-directory information on a Task so an 
 
 Kairos can host a lightweight Agent Profile with fields such as role, a display label, and description, while project execution rules remain in the repository.
 
-> Agent identity establishes who is acting; its role defines which work the agent may participate in.
+> Identity tells Kairos who is acting. Role narrows the work that agent is allowed to take.

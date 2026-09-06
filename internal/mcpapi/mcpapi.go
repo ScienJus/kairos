@@ -24,6 +24,10 @@ const (
 
 const serverInstructions = "Use find_work to discover eligible work. Claim empty_blackboard, blackboard_completion, and work_item_acceptance with claim_work_candidate before inspecting and deciding them; heartbeat long decisions and end each coordination claim by creating the chosen follow-up Task, submitting or accepting completion, or releasing it. Read task context before claim_task; execute only after a successful task claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. End every task claim with submit_task, fail_task, or release_claim unless a tool returns work_item_cancelled. Resource-creating tools that accept operation_id replay an identical retry; use a new ID when their arguments change. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments."
 
+const taskExecutorInstructions = "You are executing an already claimed Task with a task_executor credential. Use get_task_context and get_work_item_context to read context and submitted Artifacts within the bound WorkItem. Follow expected_artifacts; use create_artifact for external deliverables or upload_artifact for managed files, using the bound Task and Claim IDs. For Blackboard work, extend the plan with create_blackboard_task, add_blackboard_relation, or add_blackboard_child_task when needed. Resource-creating tools that accept operation_id replay an identical retry; use a new ID when their arguments change. Return your outcome and Artifact IDs to the Agent Daemon. The Daemon manages discovery, Claim acquisition, renewal, and finalization. Stop using this credential when authentication fails; it is valid only while its Claim remains active. Identity and scope come from the MCP transport, never tool arguments."
+
+const coordinationExecutorInstructions = "You are evaluating an already claimed coordination candidate with a coordination_executor credential. Use get_work_item_context and get_task_context to read context and submitted Artifacts within the bound WorkItem. This credential is read-only. Return your coordination decision to the Agent Daemon; the Daemon manages discovery, Claim acquisition, renewal, and applying the decision. Stop using this credential when authentication fails; it is valid only while its Claim remains active. Identity and scope come from the MCP transport, never tool arguments."
+
 // Options configures MCP transport limits.
 type Options struct {
 	MaxArtifactUploadBytes int64
@@ -54,7 +58,7 @@ func New(service *application.Service, resolver identity.Resolver, options ...Op
 		return nil, err
 	}
 
-	h := &Handler{service: service, identity: resolver}
+	h := &Handler{service: service, identity: identity.WithExecutorAuthenticator(resolver, service)}
 	schemaCache := mcp.NewSchemaCache()
 	streamable := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		actor, ok := identityFromContext(request)
@@ -108,8 +112,15 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 }
 
 func newServer(service *application.Service, actor identity.Identity, schemaCache *mcp.SchemaCache, maxArtifactUploadBytes int64) *mcp.Server {
+	instructions := serverInstructions
+	if actor.Executor != nil {
+		instructions = coordinationExecutorInstructions
+		if actor.Executor.Profile == identity.TaskExecutor {
+			instructions = taskExecutorInstructions
+		}
+	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "kairos", Version: "v1"}, &mcp.ServerOptions{
-		Instructions: serverInstructions,
+		Instructions: instructions,
 		SchemaCache:  schemaCache,
 	})
 
@@ -190,10 +201,11 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 			return nil, claimOutput{}, err
 		}
 		claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{
-			TaskID:       domain.TaskID(input.TaskID),
-			Identity:     actor,
-			OperationID:  input.OperationID,
-			LeaseSeconds: input.LeaseSeconds,
+			TaskID:        domain.TaskID(input.TaskID),
+			Identity:      actor,
+			OperationID:   input.OperationID,
+			LeaseSeconds:  input.LeaseSeconds,
+			ExecutorToken: input.ExecutorToken,
 		})
 		return successResult(fmt.Sprintf("Claimed Task %s with Claim %s.", claim.TaskID, claim.ID)), claimOutput{Claim: claimViewFrom(claim)}, toolError(err)
 	})
@@ -209,7 +221,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		}
 		claim, err := service.ClaimWorkCandidate(ctx, application.ClaimWorkCandidateCommand{
 			WorkItemID: domain.WorkItemID(input.WorkItemID), Kind: application.WorkCandidateKind(input.Kind), Identity: actor,
-			OperationID: input.OperationID, LeaseSeconds: input.LeaseSeconds,
+			OperationID: input.OperationID, LeaseSeconds: input.LeaseSeconds, ExecutorToken: input.ExecutorToken,
 		})
 		return successResult(fmt.Sprintf("Claimed %s for WorkItem %s with Coordination Claim %s.", claim.Kind, claim.WorkItemID, claim.ID)), coordinationClaimOutput{Claim: coordinationClaimViewFrom(claim)}, toolError(err)
 	})
@@ -377,6 +389,21 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 		return successResult(fmt.Sprintf("Accepted completion for Blackboard WorkItem %s.", input.WorkItemID)), workItemOutput{WorkItem: workItemViewFrom(workItem)}, toolError(err)
 	})
 
+	if actor.Executor != nil {
+		allowed := map[string]bool{
+			"get_work_item_context": true, "get_task_context": true,
+		}
+		if actor.Executor.Profile == identity.TaskExecutor {
+			for _, name := range []string{"create_artifact", "upload_artifact", "create_blackboard_task", "add_blackboard_relation", "add_blackboard_child_task"} {
+				allowed[name] = true
+			}
+		}
+		for _, name := range []string{"find_work", "upload_artifact", "get_work_item_context", "get_task_context", "claim_task", "claim_work_candidate", "heartbeat_coordination_claim", "heartbeat_claim", "create_artifact", "submit_task", "fail_task", "release_claim", "release_coordination_claim", "create_blackboard_task", "add_blackboard_relation", "decompose_blackboard_task", "add_blackboard_child_task", "skip_blackboard_task", "submit_blackboard_completion", "accept_blackboard_completion"} {
+			if !allowed[name] {
+				server.RemoveTools(name)
+			}
+		}
+	}
 	return server
 }
 
@@ -394,16 +421,18 @@ type workItemContextInput struct {
 }
 
 type claimTaskInput struct {
-	TaskID       string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
-	OperationID  string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
-	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
+	ExecutorToken string `json:"executor_token,omitempty" jsonschema:"Optional krs_claim_ credential generated by a managed executor."`
+	TaskID        string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
+	OperationID   string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
+	LeaseSeconds  int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
 }
 
 type claimWorkCandidateInput struct {
-	WorkItemID   string `json:"work_item_id" jsonschema:"Concrete Blackboard WorkItem ID."`
-	Kind         string `json:"kind" jsonschema:"Candidate kind: empty_blackboard, blackboard_completion, or work_item_acceptance."`
-	OperationID  string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
-	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
+	ExecutorToken string `json:"executor_token,omitempty" jsonschema:"Optional krs_claim_ credential generated by a managed executor."`
+	WorkItemID    string `json:"work_item_id" jsonschema:"Concrete Blackboard WorkItem ID."`
+	Kind          string `json:"kind" jsonschema:"Candidate kind: empty_blackboard, blackboard_completion, or work_item_acceptance."`
+	OperationID   string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
+	LeaseSeconds  int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
 }
 
 type heartbeatClaimInput struct {

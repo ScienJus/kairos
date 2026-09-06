@@ -9,3 +9,4 @@ bin/
 /.release/
 artifacts/
 /kairos.db*
+/.kairos-daemon/

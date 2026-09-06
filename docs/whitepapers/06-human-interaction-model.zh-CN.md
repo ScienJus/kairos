@@ -1,12 +1,12 @@
 # Kairos 人类交互模型
 
-> 围绕 workspace、人工关注与 WorkItem 详情组织的 operations console
+> 人如何找到需要自己处理的工作、理解进度并直接采取行动
 
 ## 摘要
 
-Kairos 为人提供统一的工作空间，用于观察完整工作、处理需要人工关注的事项，以及进入 WorkItem 对其中的 Task 执行操作。界面直接遵循工作模型，不再套用通用的集合视图概念。
+人不应该为了了解进度而逐个翻阅 Agent 对话。Kairos 提供一个统一工作区，用来查看正在推进的 WorkItem、找到必须由人决定的事项，并直接进入需要处理的 Task。
 
-进入 WorkItem 后，Workflow 使用流程图，Blackboard 使用分层 Task 工作区。人可以查看 Agent 活动、Claim 符合条件的人工 Task、提交成果、处理 Review，并在协调模式允许时参与规划。
+Workflow 以流程图呈现，Blackboard 以持续变化的 Task 层级呈现。人在这些界面中可以查看 Agent 活动、领取人工 Task、提交结果、处理 Review，并在当前模式允许时参与规划。
 
 ## 1. 交互结构
 
@@ -109,4 +109,4 @@ WorkItem 详情   = 一个完整目标的协调状态与进展
 Task 详情       = 一个执行单元的责任、历史与操作
 ```
 
-> Workspace 帮助人发现需要关注的工作；WorkItem 详情展示工作如何推进；Task 详情让人采取行动。
+> Workspace 回答“哪里需要我”；WorkItem 详情解释整体进度；Task 详情提供可以立即执行的操作。

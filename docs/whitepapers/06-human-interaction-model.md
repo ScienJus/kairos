@@ -1,12 +1,12 @@
 # Kairos Human Interaction Model
 
-> A human operations console organized around the workspace, attention, and WorkItem detail
+> How people find work that needs them, understand progress, and act without reading an agent transcript
 
 ## Abstract
 
-Kairos gives people one operational workspace for observing complete work, handling items that need human attention, and opening a WorkItem to act on its Tasks. The interface follows the work model directly instead of imposing a generic collection-view metaphor on it.
+People should not have to inspect every agent transcript to understand what is happening. Kairos provides one workspace for seeing active WorkItems, finding decisions that need a person, and opening the exact Task where action is required.
 
-Inside a WorkItem, Workflow uses a flow graph and Blackboard uses a hierarchical Task workspace. People can inspect agent activity, Claim eligible human Tasks, submit results, handle Reviews, and participate in planning where the coordination mode allows it.
+Workflow appears as a flow graph; Blackboard appears as a Task hierarchy that can keep evolving. From those views, people can inspect agent activity, take human Tasks, submit results, handle Reviews, and help plan the work when the selected mode allows it.
 
 ## 1. Interaction Structure
 
@@ -109,4 +109,4 @@ WorkItem Detail = coordination state and progress of one objective
 Task Detail     = responsibility, history, and actions for one execution unit
 ```
 
-> The workspace helps people find what needs attention; WorkItem detail shows how the work is advancing; Task detail lets them act.
+> The workspace answers “Where am I needed?” WorkItem detail explains the overall progress, and Task detail provides the next action.

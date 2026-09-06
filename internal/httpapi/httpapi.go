@@ -61,7 +61,7 @@ func New(service *application.Service, resolver identity.Resolver, options ...Op
 		return nil, err
 	}
 	handler := &Handler{
-		service: service, identity: resolver, maxArtifactUploadBytes: configured.MaxArtifactUploadBytes,
+		service: service, identity: identity.WithExecutorAuthenticator(resolver, service), maxArtifactUploadBytes: configured.MaxArtifactUploadBytes,
 		authenticationMode: configured.AuthenticationMode, mux: http.NewServeMux(),
 	}
 	handler.routes()
@@ -88,7 +88,7 @@ func NewWithIdentityManagement(
 		return nil, err
 	}
 	handler := &Handler{
-		service: service, identity: resolver, identityManagement: identityService,
+		service: service, identity: identity.WithExecutorAuthenticator(resolver, service), identityManagement: identityService,
 		adminTokenHash: sha256.Sum256([]byte(adminToken)), hasAdminToken: true,
 		maxArtifactUploadBytes: configured.MaxArtifactUploadBytes,
 		authenticationMode:     configured.AuthenticationMode, mux: http.NewServeMux(),
@@ -186,6 +186,10 @@ func (h *Handler) getSession(writer http.ResponseWriter, request *http.Request) 
 	writer.Header().Set("Cache-Control", "no-store")
 	actor, ok := h.resolveIdentity(writer, request)
 	if !ok {
+		return
+	}
+	if err := actor.Validate(); err != nil {
+		writeError(writer, err)
 		return
 	}
 	writeJSON(writer, http.StatusOK, dataResponse{Data: struct {
@@ -783,15 +787,16 @@ func (h *Handler) claimWorkCandidate(writer http.ResponseWriter, request *http.R
 		return
 	}
 	var body struct {
-		Kind         application.WorkCandidateKind `json:"kind"`
-		LeaseSeconds int64                         `json:"lease_seconds"`
+		Kind          application.WorkCandidateKind `json:"kind"`
+		LeaseSeconds  int64                         `json:"lease_seconds"`
+		ExecutorToken string                        `json:"executor_token"`
 	}
 	if !decodeRequest(writer, request, &body) {
 		return
 	}
 	claim, err := h.service.ClaimWorkCandidate(request.Context(), application.ClaimWorkCandidateCommand{
 		WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Kind: body.Kind, Identity: actor,
-		OperationID: operationID(request), LeaseSeconds: body.LeaseSeconds,
+		OperationID: operationID(request), LeaseSeconds: body.LeaseSeconds, ExecutorToken: body.ExecutorToken,
 	})
 	if err != nil {
 		writeError(writer, err)
@@ -883,13 +888,14 @@ func (h *Handler) claimTask(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	var body struct {
-		LeaseSeconds int64 `json:"lease_seconds"`
+		LeaseSeconds  int64  `json:"lease_seconds"`
+		ExecutorToken string `json:"executor_token"`
 	}
 	if request.ContentLength != 0 && !decodeRequest(writer, request, &body) {
 		return
 	}
 	claim, err := h.service.ClaimTask(request.Context(), application.ClaimTaskCommand{
-		TaskID: domain.TaskID(request.PathValue("task_id")), Identity: actor, OperationID: operationID(request), LeaseSeconds: body.LeaseSeconds,
+		TaskID: domain.TaskID(request.PathValue("task_id")), Identity: actor, OperationID: operationID(request), LeaseSeconds: body.LeaseSeconds, ExecutorToken: body.ExecutorToken,
 	})
 	if err != nil {
 		writeError(writer, err)

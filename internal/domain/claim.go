@@ -61,9 +61,10 @@ func (r ClaimEndReason) Valid() bool {
 
 // Claim records one period in which an executor actively works on a Task.
 type Claim struct {
-	ID       ClaimID  `json:"id"`
-	TaskID   TaskID   `json:"task_id"`
-	Executor ActorRef `json:"executor"`
+	ID                ClaimID  `json:"id"`
+	TaskID            TaskID   `json:"task_id"`
+	Executor          ActorRef `json:"executor"`
+	ExecutorTokenHash string   `json:"-"`
 
 	ClaimedAt       time.Time `json:"claimed_at"`
 	LastHeartbeatAt time.Time `json:"last_heartbeat_at"`
@@ -82,6 +83,9 @@ func (c Claim) Active() bool {
 
 // Validate checks the Claim invariants.
 func (c Claim) Validate() error {
+	if err := validateExecutorTokenHash(c.ExecutorTokenHash, c.Executor); err != nil {
+		return err
+	}
 	if strings.TrimSpace(string(c.ID)) == "" {
 		return invalid("claim.id", "is required")
 	}

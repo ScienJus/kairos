@@ -14,7 +14,7 @@ var (
 	// ErrUnauthenticated indicates that a request did not provide a usable identity.
 	ErrUnauthenticated = errors.New("identity is unauthenticated")
 
-	// ErrInvalid indicates that trusted identity attributes are malformed.
+	// ErrInvalid indicates that credential or identity attributes are malformed.
 	ErrInvalid = errors.New("invalid identity")
 
 	// ErrNotFound indicates that a managed identity does not exist.
@@ -22,18 +22,28 @@ var (
 
 	// ErrConflict indicates that an identity mutation conflicts with stored state.
 	ErrConflict = errors.New("identity conflict")
+
+	// ErrForbidden indicates that a credential cannot perform an operation.
+	ErrForbidden = errors.New("credential operation forbidden")
 )
 
-// Identity is the trusted actor information consumed by application operations.
+// Principal is the authenticated actor information consumed by application operations.
 // Authentication mechanisms resolve credentials into this type before invoking
 // the application layer.
-type Identity struct {
-	Actor domain.ActorRef
-	Role  string
+type Principal struct {
+	Actor    domain.ActorRef
+	Role     string
+	Executor *ExecutorScope `json:"-"`
 }
+
+// Identity remains an alias for existing callers presenting ordinary identities.
+type Identity = Principal
 
 // Validate checks the trusted identity fields.
 func (i Identity) Validate() error {
+	if i.Executor != nil {
+		return ErrForbidden
+	}
 	if err := i.Actor.Validate(); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}

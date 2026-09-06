@@ -1,10 +1,12 @@
 # Kairos Execution Collaboration Model
 
-> Task responsibility, shared context, and collaboration independent of execution method
+> How one executor owns a Task while the wider team shares context and results
 
 ## Abstract
 
-People and agents can advance one complete WorkItem together through the Tasks they each own. A Task's executor kind restricts who is eligible, and `AllowedRoles` further restricts Agent identities only; a matching actor establishes concrete responsibility by Claiming it. A future external Bridge can automate the same Agent role-aware selection and Claim process. Task lifecycle changes and durable results then express progress of the shared WorkItem.
+A WorkItem may involve many people and agents, but each Task needs one responsible executor at a time. Kairos first checks whether a person or agent is eligible, then records actual ownership with a Claim. The same rule applies whether an executor chooses the Task directly or a future Agent Daemon starts a Harness automatically.
+
+Progress does not depend on a chat session staying alive. It is visible through Task state, submitted results, Reviews, failures, and Artifacts that every later executor can use as shared context.
 
 ## 1. Task as the Executor Boundary
 
@@ -85,7 +87,7 @@ Claim semantics are independent of how work is acquired. `Executor` restricts th
 | --- | --- |
 | Agent chooses proactively | A matching Agent queries candidate Tasks, chooses one, and creates a Claim |
 | Human execution | A person Claims a Task whose executor policy allows human participation |
-| External dispatch (planned) | A Bridge chooses a matching Agent identity, establishes its Claim, and starts its harness |
+| Agent Daemon dispatch (planned) | An Agent Daemon uses its bound Agent identity, establishes a Claim, and starts its Harness |
 
 All methods share the same conceptual process:
 
@@ -99,7 +101,7 @@ Create Claim
 Execute Task
 ```
 
-Proactive selection fits the current Kairos boundary, which does not control an Agent Harness. A future Bridge can start Codex, Claude Code, or another harness when a Task becomes executable.
+Proactive selection fits the current Kairos boundary, which does not control an Agent Harness. A future Agent Daemon can start Codex, Claude Code, or another Harness when a Task becomes executable.
 
 Task organization and executor participation are independent dimensions:
 
@@ -161,7 +163,7 @@ Workflow and Blackboard use the same execution collaboration model. Their differ
 
 Workflow limits the legal choice space. Blackboard provides a dynamically evolving work structure and advisory relations. Both modes allow people and agents to choose proactively and both can integrate with external dispatch.
 
-## 6. Kairos, Bridge, and Agent Harness
+## 6. Kairos, Agent Daemon, and Agent Harness
 
 The Kairos collaboration semantics apply to people and agents independently of how an agent is run.
 
@@ -172,7 +174,7 @@ The Kairos collaboration semantics apply to people and agents independently of h
 │ Shared Context / Result      │
 └───────────────┬──────────────┘
                 │
-          Integration / Bridge
+             Agent Daemon
                 │
 ┌───────────────▼──────────────┐
 │        Agent Harness         │
@@ -180,7 +182,7 @@ The Kairos collaboration semantics apply to people and agents independently of h
 └──────────────────────────────┘
 ```
 
-Kairos Core represents work, provides candidate Tasks, establishes execution responsibility, and persists shared context. People participate through an interaction layer. An Agent Harness runs the agent; the planned Bridge will start a specific harness and return results.
+Kairos Core represents work, provides candidate Tasks, establishes execution responsibility, and persists shared context. People participate through an interaction layer. An Agent Daemon represents one Agent identity, starts its configured Harness, and returns results.
 
 This collaboration model can be summarized in five principles:
 
@@ -190,5 +192,5 @@ This collaboration model can be summarized in five principles:
 4. Task lifecycle changes and results express progress of the shared WorkItem.
 5. Task organization and executor participation are independent.
 
-> People and agents share a WorkItem, while each Task has one responsible executor.
-> Kairos coordinates work independently of how that executor participates.
+> People and agents share the objective and its history. While a Task is running, one executor owns it.
+> That responsibility stays the same whether the executor arrived manually or through automation.

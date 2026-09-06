@@ -2,7 +2,7 @@
 
 [English](api-reference.md)
 
-本文档集中说明传输、认证、HTTP 资源、MCP 工具与执行响应契约。产品概念和协调语义仍由 README 与白皮书承载。
+配置 Kairos 服务或接入客户端时，请查阅本页。这里记录身份认证、HTTP 资源、MCP 工具、请求限制和准确的响应结构。第一次了解产品时建议先读 README；需要理解模型设计时再查看白皮书。
 
 ## 服务启动
 
@@ -43,9 +43,9 @@ HTTP read timeout 限制读取完整请求的总时间，包含 JSON、MCP 和�
 
 `GET /healthz` 无需认证。HTTP 管理与执行路由位于 `/api/v1`，Streamable HTTP MCP 位于 `/mcp`。
 
-## HTTP 契约
+## HTTP 响应约定
 
-机器可读的 [OpenAPI 3.1 文档](openapi.yaml)是当前全部 43 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
+机器可读的 <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 文档</a>是当前全部 46 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
 
 所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim 和撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
 
@@ -62,7 +62,7 @@ HTTP read timeout 限制读取完整请求的总时间，包含 JSON、MCP 和�
 | `413` | `artifact_too_large` |
 | `500` | `internal_error` |
 
-## 身份模式
+## 选择身份模式
 
 Trusted Mode 在可信边界内接受传输头：
 
@@ -82,7 +82,11 @@ KAIROS_ADMIN_TOKEN='<至少-32-字符的高熵-token>' \
 go run ./cmd/kairos-server
 ```
 
-身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由使用签发的 identity token。Authenticated Mode 忽略 Trusted actor headers。
+身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由通常使用签发的 identity token。Authenticated Mode 忽略 Trusted actor headers。
+
+Agent 创建 Task Claim 或 Coordination Claim 时，可以附带一个由客户端生成的 `executor_token`。Token 必须以 `krs_claim_` 开头，后接按无填充 base64url 编码的 256 位随机值；Core 只保存其 SHA-256 hash。在 Authenticated Mode 中，该 Token 可在对应 Claim 保持 Active 期间作为 Bearer 凭据使用。它可以读取绑定 WorkItem 内的 Task、WorkItem context 和已提交 Artifact；Task Executor 还可以为其精确绑定的 Task Claim 创建或上传 Artifact，并扩展 Blackboard 计划，Coordination Executor 只读。其他操作一律拒绝。Claim 结束或被 reaper 回收后 Token 失效；Agent identity token 的轮换或撤销不影响已经 Active 的 Executor Token。
+
+只有完整且规范的 Executor Token 格式进入 Claim 认证，其他格式仍走 Identity 认证；Claim 认证失败不回退。内置生成器的旧 43 字符 Identity Token 因而保持兼容，包括前缀碰撞的情况。自定义旧 Token 若完整匹配新 Executor 格式，需要在升级前轮换。
 
 认证用于确定调用方身份；Task 发现、领取以及基于 Claim 的执行等操作仍受各自规则约束。但认证不是数据隔离边界：所有已签发身份都属于同一个全局信任域，Kairos 当前不会按租户、Team、项目或对象隔离读写。需要阻止不同群体访问彼此数据时，应分别部署 Kairos 实例。
 
@@ -147,15 +151,15 @@ Artifact GC 默认每隔 `KAIROS_ARTIFACT_GC_INTERVAL`（15 分钟）执行一�
 
 `GET /api/v1/tasks/{id}` 是面向查看者的 Task Detail，不要求当前身份能够执行该 Task。它返回后端计算的 `responsibility`、`outcome`、`current_review`、规范化 `history`、属于该 Task 的已提交 `artifacts` 和当前身份的 `capabilities`。Task 没有已提交交付物时，`artifacts` 编码为 `[]`。`GET /api/v1/tasks/{id}/context` 仍是受执行权限保护的执行者上下文；客户端不得使用它加载普通详情或人工 Review。
 
-## Claim Lease
+## Claim 租约与恢复
 
 Agent Task Claim 与 WorkItem Coordination Claim 都使用 lease，Human 操作不使用。Agent Claim 与 heartbeat 可选择 15 秒至 30 分钟的时长；省略时使用 `KAIROS_AGENT_CLAIM_LEASE`，默认五分钟。`lease_until` 是后台 reaper 最早可以结束 Claim、将 Task 或生命周期候选重新放回发现结果的时间；到达该时间本身不会改变执行权。reaper 提交回收事务前，当前 Agent 仍可继续受保护操作或续租，其他 Agent 仍不能领取该工作。回收完成后，旧 Claim ID 继续作为 fencing token，不能续租或用于生命周期变更。
 
-## MCP
+## MCP 工具
 
-MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>`；身份不会出现在工具参数中。
+MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>` 或绑定 Claim 的 Executor Token；身份不会出现在工具参数中。Executor 会话只暴露其 Profile 允许的工具，并在 `initialize` 响应中收到对应指令，Claim 生命周期交由 Agent Daemon 管理。普通 Identity 会话保留完整的 Agent 指令。应用层对 HTTP 和 MCP 执行相同的权限边界。
 
-执行面包含 20 个工具：
+Agent 通过 20 个 MCP 工具发现工作、承担责任、提交结果，并扩展 Blackboard：
 
 - 发现与上下文：`find_work`、`get_task_context`、`get_work_item_context`；
 - Task Claim 生命周期与交付：`claim_task`、`heartbeat_claim`、`create_artifact`、`upload_artifact`、`release_claim`、`submit_task`、`fail_task`；

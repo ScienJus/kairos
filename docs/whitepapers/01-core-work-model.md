@@ -1,12 +1,12 @@
 # Kairos Core Work Model
 
-> Definitions of WorkItem, Task, Workflow, and Blackboard, and how they map to one unified model
+> How a shared objective becomes executable Tasks—and how fixed and evolving plans use the same foundation
 
 ## Abstract
 
-Kairos uses `WorkItem` to represent a complete work objective and `Task` to represent a unit of work that a person or agent can execute and deliver. The Tasks and relations within one WorkItem form a Task Graph.
+A team needs to see both the outcome it is pursuing and the concrete work that can happen next. Kairos calls the complete objective a `WorkItem` and each executable, deliverable piece a `Task`. Together, the Tasks and their relations form a Task Graph.
 
-Workflow and Blackboard are two organizational semantics for that Task Graph. Workflow uses a formal, authoritative plan. Blackboard allows collaborators to continuously form and adjust the plan during execution. Both modes share the same underlying work model.
+The team can organize that graph in two ways. Workflow enforces a plan defined before execution. Blackboard lets collaborators build and revise the plan while they work. The planning style changes, but the underlying objects—and the history attached to them—remain the same.
 
 ## 1. WorkItem and Task
 
@@ -109,7 +109,7 @@ Key characteristics of Workflow include:
 - the system computes the currently legal candidate Tasks from the structure;
 - WorkItem completion can usually be derived from the formal structure.
 
-A Workflow can expose multiple legal candidate Tasks at once. Workflow limits the choice space; a person or agent can choose proactively, and a future Bridge can automate the same role-aware selection.
+A Workflow can expose multiple legal candidate Tasks at once. Workflow limits the choice space; a person or agent can choose proactively, and a future Agent Daemon can automate the same role-aware selection.
 
 > Workflow is a formally defined and authoritative Task Graph.
 
@@ -232,4 +232,4 @@ Workflow   = a formally defined and authoritative Task Graph
 Blackboard = a Task Graph dynamically planned and evolved by collaborators
 ```
 
-> Workflow executes an authoritative plan; Blackboard grows a shared plan while executing the work.
+> Workflow follows a plan the team defined up front. Blackboard lets the team build the plan while doing the work.

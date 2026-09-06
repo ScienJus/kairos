@@ -43,7 +43,7 @@ type TaskDetail struct {
 
 func (s *Service) GetTaskDetail(ctx context.Context, query GetTaskDetailQuery) (TaskDetail, error) {
 	if err := query.Identity.Validate(); err != nil {
-		return TaskDetail{}, invalidCommand("invalid identity: %v", err)
+		return TaskDetail{}, err
 	}
 	var result TaskDetail
 	err := s.repository.View(ctx, func(store ReadStore) error {

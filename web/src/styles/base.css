@@ -29,8 +29,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .app-shell { min-height: 100vh; display: grid; grid-template-rows: 58px auto 1fr; background-image: linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px); background-size: 32px 32px; }
 .topbar { position: relative; z-index: 5; display: flex; align-items: center; border-bottom: 1px solid var(--border); background: rgba(9,11,12,.97); }
 .brand { width: 286px; height: 100%; display: flex; align-items: center; gap: 11px; padding: 0 18px; border-right: 1px solid var(--border); }
-.brand-mark { width: 29px; height: 29px; display: grid; place-items: center; color: #061010; background: var(--signal); clip-path: polygon(0 0, 78% 0, 100% 22%, 100% 100%, 22% 100%, 0 78%); }
-.brand-mark span, .brand strong, .brand small, .eyebrow, .status, .hero-code, .mode-label, .count, .task-seq, .row-index, .system-state, .mobile-tabs, dt, .detail-block > span, .result-block span, .timeline > span, .review-submission > span, label { font-family: "Geist Mono", ui-monospace, monospace; letter-spacing: 0; }
+.brand-mark { width: 29px; height: 29px; display: block; flex: 0 0 auto; object-fit: cover; border-radius: 7px; }
+.brand strong, .brand small, .eyebrow, .status, .hero-code, .mode-label, .count, .task-seq, .row-index, .system-state, .mobile-tabs, dt, .detail-block > span, .result-block span, .timeline > span, .review-submission > span, label { font-family: "Geist Mono", ui-monospace, monospace; letter-spacing: 0; }
 .brand strong { display: block; font-size: 15px; line-height: 1; }
 .brand small { display: block; margin-top: 5px; color: var(--muted); font-size: 8px; }
 .system-state { display: flex; align-items: center; gap: 8px; margin-left: 20px; color: var(--green); font-size: 10px; }

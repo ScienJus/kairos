@@ -1,10 +1,12 @@
 # Artifact Model and Store
 
-## Purpose
+> How Tasks declare, attach, retain, and clean up files, commits, reports, and other deliverables
 
-A Result explains what an executor accomplished. An Artifact identifies what the executor actually delivered. Git commits, branches, documents, reports, archives, and managed files remain addressable after the executor session ends and can be consumed by every Task in the same WorkItem.
+## Why Artifacts exist
 
-## Delivery contract
+A Result tells the team what an executor accomplished. An Artifact points to what it actually delivered: a Git commit, branch, document, report, archive, or uploaded file. Keeping that reference with the Task means the deliverable remains findable after the agent session ends and can be used by later Tasks in the same WorkItem.
+
+## Declare what a Task must deliver
 
 A Workflow Task Definition may declare named Artifacts:
 
@@ -19,7 +21,7 @@ A Workflow Task Definition may declare named Artifacts:
 
 `name` is both the stable contract key and the displayed name. `description` guides the executor. Kairos does not define media types, file kinds, count ranges, or Store policies in the contract. Every declared Workflow name is required once; extra Artifacts are allowed. Blackboard relies on its Task prompt and has no structured Artifact contract.
 
-## Lifecycle
+## From upload to submission
 
 An executor creates an Artifact only while owning an active Claim. An external Artifact records an absolute URI. A managed Artifact uploads content to the configured Store through HTTP multipart or the MCP `upload_artifact` Base64 transport. Before writing managed content to the Store, Kairos persists an operation-keyed pending upload with its stable managed URI. The Store streams the bytes and returns the digest and size; Kairos records those values in the pending state before one database transaction records Blob metadata, creates the staged Artifact, and marks the upload completed. A pending retry rewrites that URI and checks the recorded digest and size. A failed Store write leaves pending state that identifies the file for GC. Both external and managed Artifacts remain staged until `submit_task` supplies their IDs. Submission validates ownership and Workflow requirements, creates the immutable Submission, binds the Artifacts, and ends the Claim in one transaction.
 
@@ -29,7 +31,7 @@ An active Claim protects all of its staged Artifacts regardless of age. After th
 
 Pending managed-upload records and completed replay records for both external registration and managed upload use the same retention window. Within that window, a completed record can replay the staged Artifact result after a lost response; after it expires, the current Artifact and Claim state governs any later request.
 
-## Storage
+## Storage and cleanup
 
 The Artifact row contains provenance, name, and URI. Managed Blob metadata contains URI, digest, and size. The built-in Store writes to a stable upload URI registered before the write and flushes the file and its directory chain before the database marks the upload completed. Its root and hash directories use mode `0700`, and managed files use `0600`, including existing paths tightened during a retry. The digest is retained as integrity metadata and is not used to choose the URI. Duplicate content may occupy separate managed locations.
 

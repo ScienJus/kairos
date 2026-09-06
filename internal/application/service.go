@@ -21,7 +21,7 @@ var (
 	ErrConflict = errors.New("application state conflict")
 
 	// ErrForbidden indicates that the actor may not perform the operation.
-	ErrForbidden = errors.New("application operation forbidden")
+	ErrForbidden = identity.ErrForbidden
 
 	// ErrInvalidCommand indicates malformed application input.
 	ErrInvalidCommand = errors.New("invalid application command")
@@ -214,7 +214,7 @@ func forbidden(format string, args ...any) error {
 
 func identityCanExecute(identity Identity, task domain.Task) error {
 	if err := identity.Validate(); err != nil {
-		return invalidCommand("invalid identity: %v", err)
+		return err
 	}
 	switch task.Executor {
 	case domain.ExecutorAgent:
