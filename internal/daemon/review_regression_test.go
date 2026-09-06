@@ -88,7 +88,7 @@ func TestInvalidOutcomePayloadUsesHarnessRetry(t *testing.T) {
 					}}
 					d := dispatchForTest(t, core, a, tc.candidate, testOptions())
 					steps(t, d, 2)
-					if err := d.Step(context.Background()); err == nil {
+					if err := d.step(context.Background()); err == nil {
 						t.Fatal("invalid output was not rejected")
 					}
 					if s := d.Snapshot(); s.State != Starting || s.RunState != RuntimeFailed || core.applies != 0 || core.releases != 0 {

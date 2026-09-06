@@ -1,5 +1,4 @@
-// Package daemon runs one explicitly selected Kairos candidate through a Harness.
-// It does not discover work or implement a continuous scheduler.
+// Package daemon discovers Kairos work and manages claim-bound Harness runs.
 package daemon
 
 import (
@@ -107,6 +106,7 @@ type RunRef struct {
 }
 
 type StartRequest struct {
+	Workspace     string
 	Candidate     Candidate
 	ClaimID       string
 	Attempt       int
@@ -117,7 +117,16 @@ type StartRequest struct {
 type RunObservation struct {
 	State   RunState
 	Outcome *HarnessOutcome
+	// SystemFailure pauses new admissions until a successful health probe.
+	SystemFailure bool
 }
+
+// SystemError identifies infrastructure failures affecting more than one candidate.
+// Its wrapped text must never be logged by the scheduler.
+type SystemError struct{ Err error }
+
+func (e *SystemError) Error() string { return "Harness infrastructure unavailable" }
+func (e *SystemError) Unwrap() error { return e.Err }
 
 // Adapter methods must honor cancellation. Start returns an error only after
 // proving that no run remains. Observe errors do not prove termination. Stop
@@ -220,6 +229,7 @@ type Options struct {
 	StopTimeout    time.Duration
 	MaxAttempts    int
 	MCPURL         string
+	Workspace      string
 	Clock          Clock
 }
 

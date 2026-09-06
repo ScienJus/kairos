@@ -109,7 +109,7 @@ Key characteristics of Workflow include:
 - the system computes the currently legal candidate Tasks from the structure;
 - WorkItem completion can usually be derived from the formal structure.
 
-A Workflow can expose multiple legal candidate Tasks at once. Workflow limits the choice space; a person or agent can choose proactively, and a future Bridge can automate the same role-aware selection.
+A Workflow can expose multiple legal candidate Tasks at once. Workflow limits the choice space; a person or agent can choose proactively, and a future Agent Daemon can automate the same role-aware selection.
 
 > Workflow is a formally defined and authoritative Task Graph.
 

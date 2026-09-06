@@ -45,4 +45,4 @@ type: home
   </div>
 </section>
 
-<p class="status-note">Today you can coordinate work with Workflow or Blackboard, store it in SQLite or PostgreSQL, connect agents over MCP, and follow progress in the operations console. Automatic Bridge dispatch and several console flows remain planned; see <a href="https://github.com/ScienJus/kairos#project-status">Project Status</a>.</p>
+<p class="status-note">Today you can coordinate work with Workflow or Blackboard, store it in SQLite or PostgreSQL, connect agents over MCP, and follow progress in the operations console. Agent Daemon has a scheduler and diagnostic command; real Harness integration and several console flows remain in development. See <a href="https://github.com/ScienJus/kairos#project-status">Project Status</a>.</p>

@@ -4,7 +4,7 @@
 
 ## 摘要
 
-每个 Agent 都遵循同一条基本路径：找到或接收 Task，读取上下文，领取责任，在执行期间持续续租，最后提交结果。目前 Agent 可以主动发现工作；未来也可以由 Bridge 根据 Role 选择 Task 并启动 Agent。无论从哪里开始，真正记录进度的是 Task 历史，而不是临时的 Agent 会话。
+每个 Agent 都遵循同一条基本路径：找到或接收 Task，读取上下文，领取责任，在执行期间持续续租，最后提交结果。目前 Agent 可以主动发现工作；未来 Agent Daemon 可以使用一个绑定的 Agent Identity 自动运行同一循环。无论从哪里开始，真正记录进度的是 Task 历史，而不是临时的 Agent 会话。
 
 Workflow 和 Blackboard 共用这套执行过程，但给予 Agent 的规划自由不同。Workflow 只开放预先配置好的决策点；Blackboard 允许 Agent 随着理解变化增加和调整 Task。
 
@@ -15,7 +15,7 @@ Agent 通过两种方式进入执行过程：
 ```text
 主动参与：发现候选 → 选择 Task ─┐
                                   ├→ 建立 Claim → 执行 Task
-Bridge 派发：接收 Task ───────────┘
+Agent Daemon：接收 Task ──────────┘
 ```
 
 完整过程可以概括为：
@@ -34,7 +34,7 @@ heartbeat while executing
 submit result
 ```
 
-Agent 在执行前读取必要上下文并确认 Task。Agent 在执行开始前建立带 lease 的 Claim，形成唯一执行责任；未来的 Bridge 也会为所选 Agent Identity 建立同样的 Claim。执行期间 Agent 通过 heartbeat 续租，并可以为每一段续租请求不同的时长。Claim 与 Task 状态表示工作正在执行，Submission、Review、Failure、推进决策和 Artifact 则持久描述它对 WorkItem 进展的贡献。到达 `lease_until` 只表示 Claim 可以被 reaper 回收，并不会直接撤销执行权；reaper 提交回收前，当前 Agent 仍可续租或提交。回收完成后 Agent 必须停止，不能复活旧 Claim 或继续提交。
+Agent 在执行前读取必要上下文并确认 Task。Agent 在执行开始前建立带 lease 的 Claim，形成唯一执行责任；Agent Daemon 使用其绑定的 Agent Identity 建立同样的 Claim。执行期间 Agent 通过 heartbeat 续租，并可以为每一段续租请求不同的时长。Claim 与 Task 状态表示工作正在执行，Submission、Review、Failure、推进决策和 Artifact 则持久描述它对 WorkItem 进展的贡献。到达 `lease_until` 只表示 Claim 可以被 reaper 回收，并不会直接撤销执行权；reaper 提交回收前，当前 Agent 仍可续租或提交。回收完成后 Agent 必须停止，不能复活旧 Claim 或继续提交。
 
 Blackboard 生命周期判断使用并行的 WorkItem Coordination Claim。Agent 在读取完整上下文并判断 `empty_blackboard`、`blackboard_completion` 或 `work_item_acceptance` 候选前先领取它；创建所选 Task、提交完成或接受完成时携带该 Claim ID，并在同一事务内结束 Claim。这保护了尚不存在可执行 Task 时的分析窗口。Coordination Claim 与 Agent Task Claim 使用相同的 lease、heartbeat、reaper 回收和 fencing 规则。
 
@@ -138,19 +138,19 @@ Blackboard 中的 Agent 同时参与执行与规划，可以：
 
 这些变化进入共享 Task Graph，后续的人和 Agent 都能看到最新的工作结构与成果。
 
-## 7. 规划中的 Bridge
+## 7. 规划中的 Agent Daemon
 
-Bridge 连接 Kairos 与特定 Agent Harness：
+Agent Daemon 将一个 Agent Identity 与配置的 Agent Harness 连接起来：
 
 ```text
 Kairos Candidate Task
          ↓
-       Bridge
+    Agent Daemon
          ↓
 Codex / Claude Code / Other Harness
 ```
 
-未来的 Bridge 可以为符合 Role 的 Agent 选择 Task、启动 Agent、提供上下文并回传生命周期操作与成果。Agent 主动参与和 Bridge 派发使用相同的 Task、Claim 与提交语义。
+未来的 Agent Daemon 可以发现其绑定 Agent Role 允许的 Task、启动 Harness、提供上下文并回传生命周期操作与成果。Agent 主动参与和 Agent Daemon 执行使用相同的 Task、Claim 与提交语义。
 
 因此，Kairos 的 Agent 交互模型独立于具体 Harness，也独立于 Agent 如何开始执行。
 

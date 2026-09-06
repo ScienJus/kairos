@@ -4,7 +4,7 @@
 
 ## 摘要
 
-一个 WorkItem 可以由许多人和 Agent 共同推进，但每个 Task 在同一时间只能有一个负责人。Kairos 先判断某个人或 Agent 是否具备执行资格，再通过 Claim 记录实际责任。无论执行者主动领取 Task，还是未来由 Bridge 自动启动 Agent，这条规则都不变。
+一个 WorkItem 可以由许多人和 Agent 共同推进，但每个 Task 在同一时间只能有一个负责人。Kairos 先判断某个人或 Agent 是否具备执行资格，再通过 Claim 记录实际责任。无论执行者主动领取 Task，还是未来由 Agent Daemon 自动启动 Harness，这条规则都不变。
 
 工作进度不依赖聊天会话持续在线。Task 状态、提交结果、Review、失败记录和 Artifact 会共同留下可共享的上下文，供后续执行者继续使用。
 
@@ -87,7 +87,7 @@ Claim 与任务获取方式相互独立。`Executor` 限定允许参与的 Actor
 | --- | --- |
 | Agent 主动选择 | 符合 Role 的 Agent 查询候选 Task，自主选择并建立 Claim |
 | 人工执行 | 人 Claim 执行者策略允许人工参与的 Task |
-| 外部系统派发（规划中） | Bridge 选择符合 Role 的 Agent Identity，为其建立 Claim 并启动 Harness |
+| Agent Daemon 派发（规划中） | Agent Daemon 使用其绑定的 Agent Identity 建立 Claim 并启动 Harness |
 
 这些方式共享同一个概念过程：
 
@@ -101,7 +101,7 @@ Claim 与任务获取方式相互独立。`Executor` 限定允许参与的 Actor
 执行 Task
 ```
 
-主动选择适合当前不控制 Agent Harness 的 Kairos。未来也可以通过 Bridge 在 Task 满足执行条件后启动 Codex、Claude Code 或其他 Agent Harness。
+主动选择适合当前不控制 Agent Harness 的 Kairos。未来也可以通过 Agent Daemon 在 Task 满足执行条件后启动 Codex、Claude Code 或其他 Agent Harness。
 
 任务的组织方式与执行者的参与方式是两个独立维度：
 
@@ -163,7 +163,7 @@ Workflow 和 Blackboard 使用相同的执行协作模型，区别集中在候�
 
 Workflow 限定合法的选择空间。Blackboard 提供动态演化的工作结构和建议关系。两种模式都支持人或 Agent 主动选择，也都可以接入外部派发。
 
-## 6. Kairos、Bridge 与 Agent Harness
+## 6. Kairos、Agent Daemon 与 Agent Harness
 
 Kairos 的核心协作语义适用于人和 Agent，并独立于 Agent 如何被运行。
 
@@ -174,7 +174,7 @@ Kairos 的核心协作语义适用于人和 Agent，并独立于 Agent 如何被
 │ Shared Context / Result      │
 └───────────────┬──────────────┘
                 │
-          Integration / Bridge
+             Agent Daemon
                 │
 ┌───────────────▼──────────────┐
 │        Agent Harness         │
@@ -182,7 +182,7 @@ Kairos 的核心协作语义适用于人和 Agent，并独立于 Agent 如何被
 └──────────────────────────────┘
 ```
 
-Kairos Core 表达工作、提供候选 Task、建立执行责任并保存共享上下文。人通过交互界面参与执行；Agent Harness 负责运行 Agent，规划中的 Bridge 将负责特定 Harness 的启动与结果回传。
+Kairos Core 表达工作、提供候选 Task、建立执行责任并保存共享上下文。人通过交互界面参与执行；Agent Daemon 代表一个 Agent Identity，启动配置的 Harness 并回传结果。
 
 这一协作模型可以归纳为五项原则：
 

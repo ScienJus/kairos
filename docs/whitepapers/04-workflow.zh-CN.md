@@ -126,7 +126,7 @@ optional 配置应用于 Exit Group 中的 Task。Task 通过 Continue Group 被
 + 执行者为 Agent 时 Role 匹配
 ```
 
-多个 Task 同时满足条件时，系统返回多个候选。人或 Agent 可以主动选择，未来的 Bridge 可以自动完成同样基于 Role 的选择。
+多个 Task 同时满足条件时，系统返回多个候选。人或 Agent 可以主动选择，未来的 Agent Daemon 可以自动完成同样基于 Role 的选择。
 
 ```text
 [前端实现, 后端实现, 编写文档]

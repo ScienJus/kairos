@@ -109,7 +109,7 @@ Workflow 的主要特征包括：
 - 系统根据结构计算当前合法的候选 Task；
 - WorkItem 的完成通常可以从正式结构中推导。
 
-一个 Workflow 可以同时产生多个合法候选 Task。Workflow 限定选择空间，人或 Agent 可以主动选择，未来的 Bridge 可以自动完成同样基于 Role 的选择。
+一个 Workflow 可以同时产生多个合法候选 Task。Workflow 限定选择空间，人或 Agent 可以主动选择，未来的 Agent Daemon 可以自动完成同样基于 Role 的选择。
 
 > Workflow 是正式定义且具有约束力的 Task Graph。
 

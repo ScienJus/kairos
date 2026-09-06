@@ -122,7 +122,7 @@ func TestHTTPAcquisitionConflictResolvesAfterConnectionFailure(t *testing.T) {
 				f.transport.claimLost = true
 				f.client.http.Transport = &failAcquisitionTransport{base: f.transport, method: method}
 				d := dispatchForTest(t, f.client, &fakeAdapter{}, f.candidate, testOptions())
-				if err := d.Step(context.Background()); err == nil {
+				if err := d.step(context.Background()); err == nil {
 					t.Fatal("expected interrupted acquisition")
 				}
 				if d.uncertainClaim != (method == http.MethodPost) {
@@ -140,7 +140,7 @@ func TestHTTPAcquisitionConflictResolvesAfterConnectionFailure(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if err := d.Step(ctx); !statusIs(err, 409) {
+				if err := d.step(ctx); !statusIs(err, 409) {
 					t.Fatalf("expected Core refusal, got %v", err)
 				}
 				s := d.Snapshot()
@@ -180,7 +180,7 @@ func TestPreflightFailureCanStopWithoutClaim(t *testing.T) {
 	f := newHTTPFixture(t, domain.CoordinationModeBlackboard, TaskCandidate)
 	f.client.http.Transport = &failAcquisitionTransport{base: f.transport, method: http.MethodGet}
 	d := dispatchForTest(t, f.client, &fakeAdapter{}, f.candidate, testOptions())
-	if err := d.Step(context.Background()); err == nil {
+	if err := d.step(context.Background()); err == nil {
 		t.Fatal("expected preflight failure")
 	}
 	d.RequestStop(StopRequested)
@@ -196,12 +196,12 @@ func TestEarlierUncertainClaimSurvivesLaterPreflightFailure(t *testing.T) {
 			core := newFakeCore()
 			core.dropClaim = true
 			d := dispatchForTest(t, core, &fakeAdapter{}, taskCandidate(), testOptions())
-			if err := d.Step(context.Background()); err == nil {
+			if err := d.step(context.Background()); err == nil {
 				t.Fatal("expected lost Claim response")
 			}
 			core.claimError = &ClaimAttemptError{State: ClaimNotSent, Err: &APIError{Status: status}}
 			d.RequestStop(StopRequested)
-			_ = d.Step(context.Background())
+			_ = d.step(context.Background())
 			if !d.uncertainClaim || d.Snapshot().Terminal() {
 				t.Fatal("later preflight error erased an unresolved Claim")
 			}

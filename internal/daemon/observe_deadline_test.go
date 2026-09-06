@@ -104,9 +104,9 @@ func TestObserveDeadlineCheckedBeforeRequest(t *testing.T) {
 	}}
 	d := dispatchForTest(t, core, a, taskCandidate(), o)
 	steps(t, d, 2)
-	_ = d.Step(context.Background())
+	_ = d.step(context.Background())
 	clock.now = clock.now.Add(o.StopTimeout)
-	_ = d.Step(context.Background())
+	_ = d.step(context.Background())
 	if calls != 1 || d.Snapshot().State != Stopping || core.releases != 0 {
 		t.Fatalf("expired Observe request was sent or Claim released prematurely: calls=%d state=%+v", calls, d.Snapshot())
 	}
