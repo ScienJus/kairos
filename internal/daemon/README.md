@@ -1,9 +1,9 @@
 # Agent Daemon scheduler
 
-This package implements Stages 2–3 of Agent Daemon integration: a single-dispatch
-engine and continuous scheduler over the existing Core HTTP API. A real model
-Adapter is still Stage 4 work. The diagnostic command does not execute useful
-agent work or invoke a model provider.
+This package implements the single-dispatch engine and continuous scheduler.
+Stage 4 adds a [local Codex Adapter](codexadapter/README.md), using credential-specific
+MCP instructions and a structured outcome. Model execution is opt-in; the default and fake diagnostic modes
+do not invoke a model provider. Real-provider smoke validation remains separate.
 
 ## Diagnostic command
 
@@ -19,6 +19,10 @@ The default `unavailable` Adapter always fails Probe and never claims work.
 The Identity Token is read only from `KAIROS_DAEMON_TOKEN`; it is not a CLI flag
 or passed to the Harness. `--help` lists all configuration.
 
+For model-backed work, use `--adapter codex` with an explicit `--codex-home` and
+`--codex-model`; see the Adapter guide for supported versions, network policy,
+authentication setup, and process cleanup boundaries.
+
 Defaults: 1 slot, discovery every 5s with 50 candidates per kind, idle Probe every
 30s, 5m lease, 1s Harness polling, 10s request timeout, 30s stop window, 2 Harness
 attempts per Claim, 1m candidate cooldown, 3 unsuccessful Dispatches per generation,
@@ -33,10 +37,12 @@ before manual cleanup, especially after an unresolved or lost run.
 ## Continuous scheduling
 
 `NewScheduler` accepts a `DiscoveryCore` and runs with `Run(ctx)`. Library callers
-must set the MCP endpoint; only the CLI derives it from the Core URL:
+using the Codex Adapter must set both Core and MCP endpoints; only the CLI derives
+MCP from Core. The Scheduler creates absolute per-Dispatch workspaces:
 
 ```go
 options := daemon.DefaultSchedulerOptions()
+options.Dispatch.CoreURL = "http://localhost:8080"
 options.Dispatch.MCPURL = "http://localhost:8080/mcp"
 scheduler, err := daemon.NewScheduler(core, adapter, options)
 // Check err before running scheduler.Run(ctx).
@@ -126,11 +132,18 @@ stored separately. Local lease expiry never establishes Claim termination.
 Only the shared-state mutex and heartbeat serialization mutex remain: startup
 confirmation and the background heartbeat guard can still overlap. Stop requests
 and Snapshot reads remain safe concurrently with the single lifecycle driver.
+Adapters may implement `RunForgetter` to drop terminal in-memory metadata after
+finalization or before replacing a confirmed-ended run. If Adapter cleanup is
+still pending after a lost Dispatch finishes, it remembers the request and reclaims
+the record once the run completes, without a second call. This hook does not stop
+live runs, remove workspaces, or change the four lifecycle operations.
 
 ```go
 options := daemon.DefaultOptions()
+options.CoreURL = "http://localhost:8080"
 options.MCPURL = "http://localhost:8080/mcp"
-core, err := daemon.NewHTTPClient(coreURL, daemon.NewSecret(agentToken), httpClient)
+options.Workspace = "/absolute/path/to/existing/private/dispatch-workspace"
+core, err := daemon.NewHTTPClient(options.CoreURL, daemon.NewSecret(agentToken), httpClient)
 // Check err, then provide an Adapter and a Candidate selected by the caller.
 dispatch, err := daemon.NewDispatch(core, adapter, candidate, options)
 // Check err before running.

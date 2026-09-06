@@ -120,7 +120,7 @@ type Adapter interface {
 
 - `Probe` checks basic Harness/Provider readiness without creating a run; success does not guarantee
   that a later Start succeeds.
-- `Start` injects the Executor Token, MCP endpoint, and Managed Skill, returning a valid RunRef on
+- `Start` injects the Executor Token, MCP endpoint, and execution context, returning a valid RunRef on
   success. On failure it returns an empty RunRef and error only after confirming termination of any
   process it may have started and cleaning up its resources. It cannot return failure with a possible
   run left behind, so the Daemon can safely retry within its budget.
@@ -128,9 +128,14 @@ type Adapter interface {
   temporarily unavailable, not that the run ended.
 - `Stop` is an idempotent, best-effort termination request, not confirmation that the Harness stopped.
 
+An optional RunForgetter drops terminal in-memory Adapter metadata after finalization or before
+replacing a confirmed-ended run. If cleanup is still pending, it remembers the request and reclaims
+metadata when the run completes. It does not terminate live processes or remove workspace files.
+
 RunRef is a serializable reference without secrets, usable for observation and reconciliation while
-the Daemon lives. The Managed Skill guides dynamic context reads, authorized operations, and direct
-write operation IDs. The Adapter translates Harness-specific output into a HarnessOutcome, either a
+the Daemon lives. Credential-specific MCP tools and initialization instructions guide context reads,
+authorized operations, and direct write operation IDs. A short launch prompt and output schema define
+the managed execution result; no separate Managed Skill is required. The Adapter translates Harness-specific output into a HarnessOutcome, either a
 TaskOutcome or a CoordinationDecision.
 
 ### TaskOutcome
