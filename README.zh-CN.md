@@ -139,7 +139,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 真实 Provider 验证与 Agent Daemon 生产交付；
 - 剩余的控制台运营流程，包括 WorkItem 事件时间线。
 
-开发需要 Go 1.26.6 或更高版本：
+开发需要 Go 1.26.6 或更高版本；控制台还需要 npm 和 Node.js 22.22.2+（22.x）、24.15.0+（24.x）或 26+：
 
 ```bash
 make go-test

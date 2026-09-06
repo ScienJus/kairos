@@ -20,7 +20,7 @@ Codex, Claude Code, and any other MCP client can use the same process. Kairos do
 
 ## Try the parallel example
 
-From a checkout with Go 1.26.6 or later, Node.js, npm, and curl:
+From a checkout with Go 1.26.6 or later, Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, npm, and curl:
 
 ```bash
 make quickstart

@@ -16,7 +16,7 @@ Thanks for helping improve Kairos. Contributions to the runtime, APIs, console, 
 Prerequisites:
 
 - Go 1.26.6 or later;
-- Node.js 20 LTS or a later LTS release and npm;
+- Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+ and npm;
 - curl for the quickstart.
 
 Install frontend dependencies and run all tests:
