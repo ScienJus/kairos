@@ -18,6 +18,7 @@ func TestCommandConfiguration(t *testing.T) {
 		want  string
 	}{
 		{"help", []string{"--help"}, "", ""},
+		{"version", []string{"--version"}, "", ""},
 		{"missing token", nil, "", "Identity Token is required"},
 		{"unknown adapter", []string{"--adapter=real"}, "secret", "unsupported adapter"},
 		{"unconfigured codex", []string{"--adapter=codex", "--codex-executable=" + os.Args[0]}, "secret", "authentication home and model are required"},
@@ -39,6 +40,14 @@ func TestCommandConfiguration(t *testing.T) {
 				t.Fatal("credential logged")
 			}
 		})
+	}
+}
+
+func TestVersionDoesNotReadCredentials(t *testing.T) {
+	var out bytes.Buffer
+	err := run(context.Background(), []string{"--version"}, func(string) string { t.Fatal("version accessed environment"); return "" }, &out, &out)
+	if err != nil || out.String() != "kairos-daemon "+version+"\n" {
+		t.Fatalf("version: %q %v", out.String(), err)
 	}
 }
 

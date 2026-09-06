@@ -1,0 +1,6 @@
+{
+  "name": "Daemon Blackboard collaboration",
+  "description": "Initial planning, Task execution, completion and Agent acceptance.",
+  "agent_instructions": "The Daemon owns Claim lifecycle operations. For empty_blackboard, return create_task with one agent Task, allowed_roles [backend], asking it to upload a managed Artifact named result containing the UTF-8 text managed result. For Task execution, use upload_artifact and return completed with its ID. For blackboard_completion, inspect the submitted Artifact and return submit_completion. For work_item_acceptance, verify the completed work and return accept_completion. Do not add additional Tasks when the result already exists.",
+  "suggested_tags": []
+}

@@ -136,7 +136,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 
 仍需实现：
 
-- 真实 Provider 验证与 Agent Daemon 生产交付；
+- Agent Daemon 更多 Provider/平台验证与加固部署方案；
 - 剩余的控制台运营流程，包括 WorkItem 事件时间线。
 
 开发需要 Go 1.26.6 或更高版本；控制台还需要 npm 和 Node.js 22.22.2+（22.x）、24.15.0+（24.x）或 26+：
@@ -161,6 +161,10 @@ make build
 ## MCP 与 Agent 集成
 
 Kairos 提供面向执行的 MCP 接入面，并在 `.agents/skills/kairos-agent` 提供仓库级 Codex Skill。Skill 为兼容 Harness 提供持久的“发现 → Claim → heartbeat → 提交”执行循环。集成与配置细节见 [API 参考](docs/api-reference.zh-CN.md)。
+
+托管执行可使用[隔离的 Daemon 示例](examples/daemon/README.zh-CN.md)。`make build` 同时
+构建 Core 和 Daemon，发布包包含 Linux/macOS amd64/arm64 的两个二进制；Codex 和模型
+凭据由操作者提供。`make daemon-e2e` 使用脚本 Harness 验证真实二进制，不调用模型。
 
 ## 设计白皮书
 

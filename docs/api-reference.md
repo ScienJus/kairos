@@ -6,6 +6,10 @@ Use this page when you are configuring a Kairos server or integrating a client. 
 
 ## Start the server
 
+For a Core plus managed Harness setup, see the [isolated Daemon example](https://github.com/ScienJus/kairos/tree/main/examples/daemon).
+The Daemon uses an Agent Identity Token; each Harness receives an Executor Token with
+credential-specific MCP tools/instructions. The HTTP/MCP operations below are unchanged.
+
 The default server uses SQLite and Trusted Mode:
 
 ```bash

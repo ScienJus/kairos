@@ -12,12 +12,13 @@ Kairos 正在积极开发中。本 Roadmap 用于说明方向，不代表交付�
 - SQLite 与 PostgreSQL 持久化；
 - Trusted 与 Authenticated 身份模式；
 - 托管和外部 Artifact；
+- Agent Daemon 连续调度、本地 Codex 集成及隔离的 Workflow/Blackboard 示例；
 - 面向 WorkItem、人工关注、Blackboard Task 层级、Workflow 流程图和 Definition 编辑的 operations console。
 
 ## 近期优先级
 
 1. **可靠发布**：提供可复现二进制与容器镜像、Checksum、Migration 指南和升级验证。
-2. **Agent Daemon**：将符合条件的 Task 派发到外部 Agent Harness，同时保持 Kairos 与模型及沙箱管理解耦。详见[分阶段实现规划](docs/agent-daemon-implementation-plan.zh-CN.md)。
+2. **Agent Daemon 加固**：扩展实际 CLI/平台及 Provider 故障验证，同时保持 Kairos 与模型及沙箱管理解耦。详见[分阶段实现规划](docs/agent-daemon-implementation-plan.zh-CN.md)。
 3. **运营流程**：完成剩余控制台操作，改善失败恢复的可见性，并提供实用的备份恢复指南。
 4. **集成示例**：记录真实的多 Agent 工作流，并提供可复用的 Workflow 与 Blackboard 模板。
 5. **可观测性**：提供有用的结构化日志和运行指标，同时不让遥测成为协调依赖。

@@ -12,12 +12,13 @@ Kairos is under active development. This roadmap communicates direction rather t
 - SQLite and PostgreSQL persistence;
 - Trusted and Authenticated identity modes;
 - managed and external Artifacts;
+- continuous Agent Daemon scheduling, local Codex integration, and isolated Workflow/Blackboard examples;
 - an operations console for WorkItems, attention, Blackboard Task hierarchies, Workflow graphs, and Definition editing.
 
 ## Near-term priorities
 
 1. **Reliable releases**: reproducible binaries and container images, checksums, migration guidance, and upgrade verification.
-2. **Agent Daemon**: dispatch eligible Tasks to external agent harnesses while keeping Kairos independent of model and sandbox management. See the [phased implementation plan (Chinese)](docs/agent-daemon-implementation-plan.zh-CN.md).
+2. **Agent Daemon hardening**: expand actual CLI/platform and provider-failure validation, while keeping Kairos independent of model and sandbox management. See the [phased implementation plan (Chinese)](docs/agent-daemon-implementation-plan.zh-CN.md).
 3. **Operational workflows**: complete the remaining console actions, improve failure recovery visibility, and add practical backup and restore guidance.
 4. **Integration examples**: document real multi-agent workflows and provide reusable Workflow and Blackboard templates.
 5. **Observability**: expose useful structured logs and runtime metrics without making telemetry a coordination dependency.

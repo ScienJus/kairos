@@ -1,0 +1,7 @@
+{
+  "definition_id": "daemon-workflow", "mode": "workflow",
+  "title": "Daemon Workflow example", "goal": "Publish one managed text Artifact through the Daemon.",
+  "context": "Isolated example; no repository access is needed.",
+  "constraints": "Use only the local Kairos service. Do not read personal files or call external services.",
+  "acceptance_criteria": "One Task is completed with its managed Artifact.", "tags": []
+}

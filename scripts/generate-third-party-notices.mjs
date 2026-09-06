@@ -70,7 +70,7 @@ function goNotices() {
   for (const [goos, goarch] of targets) {
     const rows = command(
       'go',
-      ['list', '-deps', '-tags', 'webdist', '-f', template, './cmd/kairos-server'],
+      ['list', '-deps', '-tags', 'webdist', '-f', template, './cmd/kairos-server', './cmd/kairos-daemon'],
       repositoryRoot,
       { GOOS: goos, GOARCH: goarch, CGO_ENABLED: '0' },
     ).split('\n').filter(Boolean)
@@ -120,8 +120,8 @@ function npmNotices() {
 const introduction = `Kairos Third-Party Notices
 ==========================
 
-This file is generated from the union of Go packages linked into all four
-release targets and the npm production dependency tree used to build the
+This file is generated from the union of Go packages linked into both server
+and daemon binaries across all four targets and the npm production dependency tree used to build the
 embedded console. Development and test-only dependencies are excluded. The
 following notices and license texts are provided for attribution; they do not
 change the Apache-2.0 license of Kairos itself.`

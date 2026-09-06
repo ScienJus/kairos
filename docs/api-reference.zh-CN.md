@@ -6,6 +6,10 @@
 
 ## 服务启动
 
+Core 与托管 Harness 的独立启动方式见 [Daemon 示例](https://github.com/ScienJus/kairos/tree/main/examples/daemon)。
+Daemon 使用 Agent Identity Token，每个 Harness 只取得 Executor Token 及对应的 MCP 工具和
+初始化指令；下文 HTTP/MCP 操作不变。
+
 默认服务使用 SQLite 与 Trusted Mode：
 
 ```bash

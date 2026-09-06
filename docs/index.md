@@ -45,4 +45,4 @@ type: home
   </div>
 </section>
 
-<p class="status-note">Today you can coordinate work with Workflow or Blackboard, store it in SQLite or PostgreSQL, connect agents over MCP, and follow progress in the operations console. Agent Daemon includes continuous scheduling and an opt-in local Codex Adapter; live-provider validation and production delivery remain separate. See <a href="https://github.com/ScienJus/kairos#project-status">Project Status</a>.</p>
+<p class="status-note">Today you can coordinate work with Workflow or Blackboard, store it in SQLite or PostgreSQL, connect agents over MCP, and follow progress in the operations console. Agent Daemon includes continuous scheduling, an opt-in local Codex Adapter, and <a href="https://github.com/ScienJus/kairos/tree/main/examples/daemon">isolated execution examples</a>. Release packaging includes Core and Daemon; additional platform/provider validation remains separate. See <a href="https://github.com/ScienJus/kairos#project-status">Project Status</a>.</p>

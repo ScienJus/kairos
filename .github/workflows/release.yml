@@ -48,10 +48,10 @@ jobs:
           args: release --clean --skip=publish
       - name: Generate backend SBOM
         run: |
-          mapfile -t server_binaries < <(find dist -type f -name kairos-server -print | sort)
-          test "${#server_binaries[@]}" -eq 4
-          for server_binary in "${server_binaries[@]}"; do
-            syft "${server_binary}" --output cyclonedx-json="$(dirname "${server_binary}")/kairos-server.sbom.cdx.json"
+          mapfile -t backend_binaries < <(find dist -type f \( -name kairos-server -o -name kairos-daemon \) -print | sort)
+          test "${#backend_binaries[@]}" -eq 8
+          for backend_binary in "${backend_binaries[@]}"; do
+            syft "${backend_binary}" --output cyclonedx-json="${backend_binary}.sbom.cdx.json"
           done
       - name: Generate frontend SBOM
         working-directory: web
@@ -68,8 +68,8 @@ jobs:
             --output "${RUNNER_TEMP}/cyclonedx"
           echo "${CYCLONEDX_SHA256}  ${RUNNER_TEMP}/cyclonedx" | sha256sum --check
           chmod +x "${RUNNER_TEMP}/cyclonedx"
-          mapfile -t backend_sboms < <(find dist -type f -name kairos-server.sbom.cdx.json -print | sort)
-          test "${#backend_sboms[@]}" -eq 4
+          mapfile -t backend_sboms < <(find dist -type f \( -name kairos-server.sbom.cdx.json -o -name kairos-daemon.sbom.cdx.json \) -print | sort)
+          test "${#backend_sboms[@]}" -eq 8
           "${RUNNER_TEMP}/cyclonedx" merge \
             --input-files "${backend_sboms[@]}" dist/kairos-console.sbom.cdx.json \
             --output-file dist/kairos.sbom.cdx.json \
