@@ -350,8 +350,10 @@ func (d *Dispatch) start(ctx context.Context) error {
 	d.attempts++
 	attempt := d.attempts
 	claimID := d.claim.ID
+	previous := d.runRef
 	d.mu.Unlock()
-	ref, err := d.adapter.Start(ctx, StartRequest{Workspace: d.options.Workspace, Candidate: d.candidate, ClaimID: claimID, Attempt: attempt,
+	d.forgetRun(previous)
+	ref, err := d.adapter.Start(ctx, StartRequest{CoreURL: d.options.CoreURL, Workspace: d.options.Workspace, Candidate: d.candidate, ClaimID: claimID, Attempt: attempt,
 		MCPURL: d.options.MCPURL, ExecutorToken: d.executorToken})
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -553,13 +555,23 @@ func (d *Dispatch) stop(ctx context.Context) error {
 
 func (d *Dispatch) finish(status ClaimStatus) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.state = Finished
 	if d.runState == RunLost {
 		d.state = Lost
 	}
 	if d.intent != nil {
 		d.outcomeApplied = outcomeMatches(d.candidate, status, *d.intent, d.applyAcknowledged)
+	}
+	ref := d.runRef
+	d.mu.Unlock()
+	d.forgetRun(ref)
+}
+
+func (d *Dispatch) forgetRun(ref RunRef) {
+	if ref.ID != "" {
+		if adapter, ok := d.adapter.(RunForgetter); ok {
+			adapter.Forget(ref)
+		}
 	}
 }
 

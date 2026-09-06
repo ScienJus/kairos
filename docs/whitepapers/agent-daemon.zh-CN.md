@@ -110,15 +110,20 @@ type Adapter interface {
 ```
 
 - `Probe` 不创建运行，只检查 Harness/Provider 基本可用性；成功不保证后续 Start 成功。
-- `Start` 注入 Executor Token、MCP 地址和 Managed Skill，成功返回有效 RunRef。失败必须在
+- `Start` 注入 Executor Token、MCP 地址和执行上下文，成功返回有效 RunRef。失败必须在
   确认已终止本次可能启动的进程并清理资源后，返回空 RunRef 和 error。不得返回“失败但运行
   可能存在”的结果，因此 Daemon 可以在预算内安全重试。
 - `Observe` 返回包含 RunState 的 RunObservation 快照；调用错误只表示暂时无法查询，不证明
   运行已经结束。
 - `Stop` 是幂等、尽力而为的终止请求，不保证返回时 Harness 已停止。
 
+Adapter 可选实现 RunForgetter，在 Dispatch 终态或替换已确认结束的运行前释放内存记录；
+若 Adapter 尚未完成清理，则记住请求，待运行真正结束后自动回收；它不终止活动进程，也不
+删除 workspace 文件。
+
 RunRef 是不含 secret 的可序列化运行引用，可用于进程存活期间的观察和 reconcile。
-Managed Skill 指导 Harness 动态读取上下文、使用授权能力和管理直接写入的 operation_id；
+按凭据返回的 MCP 工具和初始化指令指导上下文读取、授权操作及直接写入的 operation_id；
+简短启动 prompt 与 outcome schema 定义托管执行结果，不再维护独立 Managed Skill。
 Adapter 将 Harness 专用输出转换成 HarnessOutcome，分为 TaskOutcome 和 CoordinationDecision。
 
 ### TaskOutcome

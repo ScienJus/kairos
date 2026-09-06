@@ -107,6 +107,7 @@ type RunRef struct {
 
 type StartRequest struct {
 	Workspace     string
+	CoreURL       string
 	Candidate     Candidate
 	ClaimID       string
 	Attempt       int
@@ -137,6 +138,11 @@ type Adapter interface {
 	Observe(context.Context, RunRef) (RunObservation, error)
 	Stop(context.Context, RunRef, StopReason) error
 }
+
+// RunForgetter relinquishes Adapter metadata ownership. An unfinished run stays
+// observable until completion, then is reclaimed without another call. It must
+// not delete workspaces or terminate live runs; repeated calls are safe.
+type RunForgetter interface{ Forget(RunRef) }
 
 type Claim struct {
 	ID           string
@@ -229,6 +235,7 @@ type Options struct {
 	StopTimeout    time.Duration
 	MaxAttempts    int
 	MCPURL         string
+	CoreURL        string
 	Workspace      string
 	Clock          Clock
 }
