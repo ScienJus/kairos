@@ -1,6 +1,9 @@
 # Agent Daemon scheduler
 
 This package implements the single-dispatch engine and continuous scheduler.
+For a standalone authenticated Core/Daemon deployment, see the
+[Workflow/Blackboard example](../../examples/daemon/README.md). `make daemon-e2e`
+runs the opt-in binary suite without model calls. Both release binaries expose `--version`.
 Stage 4 adds a [local Codex Adapter](codexadapter/README.md), using credential-specific
 MCP instructions and a structured outcome. Model execution is opt-in; the default and fake diagnostic modes
 do not invoke a model provider. Real-provider smoke validation remains separate.

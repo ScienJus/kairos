@@ -21,6 +21,22 @@ builds:
       - amd64
       - arm64
 
+  - id: kairos-daemon
+    main: ./cmd/kairos-daemon
+    binary: kairos-daemon
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
 archives:
   - formats:
       - tar.gz
@@ -30,6 +46,9 @@ archives:
       - LICENSE
       - README.md
       - README.zh-CN.md
+      - examples/daemon/**
+      - internal/daemon/README.md
+      - internal/daemon/codexadapter/README.md
       - src: .release/THIRD_PARTY_NOTICES.txt
         strip_parent: true
 

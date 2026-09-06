@@ -1,7 +1,7 @@
 # Agent Daemon 分阶段实现规划
 
 依据：[Agent Daemon 白皮书](whitepapers/agent-daemon.zh-CN.md)。本规划描述实现顺序与验收条件，
-不新增领域设计。阶段 1–3 已合入；阶段 4 已通过全量 review 与 macOS 真实模型 smoke，待合入；阶段 5 待实施。
+不新增领域设计。阶段 1–4 已合入；阶段 5 已完成实现、本地验收与全量 review。CI 与发布状态以对应 PR/Release 为准。
 
 ## 目标与边界
 
@@ -19,8 +19,8 @@ apply_coordination_decision 或批量 Blackboard 规划 API。
 | 1. Core 执行凭据（已验收） | Claim Token、principal 和服务端授权完整闭环 | 当前 Core |
 | 2. 单次 Dispatch 引擎（已合入） | fake Adapter 可完成两类 Dispatch 的生命周期 | 阶段 1 |
 | 3. 连续调度与故障抑制（已合入） | slots、Probe、cooldown、预算和 quarantine | 阶段 2 |
-| 4. 本地 Codex Adapter（已验证） | CLI 进程、MCP 指令与 outcome schema、隔离 workspace；macOS 真实模型 smoke 已通过 | 阶段 3 |
-| 5. 集成与交付 | E2E、构建入口、使用文档和发布接入 | 阶段 4 |
+| 4. 本地 Codex Adapter（已合入） | CLI 进程、MCP 指令与 outcome schema、隔离 workspace；macOS 真实模型 smoke 已通过 | 阶段 3 |
+| 5. 集成与交付（初版已实现） | 二进制 E2E、隔离示例、双二进制发布与 SBOM/Notices 接入 | 阶段 4 |
 
 阶段 1 不依赖 Daemon；阶段 2 不接真实模型；阶段 3 的重试边界通过后，才开放真实 Harness 的
 连续领取循环。这样每阶段都有明确成果，也避免开发过程中反复消耗 Claim 历史。
@@ -251,6 +251,16 @@ WorkItem 已完成、运行记录已回收。Linux 实际 CLI 及其他真实模
 
 ## 阶段 5：集成、验证与交付
 
+独立示例位于 `examples/daemon`，启动 Authenticated Core/SQLite 并为 Workflow 和 Blackboard
+创建示例；原生 MCP quickstart 保持独立。`make daemon-e2e` 显式编译并运行真实 Core 和
+Daemon，以脚本式假 Codex 执行两种流程，并覆盖两类 Claim 的失败抑制、取消/停止超时和
+Daemon 崩溃后的实际 reaper 回收；不调用模型。CI 单独启用该套测试及 race 检查。
+示例通过 Perl/POSIX 启动包装将 Core 放入独立进程组，回归测试向整个前台组发送 SIGINT/
+SIGTERM 并重复发送，确认 Core 在 Daemon 收尾期间存活、随后 Claim 正常释放。
+`make build` 构建两个二进制；GoReleaser 按四个平台目标打包两个二进制、示例与使用说明，
+Notices 覆盖两个程序的依赖并集，发布 workflow 将八份后端 SBOM 与前端清单合并。
+实际发布、Linux 上真实 Codex 和更多 Provider 故障场景仍是独立的验证边界。
+
 - 新增独立的 Agent Daemon Workflow/Blackboard 示例，保留现有原生 MCP quickstart。
 - 自动化 E2E 默认使用 fake/script Harness，不依赖付费模型；真实 Codex smoke test 单独启用。
 - 覆盖真实 Core HTTP/MCP、凭据认证、托管 Artifact、取消、超时和 reaper 的完整组合。
@@ -274,4 +284,4 @@ WorkItem 已完成、运行记录已回收。Linux 实际 CLI 及其他真实模
 - 涉及 frontend types/行为：在 `web/` 运行测试、`npm run build` 和 `npm run lint`。
 - 交接前运行 `git diff --check`，并再次扫描旧术语、遗漏状态与中英文契约差异。
 
-阶段 4 已通过全量 review 与上述真实模型 smoke；合入后进入阶段 5 的集成和生产交付。
+阶段 5 已通过全量 review 与本地归档验收；合入前须通过 CI，创建 Release 仍需单独授权。

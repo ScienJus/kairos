@@ -137,7 +137,7 @@ Available in this repository:
 
 Still to be built:
 
-- live-provider validation and production Agent Daemon delivery;
+- broader Agent Daemon provider/platform validation and hardened deployment profiles;
 - the remaining operational-console workflows, including a WorkItem event timeline.
 
 For development, use Go 1.26.6 or later. The console requires npm and Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+. Run:
@@ -162,6 +162,11 @@ The default uses SQLite and Trusted Mode. Set `KAIROS_POSTGRES_DSN` to run the s
 ## MCP and Agent Integration
 
 Kairos exposes an execution-focused MCP surface and a repository-level Codex Skill at `.agents/skills/kairos-agent`. The Skill gives compatible harnesses a durable discover → claim → heartbeat → submit loop. Integration and configuration details live in the [API Reference](docs/api-reference.md).
+
+For managed execution, use the [isolated Daemon example](examples/daemon/README.md).
+`make build` builds both Core and Daemon; release archives bundle both binaries for
+Linux/macOS amd64/arm64. Codex and model authentication remain operator-provided.
+`make daemon-e2e` verifies real binaries with a scripted Harness and no model calls.
 
 ## Design Whitepapers
 

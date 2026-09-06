@@ -40,6 +40,10 @@ jobs:
           cache: true
       - run: make go-test
       - run: make go-vet
+      - run: make daemon-build
+      - run: ./bin/kairos-daemon --version
+      - run: make daemon-e2e
+      - run: go test -race ./internal/daemon/... ./cmd/kairos-daemon -count=1 -timeout=120s
       - name: Smoke-test server with PostgreSQL
         env:
           KAIROS_POSTGRES_DSN: ${{ env.KAIROS_TEST_POSTGRES_DSN }}
@@ -89,3 +93,6 @@ jobs:
       - run: go build -tags webdist -o bin/kairos-server ./cmd/kairos-server
       - name: Smoke-test the quickstart
         run: KAIROS_QUICKSTART_SMOKE_TEST=1 KAIROS_QUICKSTART_ADDR=127.0.0.1:18080 ./examples/quickstart/run.sh
+      - run: make daemon-build
+      - name: Smoke-test isolated Daemon example setup (no model)
+        run: KAIROS_DAEMON_EXAMPLE_SMOKE=1 KAIROS_DAEMON_EXAMPLE_ADDR=127.0.0.1:18082 sh examples/daemon/run.sh

@@ -95,6 +95,16 @@ func helperCLI() {
 		<-interrupt
 		return
 	}
+	if mode == "delayed_stop" {
+		<-interrupt
+		_ = os.WriteFile("stopping", nil, 0600)
+		for {
+			if _, err := os.Stat("allow-exit"); err == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	if mode == "ignore_interrupt" {
 		for {
 			time.Sleep(time.Hour)

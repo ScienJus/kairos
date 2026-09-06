@@ -1,0 +1,18 @@
+{
+  "name": "Daemon managed Artifact example",
+  "description": "Execute one Task through a claim-bound Harness.",
+  "agent_instructions": "Read dynamic context and upload the requested Artifact. Return a typed outcome to the Daemon; do not acquire, renew or finalize Claims yourself.",
+  "suggested_tags": [],
+  "graph": {
+    "start_task_ids": ["execute"],
+    "tasks": [{
+      "id": "execute", "title": "Publish a managed result",
+      "description": "Use upload_artifact to upload UTF-8 text managed result as an Artifact named result. Return completed with its Artifact ID.",
+      "acceptance_criteria": "The submission includes one managed Artifact.",
+      "executor": "agent", "allowed_roles": ["backend"], "execution": "required",
+      "review_policy": "none", "default_tags": [],
+      "artifacts": [{"name": "result", "description": "A short managed text result."}]
+    }],
+    "relations": [], "max_task_executions": 10
+  }
+}

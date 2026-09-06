@@ -18,6 +18,8 @@ import (
 	"github.com/ScienJus/kairos/internal/daemon/codexadapter"
 )
 
+var version = "dev"
+
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -28,6 +30,10 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, out, stderr io.Writer) error {
+	if len(args) == 1 && args[0] == "--version" {
+		_, err := fmt.Fprintf(out, "kairos-daemon %s\n", version)
+		return err
+	}
 	options := daemon.DefaultSchedulerOptions()
 	flags := flag.NewFlagSet("kairos-daemon", flag.ContinueOnError)
 	flags.SetOutput(stderr)

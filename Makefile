@@ -2,15 +2,21 @@ WEB_DIR := web
 BIN_DIR := bin
 GO_PACKAGES := ./cmd/... ./internal/... ./web
 
-.PHONY: build daemon-build test quickstart web-build web-test go-test go-vet release-notices
+.PHONY: build daemon-build daemon-e2e daemon-example test quickstart web-build web-test go-test go-vet release-notices
 
-build: web-build
+build: web-build daemon-build
 	mkdir -p $(BIN_DIR)
 	go build -tags webdist -o $(BIN_DIR)/kairos-server ./cmd/kairos-server
 
 daemon-build:
 	mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/kairos-daemon ./cmd/kairos-daemon
+
+daemon-e2e:
+	KAIROS_DAEMON_E2E=1 go test ./internal/daemon/codexadapter -run '^TestDaemonBinaryE2E$$' -count=1 -timeout=180s
+
+daemon-example: build
+	sh examples/daemon/run.sh
 
 test: web-test go-test
 

@@ -1,0 +1,7 @@
+{
+  "definition_id": "daemon-blackboard", "mode": "blackboard", "acceptance_mode": "agent",
+  "title": "Daemon Blackboard example", "goal": "Plan and execute exactly one Task producing a managed text Artifact, then complete and accept the work.",
+  "context": "Isolated example; no repository access is needed.",
+  "constraints": "Use only the local Kairos service. Do not read personal files or call external services.",
+  "acceptance_criteria": "The completed and accepted WorkItem contains one submitted managed Artifact.", "tags": []
+}
