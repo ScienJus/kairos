@@ -1,4 +1,4 @@
-// kairos-daemon runs the continuous scheduler. Real Harness adapters are added separately.
+// kairos-daemon runs the continuous scheduler with a configured Harness adapter.
 package main
 
 import (
@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/ScienJus/kairos/internal/daemon"
+	"github.com/ScienJus/kairos/internal/daemon/codexadapter"
 )
 
 func main() {
@@ -32,7 +33,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 	flags.SetOutput(stderr)
 	coreURL := flags.String("core-url", "http://localhost:8080", "Kairos Core base URL")
 	mcpURL := flags.String("mcp-url", "", "MCP endpoint (defaults to Core URL + /mcp)")
-	adapter := flags.String("adapter", "unavailable", "unavailable or fake-abandon (diagnostics only)")
+	adapter := flags.String("adapter", "unavailable", "unavailable, fake-abandon (diagnostics), or codex")
+	codexExecutable := flags.String("codex-executable", "codex", "Codex CLI executable (0.146.x)")
+	codexHome := flags.String("codex-home", "", "dedicated authenticated Codex home (required with --adapter=codex)")
+	codexModel := flags.String("codex-model", "", "explicit model for Codex (required with --adapter=codex)")
 	tags := flags.String("tags", "", "comma-separated discovery tags")
 	flags.StringVar(&options.WorkspaceRoot, "workspace-root", options.WorkspaceRoot, "private per-Dispatch workspace root (retained after exit)")
 	flags.IntVar(&options.Slots, "slots", options.Slots, "maximum concurrent Dispatches")
@@ -60,14 +64,15 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 	if flags.NArg() != 0 {
 		return errors.New("positional arguments are not supported")
 	}
-	if *adapter != "unavailable" && *adapter != "fake-abandon" {
-		return errors.New("unsupported adapter; real Harness adapters are not implemented yet")
+	if *adapter != "unavailable" && *adapter != "fake-abandon" && *adapter != "codex" {
+		return errors.New("unsupported adapter")
 	}
 	core, err := daemon.NewHTTPClient(*coreURL, daemon.NewSecret(getenv("KAIROS_DAEMON_TOKEN")), nil)
 	if err != nil {
 		return err
 	}
 	options.Dispatch.MCPURL = *mcpURL
+	options.Dispatch.CoreURL = *coreURL
 	if *mcpURL == "" {
 		options.Dispatch.MCPURL = strings.TrimRight(*coreURL, "/") + "/mcp"
 	}
@@ -75,7 +80,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 		options.Tags = strings.Split(*tags, ",")
 	}
 	options.Logger = slog.New(slog.NewJSONHandler(out, nil))
-	scheduler, err := daemon.NewScheduler(core, &diagnosticAdapter{enabled: *adapter == "fake-abandon", runs: make(map[string]daemon.Candidate)}, options)
+	var harness daemon.Adapter = &diagnosticAdapter{enabled: *adapter == "fake-abandon", runs: make(map[string]daemon.Candidate)}
+	if *adapter == "codex" {
+		harness, err = codexadapter.New(codexadapter.Options{Executable: *codexExecutable, Home: *codexHome, Model: *codexModel})
+		if err != nil {
+			return err
+		}
+	}
+	scheduler, err := daemon.NewScheduler(core, harness, options)
 	if err != nil {
 		return err
 	}

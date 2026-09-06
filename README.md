@@ -28,7 +28,7 @@ make quickstart
 
 Open the printed local URL, then follow the [quickstart guide](examples/quickstart/README.md) to connect Codex sessions and see how exclusive Claims prevent duplicate work.
 
-Agents connect proactively through MCP / Skills. Agent Daemon now has a scheduler and diagnostic command; automatic startup of a real Harness is still in development.
+Agents connect proactively through MCP / Skills. Agent Daemon provides continuous scheduling and an opt-in local Codex Adapter; real-provider smoke validation remains separate from automated tests.
 
 ## Why Kairos
 
@@ -128,7 +128,7 @@ Available in this repository:
 - concurrency guards plus replay protection for resource-creating API calls and managed uploads;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - Claim-bound Executor credentials with scoped HTTP/MCP read, Artifact, and Blackboard-planning permissions;
-- an Agent Daemon scheduler and [diagnostic command](internal/daemon/README.md), with shared slots, health probes, candidate-generation cooldown/quarantine, independent heartbeat, and outcome reconciliation; a real Harness Adapter remains unimplemented;
+- an Agent Daemon scheduler and [local Codex Adapter](internal/daemon/codexadapter/README.md), with shared slots, health probes, candidate-generation suppression, scoped managed execution, and real-process HTTP/MCP tests without model calls;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
 - human-operated WorkItem cancellation with durable actor, time, and reason metadata;
@@ -137,7 +137,7 @@ Available in this repository:
 
 Still to be built:
 
-- a real Harness Adapter and production Agent Daemon delivery;
+- live-provider validation and production Agent Daemon delivery;
 - the remaining operational-console workflows, including a WorkItem event timeline.
 
 For development, use Go 1.26.6 or later and run:
