@@ -48,12 +48,12 @@ func TestObserveErrorsDoNotProveExitAndEventuallyStop(t *testing.T) {
 	}}
 	d := dispatchForTest(t, core, a, taskCandidate(), options)
 	steps(t, d, 2)
-	_ = d.Step(context.Background())
+	_ = d.step(context.Background())
 	if d.Snapshot().State != Running {
 		t.Fatal("single Observe error stopped the run")
 	}
 	clock.now = clock.now.Add(options.StopTimeout)
-	_ = d.Step(context.Background())
+	_ = d.step(context.Background())
 	if d.Snapshot().State != Stopping || d.Snapshot().RunState == RunStopped || d.Snapshot().Attempts != 1 {
 		t.Fatalf("Observe error treated as exit: %+v", d.Snapshot())
 	}

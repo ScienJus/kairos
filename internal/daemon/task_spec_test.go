@@ -71,7 +71,7 @@ func TestCorrectedTaskSpecIsDiscoverableAndClaimable(t *testing.T) {
 				}}
 				d := dispatchForTest(t, f.client, a, f.candidate, testOptions())
 				steps(t, d, 2)
-				if err := d.Step(context.Background()); err == nil {
+				if err := d.step(context.Background()); err == nil {
 					t.Fatal("untrimmed Task spec accepted")
 				}
 				if d.Snapshot().State != Starting || f.transport.outcomePosts != 0 {

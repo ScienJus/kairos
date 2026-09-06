@@ -2,11 +2,15 @@ WEB_DIR := web
 BIN_DIR := bin
 GO_PACKAGES := ./cmd/... ./internal/... ./web
 
-.PHONY: build test quickstart web-build web-test go-test go-vet release-notices
+.PHONY: build daemon-build test quickstart web-build web-test go-test go-vet release-notices
 
 build: web-build
 	mkdir -p $(BIN_DIR)
 	go build -tags webdist -o $(BIN_DIR)/kairos-server ./cmd/kairos-server
+
+daemon-build:
+	mkdir -p $(BIN_DIR)
+	go build -o $(BIN_DIR)/kairos-daemon ./cmd/kairos-daemon
 
 test: web-test go-test
 

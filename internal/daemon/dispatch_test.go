@@ -195,7 +195,7 @@ func dispatchForTest(t *testing.T, core Core, adapter Adapter, c Candidate, o Op
 func steps(t *testing.T, d *Dispatch, n int) {
 	t.Helper()
 	for range n {
-		if err := d.Step(context.Background()); err != nil {
+		if err := d.step(context.Background()); err != nil {
 			t.Fatalf("Step: %v (%+v)", err, d.Snapshot())
 		}
 	}
@@ -206,7 +206,7 @@ func drain(t *testing.T, d *Dispatch) Snapshot {
 		if d.Snapshot().Terminal() {
 			return d.Snapshot()
 		}
-		_ = d.Step(context.Background())
+		_ = d.step(context.Background())
 	}
 	t.Fatalf("Dispatch did not finish: %+v", d.Snapshot())
 	return Snapshot{}
@@ -277,7 +277,7 @@ func TestLostClaimResponseAndFrozenOutcome(t *testing.T) {
 	core.dropClaim = true
 	o := completedOutcome()
 	d := dispatchForTest(t, core, outcomeAdapter(o), taskCandidate(), testOptions())
-	if err := d.Step(context.Background()); err == nil {
+	if err := d.step(context.Background()); err == nil {
 		t.Fatal("expected lost response")
 	}
 	if d.Snapshot().RunRef.ID != "" {
@@ -335,9 +335,9 @@ func TestLostRunWaitsForCoreAndDoesNotRestart(t *testing.T) {
 	steps(t, d, 2)
 	d.RequestStop(StopRequested)
 	core.inspectError = errors.New("Core offline")
-	_ = d.Step(context.Background())
+	_ = d.step(context.Background())
 	clock.now = clock.now.Add(6 * time.Second)
-	_ = d.Step(context.Background())
+	_ = d.step(context.Background())
 	s := d.Snapshot()
 	if s.State != Stopping || s.RunState != RunLost || s.Terminal() || s.Attempts != 1 || core.releases != 0 {
 		t.Fatalf("premature terminal=%+v", s)
@@ -362,13 +362,13 @@ func TestAuthorityLossAndHeartbeatDeadline(t *testing.T) {
 			steps(t, d, 2)
 			core.heartbeatError = &APIError{Status: code}
 			clock.now = clock.now.Add(3 * time.Second)
-			_ = d.Heartbeat(context.Background())
+			_ = d.heartbeat(context.Background())
 			if code == 503 {
 				if d.Snapshot().State != Running {
 					t.Fatal("transient heartbeat stopped too early")
 				}
 				clock.now = clock.now.Add(11 * time.Second)
-				_ = d.Heartbeat(context.Background())
+				_ = d.heartbeat(context.Background())
 			}
 			if d.Snapshot().State != Stopping {
 				t.Fatalf("not stopping: %+v", d.Snapshot())

@@ -396,7 +396,7 @@ func TestHTTPStaleClaimReplayNeverStartsHarness(t *testing.T) {
 				return RunRef{}, nil
 			}}
 			d := dispatchForTest(t, f.client, a, f.candidate, testOptions())
-			if err := d.Step(context.Background()); err == nil {
+			if err := d.step(context.Background()); err == nil {
 				t.Fatal("expected lost Claim response")
 			}
 			reaper, err := application.NewService(f.repo, &manualClock{now: time.Now().Add(time.Minute)}, f.ids)

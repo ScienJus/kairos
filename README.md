@@ -28,7 +28,7 @@ make quickstart
 
 Open the printed local URL, then follow the [quickstart guide](examples/quickstart/README.md) to connect Codex sessions and see how exclusive Claims prevent duplicate work.
 
-The current integration model lets agents connect proactively through MCP / Skills; a planned Bridge will dispatch Tasks to a harness when automated startup is needed.
+Agents connect proactively through MCP / Skills. Agent Daemon now has a scheduler and diagnostic command; automatic startup of a real Harness is still in development.
 
 ## Why Kairos
 
@@ -128,7 +128,7 @@ Available in this repository:
 - concurrency guards plus replay protection for resource-creating API calls and managed uploads;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - Claim-bound Executor credentials with scoped HTTP/MCP read, Artifact, and Blackboard-planning permissions;
-- an internal single-dispatch engine with a Core HTTP client, independent heartbeat, outcome reconciliation, and fake-Adapter tests; continuous scheduling and a real Harness Adapter remain unimplemented;
+- an Agent Daemon scheduler and [diagnostic command](internal/daemon/README.md), with shared slots, health probes, candidate-generation cooldown/quarantine, independent heartbeat, and outcome reconciliation; a real Harness Adapter remains unimplemented;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
 - human-operated WorkItem cancellation with durable actor, time, and reason metadata;
@@ -137,7 +137,7 @@ Available in this repository:
 
 Still to be built:
 
-- a Bridge for automatic dispatch;
+- a real Harness Adapter and production Agent Daemon delivery;
 - the remaining operational-console workflows, including a WorkItem event timeline.
 
 For development, use Go 1.26.6 or later and run:

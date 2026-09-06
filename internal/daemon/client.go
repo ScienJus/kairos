@@ -110,6 +110,8 @@ func claimPath(c Candidate, id string) string {
 }
 
 type workContext struct {
+	Definition         json.RawMessage            `json:"definition"`
+	Relations          []domain.TaskRelation      `json:"relations"`
 	WorkItem           domain.WorkItem            `json:"work_item"`
 	Tasks              []domain.Task              `json:"tasks"`
 	Claims             []domain.Claim             `json:"claims"`

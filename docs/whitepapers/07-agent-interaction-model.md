@@ -4,7 +4,7 @@
 
 ## Abstract
 
-Every agent follows the same basic loop: find or receive a Task, inspect its context, claim responsibility, keep the lease alive while working, and submit a result. Today an agent can discover work itself; a future Bridge can start it with a Task chosen for its role. Either way, the Task history—not the agent session—holds the record of progress.
+Every agent follows the same basic loop: find or receive a Task, inspect its context, claim responsibility, keep the lease alive while working, and submit a result. Today an agent can discover work itself; a future Agent Daemon can run the same loop automatically under one bound Agent identity. Either way, the Task history—not the agent session—holds the record of progress.
 
 Workflow and Blackboard use this same execution loop but give agents different planning freedom. Workflow exposes only the decisions configured in advance. Blackboard lets agents add and reshape Tasks as their understanding changes.
 
@@ -15,7 +15,7 @@ An agent enters execution in one of two ways:
 ```text
 Proactive: discover candidates → choose Task ─┐
                                               ├→ create Claim → execute Task
-Bridge dispatch: receive Task ────────────────┘
+Agent Daemon: receive Task ──────────────────┘
 ```
 
 The complete process is:
@@ -34,7 +34,7 @@ heartbeat while executing
 submit result
 ```
 
-Before execution, the agent reads necessary context and confirms the Task. The agent creates a leased Claim before work begins, establishing unique execution responsibility; a future Bridge will establish the same Claim for the selected Agent identity. During execution, the agent renews that lease with heartbeat calls and may request a different duration for each interval. The Claim and Task state show active work, while submissions, Reviews, failures, decisions, and Artifacts durably describe its contribution to WorkItem progress. Reaching `lease_until` makes the Claim eligible for reaping but does not revoke it: the current agent may still renew or submit until the reaper commits. After reaping, the agent must stop and cannot revive or submit through the old Claim.
+Before execution, the agent reads necessary context and confirms the Task. The agent creates a leased Claim before work begins, establishing unique execution responsibility; an Agent Daemon establishes the same Claim with its bound Agent identity. During execution, the agent renews that lease with heartbeat calls and may request a different duration for each interval. The Claim and Task state show active work, while submissions, Reviews, failures, decisions, and Artifacts durably describe its contribution to WorkItem progress. Reaching `lease_until` makes the Claim eligible for reaping but does not revoke it: the current agent may still renew or submit until the reaper commits. After reaping, the agent must stop and cannot revive or submit through the old Claim.
 
 Blackboard lifecycle decisions use a parallel WorkItem Coordination Claim. An Agent claims an `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance` candidate before loading its full context and deciding it. The selected Task creation, completion submission, or acceptance carries that Claim ID and ends it in the same transaction. This protects the reasoning window in which no executable Task exists yet. Coordination Claims use the same lease, heartbeat, reaping, and fencing rules as Agent Task Claims.
 
@@ -138,19 +138,19 @@ In Blackboard, an agent participates in both execution and planning. It can:
 
 These changes enter the shared Task Graph. Later people and agents see the latest work structure and results.
 
-## 7. Planned Bridge
+## 7. Planned Agent Daemon
 
-A Bridge connects Kairos to a particular Agent Harness:
+An Agent Daemon binds one Agent identity to a configured Agent Harness:
 
 ```text
 Kairos Candidate Task
          ↓
-       Bridge
+    Agent Daemon
          ↓
 Codex / Claude Code / Other Harness
 ```
 
-A future Bridge can choose a Task for a matching Agent role, start the agent, provide context, and return lifecycle operations and results. Proactive agent participation and Bridge dispatch use the same Task, Claim, and submission semantics.
+A future Agent Daemon can discover Tasks allowed by its bound Agent role, start the Harness, provide context, and return lifecycle operations and results. Proactive Agent participation and Agent Daemon execution use the same Task, Claim, and submission semantics.
 
 The Kairos agent interaction model is therefore independent of a specific Harness and of how an agent begins execution.
 

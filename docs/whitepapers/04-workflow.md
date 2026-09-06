@@ -126,7 +126,7 @@ all predecessor Tasks are completed or skipped
 + role matches when the executor is an agent
 ```
 
-When multiple Tasks meet these conditions, the system returns multiple candidates. A person or agent can choose proactively, and a future Bridge can automate the same role-aware choice.
+When multiple Tasks meet these conditions, the system returns multiple candidates. A person or agent can choose proactively, and a future Agent Daemon can automate the same role-aware choice.
 
 ```text
 [Frontend implementation, Backend implementation, Documentation]

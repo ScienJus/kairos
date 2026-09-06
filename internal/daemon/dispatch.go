@@ -28,24 +28,30 @@ type Snapshot struct {
 
 func (s Snapshot) Terminal() bool { return s.State == Finished || s.State == Lost }
 
-// Dispatch retains all recovery state in memory. Step and Heartbeat may run
-// concurrently; Step calls are serialized. Retain a nonterminal Dispatch when
-// Run is interrupted and resume the same instance, not a new Claim.
+// Dispatch has one lifecycle driver at a time, with independent heartbeat,
+// concurrent stop requests, and read-only snapshots. Retain a nonterminal
+// Dispatch after Run returns and resume it sequentially, never as a new Claim.
 type Dispatch struct {
-	core              Core
-	adapter           Adapter
-	options           Options
-	candidate         Candidate
-	executorToken     Secret
-	claimOperation    string
-	outcomeOperation  string
-	stepMu            sync.Mutex
-	heartbeatMu       sync.Mutex
-	runMu             sync.Mutex
-	mu                sync.Mutex
-	snapshot          Snapshot
-	claim             Claim
-	uncertainClaim    bool
+	core             Core
+	adapter          Adapter
+	options          Options
+	candidate        Candidate
+	executorToken    Secret
+	claimOperation   string
+	outcomeOperation string
+	heartbeatMu      sync.Mutex
+	mu               sync.Mutex
+	driving          bool
+	state            DispatchState
+	runState         RunState
+	runRef           RunRef
+	attempts         int
+	stopReason       StopReason
+	outcomeApplied   bool
+	claim            Claim
+	uncertainClaim   bool
+	// Installed before execution by Scheduler; uncertainty bypasses admission.
+	claimAdmission    func(context.Context) bool
 	confirmed         bool
 	safeUntil         time.Time
 	nextHeartbeat     time.Time
@@ -84,10 +90,55 @@ func NewDispatch(core Core, adapter Adapter, candidate Candidate, options Option
 	return &Dispatch{core: core, adapter: adapter, candidate: candidate, options: options,
 		executorToken: NewSecret(identity.ExecutorTokenPrefix + token), claimOperation: claimOperation, outcomeOperation: outcomeOperation,
 		heartbeatWake: make(chan struct{}, 1), stopWake: make(chan struct{}),
-		snapshot: Snapshot{Candidate: candidate, State: Prepared}}, nil
+		state: Prepared}, nil
 }
 
-func (d *Dispatch) Snapshot() Snapshot { d.mu.Lock(); defer d.mu.Unlock(); return d.snapshot }
+func (d *Dispatch) Snapshot() Snapshot {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var outcome OutcomeKind
+	if d.intent != nil {
+		outcome = d.intent.Kind()
+	}
+	return Snapshot{
+		Candidate: d.candidate, State: d.state, RunState: d.runState,
+		ClaimID: d.claim.ID, ClaimEnded: d.claim.ID != "" && !d.claim.Active,
+		EndReason: d.claim.EndReason, RunRef: d.runRef, Attempts: d.attempts,
+		StopReason: d.stopReason, OutcomeApplied: d.outcomeApplied, Outcome: outcome,
+	}
+}
+
+func (d *Dispatch) terminalLocked() bool { return d.state == Finished || d.state == Lost }
+
+var ErrDispatchAlreadyRunning = errors.New("Dispatch already has an execution driver")
+
+func (d *Dispatch) beginDrive() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.driving {
+		return false
+	}
+	d.driving = true
+	return true
+}
+
+func (d *Dispatch) endDrive() { d.mu.Lock(); d.driving = false; d.mu.Unlock() }
+
+// claimOnce is the Scheduler's initial acquisition handoff, before Run starts.
+// A later unknown or unsent acquisition is handled by Run's lifecycle loop.
+func (d *Dispatch) claimOnce(ctx context.Context) error {
+	if !d.beginDrive() {
+		return ErrDispatchAlreadyRunning
+	}
+	defer d.endDrive()
+	d.mu.Lock()
+	prepared := d.state == Prepared && d.claim.ID == "" && !d.uncertainClaim
+	d.mu.Unlock()
+	if !prepared {
+		return errors.New("initial Claim requires a prepared Dispatch")
+	}
+	return d.step(ctx)
+}
 
 func (d *Dispatch) RequestStop(reason StopReason) {
 	d.mu.Lock()
@@ -96,14 +147,14 @@ func (d *Dispatch) RequestStop(reason StopReason) {
 }
 
 func (d *Dispatch) stopLocked(reason StopReason) {
-	if d.snapshot.Terminal() || d.snapshot.StopReason != "" {
+	if d.terminalLocked() || d.stopReason != "" {
 		return
 	}
 	if reason == "" {
 		reason = StopRequested
 	}
-	d.snapshot.StopReason = reason
-	d.snapshot.State = Stopping
+	d.stopReason = reason
+	d.state = Stopping
 	d.stopAt = d.options.Clock.Now().Add(d.options.StopTimeout)
 	close(d.stopWake)
 	d.wakeHeartbeat()
@@ -119,16 +170,16 @@ func (d *Dispatch) wakeHeartbeat() {
 	}
 }
 
-// Heartbeat is independent of slow Adapter and finalization calls. Deadlines
+// heartbeat is independent of slow Adapter and finalization calls. Deadlines
 // use local elapsed time from request start, never the server wall clock.
-func (d *Dispatch) Heartbeat(ctx context.Context) error {
+func (d *Dispatch) heartbeat(ctx context.Context) error {
 	d.heartbeatMu.Lock()
 	defer d.heartbeatMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	d.mu.Lock()
-	if d.snapshot.Terminal() || d.snapshot.StopReason != "" || d.claim.ID == "" || !d.claim.Active {
+	if d.terminalLocked() || d.stopReason != "" || d.claim.ID == "" || !d.claim.Active {
 		d.mu.Unlock()
 		return nil
 	}
@@ -150,7 +201,7 @@ func (d *Dispatch) Heartbeat(ctx context.Context) error {
 	renewed, err := d.core.Heartbeat(callCtx, d.candidate, claim.ID, int64(d.options.Lease/time.Second))
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.snapshot.Terminal() || d.snapshot.StopReason != "" {
+	if d.terminalLocked() || d.stopReason != "" {
 		return err
 	}
 	if err != nil {
@@ -181,20 +232,23 @@ func (d *Dispatch) Heartbeat(ctx context.Context) error {
 	return nil
 }
 
-// Step advances at most one phase. Errors leave the Snapshot authoritative:
+// step advances at most one phase. Errors leave the Snapshot authoritative:
 // transport errors are retryable, not proof that a Dispatch is terminal.
-func (d *Dispatch) Step(ctx context.Context) error {
-	d.stepMu.Lock()
-	defer d.stepMu.Unlock()
+func (d *Dispatch) step(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	d.mu.Lock()
-	if d.snapshot.Terminal() {
+	if d.terminalLocked() {
 		d.mu.Unlock()
 		return nil
 	}
-	callCtx, cancel := context.WithTimeout(ctx, d.options.RequestTimeout)
+	// Acquisition gives Probe and Core separate request budgets.
+	callCtx, cancel := context.WithCancel(ctx)
+	if d.claim.ID != "" {
+		cancel()
+		callCtx, cancel = context.WithTimeout(ctx, d.options.RequestTimeout)
+	}
 	d.operationCancel = cancel
 	d.mu.Unlock()
 	defer func() { cancel(); d.mu.Lock(); d.operationCancel = nil; d.mu.Unlock() }()
@@ -219,14 +273,30 @@ func (d *Dispatch) Step(ctx context.Context) error {
 
 func (d *Dispatch) acquire(ctx context.Context) error {
 	d.mu.Lock()
-	if d.snapshot.StopReason != "" && !d.uncertainClaim {
-		d.snapshot.State = Finished
+	if d.stopReason != "" && !d.uncertainClaim {
+		d.state = Finished
+		d.mu.Unlock()
+		return nil
+	}
+	uncertain := d.uncertainClaim
+	d.mu.Unlock()
+	if !uncertain && d.claimAdmission != nil && !d.claimAdmission(ctx) {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	if d.stopReason != "" && !d.uncertainClaim {
+		d.state = Finished
 		d.mu.Unlock()
 		return nil
 	}
 	started := d.options.Clock.Now()
 	d.mu.Unlock()
-	claim, err := d.core.Claim(ctx, d.candidate, d.claimOperation, d.executorToken, int64(d.options.Lease/time.Second))
+	call, cancel := context.WithTimeout(ctx, d.options.RequestTimeout)
+	defer cancel()
+	claim, err := d.core.Claim(call, d.candidate, d.claimOperation, d.executorToken, int64(d.options.Lease/time.Second))
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if err != nil {
@@ -236,9 +306,9 @@ func (d *Dispatch) acquire(ctx context.Context) error {
 			d.uncertainClaim = false
 		}
 		if (known && attempt.State == ClaimRejected) || (coreRejected(err) && !d.uncertainClaim) {
-			d.snapshot.State = Finished
-			if d.snapshot.StopReason == "" {
-				d.snapshot.StopReason = StopCoreRejected
+			d.state = Finished
+			if d.stopReason == "" {
+				d.stopReason = StopCoreRejected
 			}
 		} else if !known || attempt.State != ClaimNotSent {
 			d.uncertainClaim = true
@@ -251,44 +321,43 @@ func (d *Dispatch) acquire(ctx context.Context) error {
 	}
 	d.claim = claim
 	d.uncertainClaim = false
-	d.snapshot.ClaimID = claim.ID
 	if !claim.Active {
-		d.snapshot.ClaimEnded, d.snapshot.EndReason, d.snapshot.State = true, claim.EndReason, Finished
+		d.state = Finished
 		return nil
 	}
 	lease := time.Duration(claim.LeaseSeconds) * time.Second
 	d.safeUntil = started.Add(lease - leaseSafetyMargin(lease))
 	d.wakeHeartbeat()
-	if d.snapshot.StopReason == "" {
-		d.snapshot.State = Claimed
+	if d.stopReason == "" {
+		d.state = Claimed
 	}
 	return nil
 }
 
 func (d *Dispatch) start(ctx context.Context) error {
-	if err := d.Heartbeat(ctx); err != nil {
+	if err := d.heartbeat(ctx); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	d.mu.Lock()
-	if d.snapshot.StopReason != "" || !d.confirmed {
+	if d.stopReason != "" || !d.confirmed {
 		d.mu.Unlock()
 		return nil
 	}
-	d.snapshot.State, d.snapshot.RunState = Starting, RunStarting
-	d.snapshot.Attempts++
-	attempt := d.snapshot.Attempts
+	d.state, d.runState = Starting, RunStarting
+	d.attempts++
+	attempt := d.attempts
 	claimID := d.claim.ID
 	d.mu.Unlock()
-	ref, err := d.adapter.Start(ctx, StartRequest{Candidate: d.candidate, ClaimID: claimID, Attempt: attempt,
+	ref, err := d.adapter.Start(ctx, StartRequest{Workspace: d.options.Workspace, Candidate: d.candidate, ClaimID: claimID, Attempt: attempt,
 		MCPURL: d.options.MCPURL, ExecutorToken: d.executorToken})
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if (err != nil && ref.ID != "") || (err == nil && ref.ID == "") {
 		// A contract-violating Adapter must not cause a second live run.
-		d.snapshot.RunRef, d.snapshot.RunState = ref, RunLost
+		d.runRef, d.runState = ref, RunLost
 		d.stopLocked(StopProtocolError)
 		return errors.New("Adapter violated atomic Start contract")
 	}
@@ -296,28 +365,28 @@ func (d *Dispatch) start(ctx context.Context) error {
 		d.runtimeFailedLocked()
 		return errors.New("Harness Start failed")
 	}
-	d.snapshot.RunRef, d.snapshot.RunState = ref, RunRunning
-	if d.snapshot.StopReason == "" {
-		d.snapshot.State = Running
+	d.runRef, d.runState = ref, RunRunning
+	if d.stopReason == "" {
+		d.state = Running
 	}
 	return nil
 }
 
 func (d *Dispatch) runtimeFailedLocked() {
-	d.snapshot.RunState = RuntimeFailed
-	if d.snapshot.StopReason != "" {
+	d.runState = RuntimeFailed
+	if d.stopReason != "" {
 		return
 	}
-	if d.snapshot.Attempts >= d.options.MaxAttempts {
+	if d.attempts >= d.options.MaxAttempts {
 		d.stopLocked(StopRuntimeFailure)
 		return
 	}
-	d.snapshot.State = Starting
+	d.state = Starting
 }
 
 func (d *Dispatch) observe(ctx context.Context) error {
 	d.mu.Lock()
-	ref := d.snapshot.RunRef
+	ref := d.runRef
 	var deadline time.Time
 	if !d.observeFailureAt.IsZero() {
 		deadline = d.observeFailureAt.Add(d.options.StopTimeout)
@@ -350,10 +419,10 @@ func (d *Dispatch) observe(ctx context.Context) error {
 	d.observeFailureAt = time.Time{}
 	switch observation.State {
 	case RunStarting, RunRunning:
-		d.snapshot.RunState = observation.State
+		d.runState = observation.State
 	case OutcomeReady:
-		d.snapshot.RunState = OutcomeReady
-		if d.snapshot.StopReason != "" {
+		d.runState = OutcomeReady
+		if d.stopReason != "" {
 			return nil
 		}
 		if observation.Outcome == nil || observation.Outcome.Validate(d.candidate) != nil {
@@ -365,15 +434,14 @@ func (d *Dispatch) observe(ctx context.Context) error {
 			d.runtimeFailedLocked()
 			return err
 		}
-		d.intent, d.snapshot.State = &frozen, Finalizing
-		d.snapshot.Outcome = frozen.Kind()
+		d.intent, d.state = &frozen, Finalizing
 	case RuntimeFailed:
 		d.runtimeFailedLocked()
 	case RunStopped:
-		d.snapshot.RunState = RunStopped
+		d.runState = RunStopped
 		d.stopLocked(StopRequested)
 	case RunLost:
-		d.snapshot.RunState = RunLost
+		d.runState = RunLost
 		d.stopLocked(StopRuntimeFailure)
 	default:
 		// An invalid observation does not prove the process exited.
@@ -395,8 +463,7 @@ func (d *Dispatch) inspect(ctx context.Context) (ClaimStatus, error) {
 		return status, errors.New("Core Claim history identity mismatch")
 	}
 	if !status.Claim.Active {
-		d.claim.Active = false
-		d.snapshot.ClaimEnded, d.snapshot.EndReason = true, status.Claim.EndReason
+		d.claim = status.Claim
 	}
 	return status, nil
 }
@@ -411,7 +478,7 @@ func (d *Dispatch) finalize(ctx context.Context) error {
 		return nil
 	}
 	d.mu.Lock()
-	if d.snapshot.StopReason != "" {
+	if d.stopReason != "" {
 		d.mu.Unlock()
 		return nil
 	}
@@ -455,13 +522,13 @@ func (d *Dispatch) stop(ctx context.Context) error {
 		d.mu.Unlock()
 		if expired || s.RunState == RunLost {
 			d.mu.Lock()
-			d.snapshot.RunState = RunLost
+			d.runState = RunLost
 			d.mu.Unlock()
 		} else {
 			observation, err := d.adapter.Observe(ctx, s.RunRef)
 			if err == nil && (runEnded(observation.State) || observation.State == RunLost) {
 				d.mu.Lock()
-				d.snapshot.RunState = observation.State
+				d.runState = observation.State
 				d.mu.Unlock()
 			}
 		}
@@ -487,27 +554,30 @@ func (d *Dispatch) stop(ctx context.Context) error {
 func (d *Dispatch) finish(status ClaimStatus) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.snapshot.State = Finished
-	if d.snapshot.RunState == RunLost {
-		d.snapshot.State = Lost
+	d.state = Finished
+	if d.runState == RunLost {
+		d.state = Lost
 	}
 	if d.intent != nil {
-		d.snapshot.OutcomeApplied = outcomeMatches(d.candidate, status, *d.intent, d.applyAcknowledged)
+		d.outcomeApplied = outcomeMatches(d.candidate, status, *d.intent, d.applyAcknowledged)
 	}
 }
 
-// Run drives Step with an independent heartbeat guard. Cancellation requests
-// Stop and performs one bounded cleanup pass. An unresolved Snapshot stays
-// nonterminal and must retain its scheduler slot until this instance is resumed.
+// Run owns lifecycle advancement and starts an independent heartbeat guard.
+// Concurrent drivers are rejected; a later sequential Run can reconcile retained
+// state. Cancellation requests Stop and performs one bounded cleanup pass.
+// Unresolved Claims remain nonterminal and cannot free a running scheduler slot.
 func (d *Dispatch) Run(ctx context.Context) (Snapshot, error) {
-	d.runMu.Lock()
-	defer d.runMu.Unlock()
+	if !d.beginDrive() {
+		return d.Snapshot(), ErrDispatchAlreadyRunning
+	}
+	defer d.endDrive()
 	guardCtx, cancelGuard := context.WithCancel(ctx)
 	guardDone := make(chan struct{})
 	go func() {
 		defer close(guardDone)
 		for {
-			_ = d.Heartbeat(guardCtx)
+			_ = d.heartbeat(guardCtx)
 			timer := d.heartbeatTimer()
 			select {
 			case <-guardCtx.Done():
@@ -522,19 +592,19 @@ func (d *Dispatch) Run(ctx context.Context) (Snapshot, error) {
 		if ctx.Err() != nil {
 			d.RequestStop(StopRequested)
 			cleanup, cancel := context.WithTimeout(context.Background(), d.options.RequestTimeout)
-			_ = d.Step(cleanup)
+			_ = d.step(cleanup)
 			cancel()
 			return d.Snapshot(), ctx.Err()
 		}
 		before := d.Snapshot()
-		err := d.Step(ctx)
+		err := d.step(ctx)
 		if s := d.Snapshot(); s.Terminal() {
 			return s, err
 		}
 		d.mu.Lock()
-		state := d.snapshot.State
+		state := d.state
 		var stopWake <-chan struct{}
-		if d.snapshot.StopReason == "" {
+		if d.stopReason == "" {
 			stopWake = d.stopWake
 		}
 		delay := controlRetryInterval(d.options.Lease)
@@ -568,7 +638,7 @@ func (d *Dispatch) Run(ctx context.Context) (Snapshot, error) {
 func (d *Dispatch) heartbeatTimer() <-chan time.Time {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.snapshot.Terminal() || d.snapshot.StopReason != "" || d.claim.ID == "" || !d.claim.Active {
+	if d.terminalLocked() || d.stopReason != "" || d.claim.ID == "" || !d.claim.Active {
 		return nil
 	}
 	deadline := d.nextHeartbeat

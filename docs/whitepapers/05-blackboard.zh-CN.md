@@ -112,7 +112,7 @@ executor:
   either
 ```
 
-人或 Agent 可以主动选择候选 Task，未来的 Bridge 可以自动完成同样基于 Role 的选择。Claim 为选中 Task 上的一个具体 Actor 建立唯一执行责任。
+人或 Agent 可以主动选择候选 Task，未来的 Agent Daemon 可以自动完成同样基于 Role 的选择。Claim 为选中 Task 上的一个具体 Actor 建立唯一执行责任。
 
 ## 5. 自主性
 
