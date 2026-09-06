@@ -399,6 +399,12 @@ type schedulerAdapter struct {
 	scheduler *Scheduler
 }
 
+func (a *schedulerAdapter) Forget(ref RunRef) {
+	if adapter, ok := a.Adapter.(RunForgetter); ok {
+		adapter.Forget(ref)
+	}
+}
+
 func (a *schedulerAdapter) Start(ctx context.Context, r StartRequest) (RunRef, error) {
 	ref, err := a.Adapter.Start(ctx, r)
 	var system *SystemError
