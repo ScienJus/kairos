@@ -6,7 +6,7 @@ This example demonstrates two Tasks that are immediately available in parallel a
 
 ## Run the example
 
-Prerequisites: Go 1.26.6 or later, Node.js 20 LTS or a later LTS release, npm, and curl.
+Prerequisites: Go 1.26.6 or later, Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, npm, and curl.
 
 From the repository root:
 
