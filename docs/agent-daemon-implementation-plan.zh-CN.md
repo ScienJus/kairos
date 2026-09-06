@@ -1,7 +1,7 @@
 # Agent Daemon 分阶段实现规划
 
 依据：[Agent Daemon 白皮书](whitepapers/agent-daemon.zh-CN.md)。本规划描述实现顺序与验收条件，
-不新增领域设计。阶段 1、2 已合入；阶段 3 初版已实现、待 review；阶段 4–5 待实施。
+不新增领域设计。阶段 1–3 已合入；阶段 4 已通过全量 review 与 macOS 真实模型 smoke，待合入；阶段 5 待实施。
 
 ## 目标与边界
 
@@ -18,8 +18,8 @@ apply_coordination_decision 或批量 Blackboard 规划 API。
 | --- | --- | --- |
 | 1. Core 执行凭据（已验收） | Claim Token、principal 和服务端授权完整闭环 | 当前 Core |
 | 2. 单次 Dispatch 引擎（已合入） | fake Adapter 可完成两类 Dispatch 的生命周期 | 阶段 1 |
-| 3. 连续调度与故障抑制（初版已实现） | slots、Probe、cooldown、预算和 quarantine | 阶段 2 |
-| 4. 本地 Codex Adapter | 真实 Harness、Managed Skill、隔离 workspace | 阶段 3 |
+| 3. 连续调度与故障抑制（已合入） | slots、Probe、cooldown、预算和 quarantine | 阶段 2 |
+| 4. 本地 Codex Adapter（已验证） | CLI 进程、MCP 指令与 outcome schema、隔离 workspace；macOS 真实模型 smoke 已通过 | 阶段 3 |
 | 5. 集成与交付 | E2E、构建入口、使用文档和发布接入 | 阶段 4 |
 
 阶段 1 不依赖 Daemon；阶段 2 不接真实模型；阶段 3 的重试边界通过后，才开放真实 Harness 的
@@ -29,7 +29,7 @@ apply_coordination_decision 或批量 Blackboard 规划 API。
 
 当前已有 Identity Token 管理、Role 校验、Task/Coordination Claim、Claim-bound Executor Token、
 heartbeat、reaper、Artifact、HTTP/MCP 和 SQLite/PostgreSQL。`internal/daemon` 已包含单次
-Dispatch 引擎、HTTP client 与连续调度器；`cmd/kairos-daemon` 提供独立诊断命令，真实 Adapter 尚未实现。
+Dispatch 引擎、HTTP client 与连续调度器；`cmd/kairos-daemon` 提供诊断模式与显式启用的本地 Codex Adapter。
 
 主要复用位置：
 
@@ -199,7 +199,30 @@ Run，并发或再次调用均报错；取消表示停机。单次 Dispatch 的�
   全局 WorkItem fairness。
 - 达到 Core 历史上限时接受其权威结果，不继续领取或试图绕过保护。
 
-## 阶段 4：本地 Codex Adapter 与 Managed Skill
+## 阶段 4：本地 Codex Adapter
+
+实现位于 `internal/daemon/codexadapter`，支持 Linux/macOS 和 Codex CLI 0.146.x。
+已核实本机 0.146.0 CLI 参数及 MCP 配置解析；使用 `codex exec`、结构化结果文件、独立
+attempt workspace、环境变量 Executor Token、MCP 初始化指令与简短启动 prompt。Provider 登录
+使用显式指定的专用 Codex home，模型由操作者指定。workspace-write 允许网络访问，以读取
+托管 Artifact 和访问仓库；不继承 Daemon Identity Token，不宣称同用户进程间的 OS 级秘密隔离。
+
+Probe 仅检查 CLI 版本与本地登录状态，不调用模型，也不证明 Provider 配额或模型可用。
+Stop 先发送一次 SIGINT，由 Codex 清理其普通 shell 独立进程组；两秒内未退出则尝试强杀根
+进程组，但只报告 lost，不把根进程消失当作整个执行停止。异常信号退出或残留进程组同样
+报告 lost，可能需要人工清理；不引入进程树 supervisor。
+可选 RunForgetter 在 Dispatch 终态或确认旧运行结束后释放 Adapter 内存记录；若请求早于
+Adapter 清理完成，则保留到运行结束后自动回收，不删除活动运行或 workspace。
+Codex 输出的 runtime_failure 信封仅转换为运行时失败，业务 outcome 沿用既有契约。
+
+已通过假 CLI 真实进程、凭据分离、停止、非法输出及真实 Core HTTP/MCP + SQLite 测试，
+覆盖两类 Profile 的上下文/已提交 Artifact 内容读取、Workflow 提交/Review/transition、
+Blackboard 全流程与分解。真实 CLI + 本地模拟 Provider 还覆盖普通长命令的中断、正常完成
+与异常强杀，不调用真实模型。2026-09-06 已另行通过 macOS + Codex CLI 0.146.0 +
+`gpt-5.6-sol` 的真实模型 smoke：独立临时 Core/SQLite 中，Task 上传托管 Artifact，随后
+Coordination 通过 HTTP 读取已提交内容并提交完成；两次 Dispatch 均一次成功，Claim 已结束、
+WorkItem 已完成、运行记录已回收。Linux 实际 CLI 及其他真实模型场景尚未验收。
+使用方式与边界见 [Adapter 说明](../internal/daemon/codexadapter/README.md)。
 
 ### 实现范围
 
@@ -210,8 +233,8 @@ Run，并发或再次调用均报错；取消表示停机。单次 Dispatch 的�
 - 实现 Observe、结果解析和尽力 Stop；Harness 异常与业务 outcome 分离。
 - 为每次 Dispatch 分配隔离 workspace，通过受保护的 secret 通道注入 Executor Token，
   不向 Harness 提供 Agent Identity Token。
-- 提供 Managed execution Skill，强调动态上下文、scope、直接写入的 operation_id 和结构化
-  outcome；与原生 Agent 的完整 Claim/heartbeat Skill 区分。
+- 复用按 Token Profile 返回的 MCP 工具与初始化指令；启动 prompt 和 outcome schema
+  只补充当前执行及结果约定，不维护独立 Managed Skill。
 - 验证两类 Profile 的上下文与托管 Artifact 内容实际读取路径。现有 HTTP 内容接口可复用，
   不因缺少对称 MCP 工具而假定 Harness 已能取得文件内容。
 
@@ -232,7 +255,7 @@ Run，并发或再次调用均报错；取消表示停机。单次 Dispatch 的�
 - 自动化 E2E 默认使用 fake/script Harness，不依赖付费模型；真实 Codex smoke test 单独启用。
 - 覆盖真实 Core HTTP/MCP、凭据认证、托管 Artifact、取消、超时和 reaper 的完整组合。
 - 在 Makefile、CI 和适用的发布配置中接入独立 `kairos-daemon` 二进制及支持平台。
-- 更新 README、Roadmap、站点状态、API 文档、Managed Skill、示例与安装/启动说明。
+- 更新 README、Roadmap、站点状态、API 文档、MCP 指令、示例与安装/启动说明。
   仅在对应路径实际通过验收后，将 planned 改为 implemented。
 - 记录配置、Probe 的可检测范围、quarantine 解除规则、Token 撤销语义、优雅停机和崩溃限制。
 
@@ -251,4 +274,4 @@ Run，并发或再次调用均报错；取消表示停机。单次 Dispatch 的�
 - 涉及 frontend types/行为：在 `web/` 运行测试、`npm run build` 和 `npm run lint`。
 - 交接前运行 `git diff --check`，并再次扫描旧术语、遗漏状态与中英文契约差异。
 
-阶段 3 验收后进入阶段 4：实现本地 Codex Adapter 与 Managed Skill，接入真实 Harness。
+阶段 4 已通过全量 review 与上述真实模型 smoke；合入后进入阶段 5 的集成和生产交付。
