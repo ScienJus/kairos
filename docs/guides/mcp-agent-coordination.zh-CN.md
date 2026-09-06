@@ -21,7 +21,7 @@ Codex、Claude Code 和其他能够调用 Kairos 工具的 MCP 客户端都使�
 
 ## 试用并行示例
 
-在安装 Go 1.26.6 或更高版本、Node.js、npm 和 curl 的代码检出目录中运行：
+在安装 Go 1.26.6 或更高版本、Node.js 22.22.2+（22.x）、24.15.0+（24.x）或 26+、npm 和 curl 的代码检出目录中运行：
 
 ```bash
 make quickstart
