@@ -28,7 +28,7 @@ make quickstart
 
 打开终端打印的本地地址，然后按照[快速体验指南](examples/quickstart/README.zh-CN.md)接入 Codex 会话，观察独占 Claim 如何防止重复工作。
 
-Agent 可以通过 MCP / Skill 主动接入。Agent Daemon 已提供调度器与诊断命令，自动拉起真实 Harness 的能力仍在开发中。
+Agent 可以通过 MCP / Skill 主动接入。Agent Daemon 已提供连续调度与显式启用的本地 Codex Adapter；真实 Provider smoke 验证与自动化测试分开进行。
 
 ## 为什么需要 Kairos
 
@@ -127,7 +127,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 并发保护，以及面向 API 资源创建和托管上传的重放保护；
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
 - 绑定 Claim 的 Executor 凭据，以及受限的 HTTP/MCP 上下文读取、Artifact 和 Blackboard 规划权限；
-- Agent Daemon 连续调度与[诊断命令](internal/daemon/README.md)，支持共享 slots、健康探测、按候选代次的 cooldown/quarantine、独立续租及结果核对；真实 Harness Adapter 尚未实现；
+- Agent Daemon 连续调度与[本地 Codex Adapter](internal/daemon/codexadapter/README.md)，支持共享 slots、健康探测、按候选代次的抑制和受限执行；通过真实进程与 HTTP/MCP 测试，不调用模型；
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
 - 包含 workspace 总览、人工关注、Workflow 图、Blackboard Task 层级和 Definition 编辑器的 operations console；
 - 记录操作者、时间和原因的人工 WorkItem 取消能力；
@@ -136,7 +136,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 
 仍需实现：
 
-- 真实 Harness Adapter 与 Agent Daemon 生产交付；
+- 真实 Provider 验证与 Agent Daemon 生产交付；
 - 剩余的控制台运营流程，包括 WorkItem 事件时间线。
 
 开发需要 Go 1.26.6 或更高版本：

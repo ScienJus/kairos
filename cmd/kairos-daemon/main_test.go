@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -19,6 +20,7 @@ func TestCommandConfiguration(t *testing.T) {
 		{"help", []string{"--help"}, "", ""},
 		{"missing token", nil, "", "Identity Token is required"},
 		{"unknown adapter", []string{"--adapter=real"}, "secret", "unsupported adapter"},
+		{"unconfigured codex", []string{"--adapter=codex", "--codex-executable=" + os.Args[0]}, "secret", "authentication home and model are required"},
 		{"invalid slots", []string{"--slots=0"}, "secret", "invalid scheduler"},
 		{"invalid tags", []string{"--tags= backend "}, "secret", "whitespace"},
 		{"positional", []string{"extra"}, "secret", "positional"},

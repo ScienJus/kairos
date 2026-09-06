@@ -268,7 +268,7 @@ type Adapter interface {
 ```
 
 - `Probe` 在不创建运行的前提下检查 Harness 与 Provider 的基本可用性；
-- `Start` 注入 Executor Token、Kairos MCP 地址和 Managed execution Skill，并启动 Harness；
+- `Start` 注入 Executor Token、Kairos MCP 地址和执行上下文，并启动 Harness；
 - `Observe` 返回 Harness 当前状态，完成后返回类型化业务结果或运行时错误；
 - `Stop` 是幂等、尽力而为的停止操作；
 - `RunRef` 是不包含 Credential 的可序列化运行引用，可用于 Agent Daemon 日志和进程存活期间的
@@ -296,8 +296,10 @@ Adapter 只负责启动、观察、停止 Harness，并把 Harness 专用输出�
 ### D11：Adapter 使用快照式观察和类型化 Harness outcome
 
 `StartRequest` 只携带一次 Dispatch 的必要执行信息：Dispatch kind、Agent identity/role、
-WorkItem、可选 Task、Claim、Kairos MCP 地址、不可序列化的 Executor Token、Managed execution
-Skill 和可选 deadline。Adapter 专用配置保存在 Adapter 实例中，不重复放入每个请求。
+WorkItem、可选 Task、Claim、Kairos MCP 地址、不可序列化的 Executor Token 和可选 deadline。
+Adapter 专用配置保存在 Adapter 实例中，不重复放入每个请求。阶段四实现后收敛为复用按
+Token Profile 返回的 MCP 工具和初始化指令，启动 prompt 与 outcome schema 补充执行约定，
+不再维护独立 Managed Skill。
 
 `RunRef` 是 Adapter 管理的 opaque ID。`Observe` 返回即时快照，不长期阻塞；统一运行状态为：
 
