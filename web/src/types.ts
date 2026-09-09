@@ -113,7 +113,7 @@ export interface WorkflowDefinition extends Definition {
   graph: { start_task_ids: string[]; tasks: WorkflowTaskDefinition[]; relations: WorkflowRelationDefinition[]; max_task_instances_per_node: number }
 }
 export interface AuthenticationConfig { mode: AuthenticationMode }
-export interface Identity { id: string; kind: 'human' | 'agent'; role: string; display_name?: string }
+export interface Identity { id: string; kind: 'human' | 'agent'; role: string; display_name?: string; can_manage_identities?: boolean }
 // Deployment-managed Humans have no issued Identity Token (token_active is false).
 export interface IdentityRecord extends Identity { credential_source: 'identity' | 'admin'; token_active: boolean; version: number; created_at: string; updated_at: string }
 // human_task includes unclaimed Human Tasks and the current Human’s actively claimed Tasks (including either).
@@ -151,4 +151,14 @@ export interface CreateWorkflowDefinitionInput extends CreateDefinitionInput {
 export interface CreateWorkItemInput {
   definition_id: string; mode: Mode; title: string; goal: string
   context: string; constraints: string; acceptance_criteria: string; acceptance_mode: 'none' | 'agent' | 'human'; tags: string[]
+}
+
+// Admin issuance is separate from the console's business identity session.
+export interface CreateIdentityInput {
+  id: string
+  kind: 'human' | 'agent'
+  role: string
+}
+export interface IssuedIdentityToken extends CreateIdentityInput {
+  token: string
 }

@@ -166,7 +166,16 @@ Review 的目标不是逐项修补，而是识别产生这类问题的共同结�
 
 ## 登录会话
 
-Authenticated 登录框接受 Identity Token 或部署 Admin Token，完全使用 `/session` 返回的身份；Admin Token 返回普通 Human、空 role，前端不推导管理员权限。两者均使用当前标签页 sessionStorage。提交时清空密码输入；退出和当前凭据的 401 清除凭据与 Query 缓存，并使在途 session 请求失效。存储不可用时展示错误。覆盖恢复、失败、迟到响应、退出、中英文与键盘操作。 当前身份菜单优先展示服务端可选 `display_name`，Admin 为 `system admin`，缺省回落 actor ID；不根据 `admin-` 前缀推断身份，不用展示名称判断权限或 Claim 归属。Admin 配置仅接受至少 32 个可见 ASCII 字符（0x21–0x7E），确保可由浏览器 Authorization header 传输。
+Authenticated 登录框接受 Identity Token 或部署 Admin Token，完全使用 `/session` 返回的身份；Admin Token 返回普通 Human、空 role，前端只使用服务端 `can_manage_identities` 能力显示账户菜单中唯一的 Token 管理入口，不从 ID 或显示名称推导权限。两者均使用当前标签页 sessionStorage。提交时清空密码输入；退出和当前凭据的 401 清除凭据与 Query 缓存，并使在途 session 请求失效。存储不可用时展示错误。覆盖恢复、失败、迟到响应、退出、中英文与键盘操作。 当前身份菜单优先展示服务端可选 `display_name`，Admin 为 `system admin`，缺省回落 actor ID；不根据 `admin-` 前缀推断身份，不用展示名称判断权限或 Claim 归属。Admin 配置仅接受至少 32 个可见 ASCII 字符（0x21–0x7E），确保可由浏览器 Authorization header 传输。
+
+
+## Token 管理页面
+
+在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
+
+管理页面复用当前标签页 sessionStorage 中的登录凭据，不建立第二套管理员会话。退出和当前凭据的 401 清除登录及工作区缓存。新签发的 Token 仅保存在页面内存，不进入 URL、浏览器存储或 Query/Mutation 缓存。请在关闭结果、开始其他操作、离开或刷新页面之前复制保存；剪贴板失败时可手动复制。列表和详情不会返回明文 Token。写请求失败时不自动重试，因为操作可能已成功；应先刷新元数据，再决定是否轮转新 Token。Trusted Mode 保留本地身份设置，不开放管理功能。
+
+页面进入时加载身份列表；操作后只刷新当前列表。新 Token 不交给通用缓存。在途请求在卸载、退出或 pagehide 时取消，并通过代次忽略迟到的签发和复制结果。覆盖 Human/Agent 创建、字段校验、重复 ID、轮转前确认、撤销 204、管理员只读身份、网络结果不确定、普通身份无入口、深链接认证、刷新和前进后退的敏感状态清理。
 
 Workflow 的执行限制应显示为“单节点最大任务实例数”，说明统一配置、各节点分别计数。编辑器接受 0–500 的整数；0 使用默认值 100，详情页显示有效值 100。
 

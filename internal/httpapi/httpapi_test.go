@@ -110,6 +110,9 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		t.Fatalf("trusted session = %+v", session)
 	}
 	trustedSession := requestData[map[string]any](t, client, http.MethodGet, server.URL+"/api/v1/session", nil, "", http.StatusOK)
+	if trustedSession["can_manage_identities"] != false {
+		t.Fatal("Trusted Mode must not receive management capability")
+	}
 	if _, exists := trustedSession["display_name"]; exists {
 		t.Fatal("Trusted Mode received Admin presentation metadata")
 	}
