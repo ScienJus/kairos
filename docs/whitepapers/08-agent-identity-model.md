@@ -140,3 +140,7 @@ Kairos can provide repository and working-directory information on a Task so an 
 Kairos can host a lightweight Agent Profile with fields such as role, a display label, and description, while project execution rules remain in the repository.
 
 > Identity tells Kairos who is acting. Role narrows the work that agent is allowed to take.
+
+## Deployment administrator as Human
+
+The deployment Admin Token also authenticates a stable, database-bound ordinary Human with an empty role over HTTP, MCP and the console. Its business permissions follow Human rules; identity administration remains exclusive to the configured credential. Rotation preserves the actor and requires restarting every instance. This does not grant Agent discovery or Executor privileges. See the [API reference](../api-reference.md#admin-token-business-identity) for persistence, collisions, migration and session semantics.

@@ -80,8 +80,8 @@ func NewWithIdentityManagement(
 	if service == nil || resolver == nil || identityService == nil {
 		return nil, errors.New("application service, identity resolver and identity service are required")
 	}
-	if len(adminToken) < 32 || adminToken != strings.TrimSpace(adminToken) {
-		return nil, errors.New("admin token must be trimmed and at least 32 characters")
+	if err := identity.ValidateAdminToken(adminToken); err != nil {
+		return nil, err
 	}
 	configured, err := httpOptions(options)
 	if err != nil {
