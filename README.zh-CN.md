@@ -107,6 +107,8 @@ Working
 
 ## 人类交互
 
+人工关注视图包含待处理 Review、未认领 Human Task、当前 Human 已认领的进行中 Task（含 `either`），以及等待人工验收的 WorkItem。
+
 当前 operations console 已提供 workspace 总览、人工关注视图和 WorkItem 详情。进入 WorkItem 后：
 
 - Workflow 显示为带执行历史的流程图。

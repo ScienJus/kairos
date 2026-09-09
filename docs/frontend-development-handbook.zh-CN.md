@@ -114,6 +114,10 @@ Task 操作不能按按钮逐个追加。实现前应列出最小操作矩阵：
 
 ## 8. UI 身份与 API 类型
 
+“需要人处理”由后端在分页前聚合未认领 Human Task 和当前 Human 已认领的 Working Task（含 either），以及 Review 和 WorkItem 人工验收；认领成功后任务仍应显示，其他人的进行中任务不应混入。
+
+释放 Claim 的成功响应是无 Body 的 `204 No Content`。客户端直接完成 Mutation 并刷新相关查询，不能继续解包 `data`，也不能把服务端已成功释放误报为失败。
+
 Kairos Web UI 服务人类使用者。Agent 通过 MCP 或 Skill 工作，前端不保留模拟 Agent transport 的调试分支；确有调试需求时再作为独立工具补充。
 
 - 浏览器身份只采集 Human Actor ID。

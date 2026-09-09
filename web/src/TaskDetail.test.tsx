@@ -77,6 +77,23 @@ afterEach(() => {
 })
 
 describe('Task detail operations', () => {
+  it('refreshes task and WorkItem queries after putting down a task with a 204 response', async () => {
+    const task = makeTask()
+    vi.spyOn(api, 'getTaskContext').mockResolvedValue(execution(task, [claim]))
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 204 }))
+    const user = userEvent.setup()
+    const { queryClient } = renderTask(task, claim)
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await user.click(await screen.findByRole('button', { name: 'Put down for now' }))
+    await user.click(screen.getAllByRole('button', { name: 'Put down for now' }).find(button => !button.hasAttribute('aria-expanded'))!)
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['work-item', identity, task.work_item_id] }))
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['task-detail', identity, task.id] })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/Cannot read properties/)).not.toBeInTheDocument()
+  })
+
   it('shows artifacts delivered by the selected task', async () => {
     const task = makeTask({ status: 'completed', active_claim_id: null })
     const view = detail(task)

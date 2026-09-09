@@ -81,6 +81,7 @@ export interface WorkflowDefinition extends Definition {
 }
 export interface AuthenticationConfig { mode: AuthenticationMode }
 export interface Identity { id: string; kind: 'human' | 'agent'; role: string }
+// human_task includes unclaimed Human Tasks and the current Human’s actively claimed Tasks (including either).
 export interface HumanAttentionItem { kind: 'review' | 'human_task' | 'work_item_acceptance'; work_item: WorkItem; task: Task | null }
 
 export interface TaskDraftInput {

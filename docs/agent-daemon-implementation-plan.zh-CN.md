@@ -201,7 +201,7 @@ Run，并发或再次调用均报错；取消表示停机。单次 Dispatch 的�
 
 ## 阶段 4：本地 Codex Adapter
 
-实现位于 `internal/daemon/codexadapter`，支持 Linux/macOS 和 Codex CLI 0.146.x。
+实现位于 `internal/daemon/codexadapter`，支持 Linux/macOS 和 Codex CLI 0.146.0+。
 已核实本机 0.146.0 CLI 参数及 MCP 配置解析；使用 `codex exec`、结构化结果文件、独立
 attempt workspace、环境变量 Executor Token、MCP 初始化指令与简短启动 prompt。Provider 登录
 使用显式指定的专用 Codex home，模型由操作者指定。workspace-write 允许网络访问，以读取
@@ -285,3 +285,5 @@ Notices 覆盖两个程序的依赖并集，发布 workflow 将八份后端 SBOM
 - 交接前运行 `git diff --check`，并再次扫描旧术语、遗漏状态与中英文契约差异。
 
 阶段 5 已通过全量 review 与本地归档验收；合入前须通过 CI，创建 Release 仍需单独授权。
+
+运行验证补充：Codex 的 `runtime_failure` 现可在私有 outcome 文件中记录最多 4096 UTF-8 字节的 `reason`，要求概述失败操作、错误和恢复步骤，禁止凭据及原始工具输出；旧的无原因结果仍可读取。原因不进入调度日志或 Core 业务结果。CLI 探测不保证沙箱内浏览器可用，浏览器验证应在可运行的隔离环境完成并绑定审查 SHA。反向代理的 MCP Host 问题应在部署层修正上游 Host，保留服务端默认校验、认证及跨站防护。以上不改变数据库、业务生命周期或公开响应结构。

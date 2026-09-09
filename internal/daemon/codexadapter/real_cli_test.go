@@ -24,6 +24,34 @@ import (
 // Opt-in installed CLI regression, without real authentication or model calls.
 // The scripted loopback Provider asks the actual CLI to execute an ordinary shell
 // command. A fake CLI alone cannot verify Codex's separate shell process groups.
+func TestRealCodexOptionsProbe(t *testing.T) {
+	cli := os.Getenv("KAIROS_TEST_CODEX_EXECUTABLE")
+	if cli == "" {
+		t.Skip("set KAIROS_TEST_CODEX_EXECUTABLE for the installed CLI parser probe")
+	}
+	a, err := New(Options{Executable: cli, Home: t.TempDir(), Model: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	version, err := a.probeCommand(ctx, "--version")
+	if err != nil || !supportedVersion(version) {
+		t.Fatalf("version = %q, error = %v", version, err)
+	}
+	args := append(executionArgs(), "--model", "test", "--cd", a.options.Home,
+		"--output-schema", "kairos-probe.schema.json", "--output-last-message", "kairos-probe.out",
+		"-c", "sandbox_workspace_write.network_access=true", "--help")
+	if _, err := a.probeCommand(ctx, args...); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"kairos-probe.schema.json", "kairos-probe.out"} {
+		if _, err := os.Stat(filepath.Join(a.options.Home, name)); !os.IsNotExist(err) {
+			t.Fatalf("parser probe created %s: %v", name, err)
+		}
+	}
+}
+
 func TestRealCodexShellLifecycle(t *testing.T) {
 	cli := os.Getenv("KAIROS_TEST_CODEX_EXECUTABLE")
 	if cli == "" {
