@@ -49,12 +49,18 @@ func TestAdminTokenIsAnOrdinaryHumanSession(t *testing.T) {
 	client := server.Client()
 	base := server.URL + "/api/v1"
 	session := authenticatedRequestData[sessionPayload](t, client, http.MethodGet, base+"/session", nil, token, 200)
-	if session.Kind != domain.ActorHuman || session.Role != "" || session.ID == "" || session.ID == "spoofed-actor" {
+	if session.Kind != domain.ActorHuman || session.Role != "" || session.ID == "" || session.ID == "spoofed-actor" || session.DisplayName != "system admin" {
 		t.Fatal("Admin session is not the dedicated Human")
 	}
 	actor := domain.ActorRef{Kind: domain.ActorHuman, ID: session.ID}
-	human := authenticatedRequestData[issuedTokenPayload](t, client, "POST", base+"/identities", map[string]any{"kind": "human", "id": "ordinary-human"}, token, 201)
+	human := authenticatedRequestData[issuedTokenPayload](t, client, "POST", base+"/identities", map[string]any{"kind": "human", "id": "admin-ordinary-human"}, token, 201)
 	agent := authenticatedRequestData[issuedTokenPayload](t, client, "POST", base+"/identities", map[string]any{"kind": "agent", "id": "ordinary-agent", "role": "developer"}, token, 201)
+	for _, credential := range []string{human.Token, agent.Token} {
+		ordinary := authenticatedRequestData[map[string]any](t, client, "GET", base+"/session", nil, credential, 200)
+		if _, exists := ordinary["display_name"]; exists {
+			t.Fatal("ordinary identity received Admin presentation metadata")
+		}
+	}
 	for _, credential := range []string{human.Token, agent.Token, testExecutorToken(7), "", "invalid"} {
 		requestAuthenticatedError(t, client, "GET", base+"/identities", nil, credential, 401, "unauthenticated")
 	}

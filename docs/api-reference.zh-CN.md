@@ -96,7 +96,7 @@ X-Kairos-Actor-Role: backend
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
-KAIROS_ADMIN_TOKEN='<至少-32-字符的高熵-token>' \
+KAIROS_ADMIN_TOKEN='<at-least-32-visible-ASCII-high-entropy-token>' \
 go run ./cmd/kairos-server
 ```
 
@@ -108,7 +108,9 @@ go run ./cmd/kairos-server
 
 Authenticated 启动时，migration 005 与事务创建或读取唯一的 `credential_source=admin` 身份。随机 `admin-` ID 与 Token 无关；与已有 Human ID 冲突时重新生成，不认领或覆盖旧记录；同名 Agent 是另一 actor。唯一部分索引确保并发初始化收敛。数据库约束和启动校验拒绝错误 kind、role 或已存凭据状态。升级保留 migrations 001–004 和已有身份。备份必须包含完整数据库及该行；不支持手工删除或修改该行。新数据库会创建新的 Human 身份。
 
-同库重启保持 actor 不变。更换 Admin Token 应修改部署配置并重启所有实例；新 Token 仍对应原 Human，所有旧进程停止后，旧 Token 的业务和管理认证均失败。不提供热更新，也不将 Admin 凭据或 hash 存成普通 Identity 凭据。启动拒绝与已有 Identity Token 的碰撞及完整规范 Executor 格式。配置至少 32 UTF-8 字节、无空白，应使用高熵随机值；无效或缺失配置启动失败且不输出凭据。
+同库重启保持 actor 不变。更换 Admin Token 应修改部署配置并重启所有实例；新 Token 仍对应原 Human，所有旧进程停止后，旧 Token 的业务和管理认证均失败。不提供热更新，也不将 Admin 凭据或 hash 存成普通 Identity 凭据。启动拒绝与已有 Identity Token 的碰撞及完整规范 Executor 格式。配置至少 32 个可见 ASCII 字符（0x21–0x7E），不接受非 ASCII、空白或控制字符，应使用高熵随机值；无效或缺失配置启动失败且不输出凭据。
+
+该凭据在控制台当前身份菜单显示为 `system admin`。`/session` 增加可选展示字段 `display_name: "system admin"`；普通 Identity 会话和 Trusted Mode 不返回此字段，仍显示 actor ID。稳定的 `id`、Human `kind` 和空 `role` 继续作为 HTTP 与 MCP 的业务身份。名称或 ID 前缀不授予权限。旧配置若含非 ASCII 或控制字符，须在重启前替换为随机可见 ASCII 凭据；数据库绑定的 actor 保持不变。
 
 身份管理响应新增 `credential_source`（`identity` 或 `admin`）。`token_active` 只表示是否存在已签发的 Identity Token，因此部署管理的 Human 为 false。对该行调用 `/identities/{kind}/{actor_id}/token` 轮换或撤销返回 403，应改部署配置。普通身份签发、轮换和撤销不变。
 

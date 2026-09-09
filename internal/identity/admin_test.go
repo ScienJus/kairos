@@ -11,14 +11,45 @@ import (
 )
 
 func TestValidateAdminToken(t *testing.T) {
-	for _, token := range []string{"", strings.Repeat("x", 31), strings.Repeat("界", 10) + "x", strings.Repeat("x", 16) + "\u00a0" + strings.Repeat("x", 16), " " + strings.Repeat("x", 32), strings.Repeat("x", 32) + "\n", strings.Repeat("x", 16) + " " + strings.Repeat("x", 16), ExecutorTokenPrefix + base64.RawURLEncoding.EncodeToString(make([]byte, 32))} {
-		if err := ValidateAdminToken(token); !errors.Is(err, ErrInvalid) {
-			t.Fatal("invalid Admin credential accepted")
-		}
+	for _, tc := range []struct{ name, token, reason string }{
+		{"missing", "", "at least 32 visible ASCII characters"},
+		{"short", strings.Repeat("x", 31), "at least 32 visible ASCII characters"},
+		{"unicode at byte boundary", strings.Repeat("界", 10) + "xx", "only visible ASCII"},
+		{"unicode beyond byte boundary", strings.Repeat("界", 11), "only visible ASCII"},
+		{"latin1", strings.Repeat("x", 32) + "é", "only visible ASCII"},
+		{"unicode whitespace", strings.Repeat("x", 32) + "\u00a0", "only visible ASCII"},
+		{"space below lower boundary", " " + strings.Repeat("x", 32), "only visible ASCII"},
+		{"internal space", strings.Repeat("x", 16) + " " + strings.Repeat("x", 16), "only visible ASCII"},
+		{"newline", strings.Repeat("x", 32) + "\n", "only visible ASCII"},
+		{"tab", strings.Repeat("x", 32) + "\t", "only visible ASCII"},
+		{"nul", strings.Repeat("x", 32) + "\x00", "only visible ASCII"},
+		{"del beyond upper boundary", strings.Repeat("x", 32) + "\x7f", "only visible ASCII"},
+		{"executor namespace", ExecutorTokenPrefix + base64.RawURLEncoding.EncodeToString(make([]byte, 32)), "canonical Executor format"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateAdminToken(tc.token)
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), tc.reason) {
+				t.Fatalf("expected guard %q, got %v", tc.reason, err)
+			}
+			if tc.token != "" && strings.Contains(err.Error(), tc.token) {
+				t.Fatal("error disclosed credential")
+			}
+		})
 	}
-	for _, token := range []string{strings.Repeat("x", 32), strings.Repeat("界", 10) + "xx", strings.Repeat("界", 11), ExecutorTokenPrefix + strings.Repeat("x", 32)} {
+	for _, token := range []string{strings.Repeat("x", 32), strings.Repeat("x", 33), strings.Repeat("!", 32), strings.Repeat("~", 32), ExecutorTokenPrefix + strings.Repeat("x", 32)} {
 		if err := ValidateAdminToken(token); err != nil {
 			t.Fatal(err)
+		}
+	}
+	// Every byte outside the documented alphabet is rejected, including all
+	// HTTP control characters and invalid UTF-8. No earlier length guard fires.
+	for value := 0; value <= 255; value++ {
+		if value >= 0x21 && value <= 0x7e {
+			continue
+		}
+		err := ValidateAdminToken(strings.Repeat("x", 32) + string([]byte{byte(value)}))
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "only visible ASCII") {
+			t.Fatalf("byte %d bypassed ASCII guard", value)
 		}
 	}
 }

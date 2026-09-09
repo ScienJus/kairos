@@ -96,7 +96,7 @@ Authenticated Mode is intended for shared environments within one trusted collab
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
-KAIROS_ADMIN_TOKEN='<at-least-32-character-high-entropy-token>' \
+KAIROS_ADMIN_TOKEN='<at-least-32-visible-ASCII-high-entropy-token>' \
 go run ./cmd/kairos-server
 ```
 
@@ -108,7 +108,9 @@ Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes
 
 At authenticated startup, migration 005 and a transaction create or load the single identity with `credential_source=admin`. Its random `admin-` ID is independent of the Token. A conflicting Human ID is retried without adopting or overwriting it; the same text in an Agent ID is a separate actor. A unique partial index makes concurrent initialization converge. Constraints and startup validation reject invalid kind, role or stored credential state. Existing databases are upgraded without rewriting migrations 001–004 or existing identities. Back up the complete database, including this row; deleting or manually changing it is unsupported. A new database has a new Human identity.
 
-Restarting against the same database preserves the actor. To rotate the Admin Token, change deployment configuration and restart every instance: the new Token resolves to the same Human and the old Token fails business and management authentication once all old processes stop. There is no hot reload. The Admin credential/hash is never stored as an ordinary Identity credential. Startup rejects collisions with an existing Identity Token and rejects canonical Executor-format credentials. Configuration requires at least 32 UTF-8 bytes, no whitespace, and should be generated with high entropy; invalid or missing configuration fails without printing it.
+Restarting against the same database preserves the actor. To rotate the Admin Token, change deployment configuration and restart every instance: the new Token resolves to the same Human and the old Token fails business and management authentication once all old processes stop. There is no hot reload. The Admin credential/hash is never stored as an ordinary Identity credential. Startup rejects collisions with an existing Identity Token and rejects canonical Executor-format credentials. Configuration requires at least 32 visible ASCII characters (0x21–0x7E), no whitespace or control characters, and should be generated with high entropy; invalid or missing configuration fails without printing it.
+
+The console account menu displays `system admin` for this credential. `/session` includes the optional presentation field `display_name: "system admin"`; ordinary Identity sessions and Trusted Mode omit it and display their actor ID. The stable `id`, Human `kind` and empty `role` remain the business identity over both HTTP and MCP. Names and ID prefixes never grant permissions. Previously accepted non-ASCII/control-character Admin configurations must be replaced with a random visible-ASCII credential before restarting; the database-bound actor is preserved.
 
 Identity management responses include `credential_source` (`identity` or `admin`). `token_active` describes an issued Identity Token only, so it is false for the deployment-managed Human. Rotating or revoking that row through `/identities/{kind}/{actor_id}/token` returns 403; use deployment configuration instead. Ordinary identity issuance, rotation and revocation are unchanged.
 
