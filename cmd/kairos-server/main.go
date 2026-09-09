@@ -115,6 +115,9 @@ func run() error {
 		if adminToken == "" {
 			return errors.New("KAIROS_ADMIN_TOKEN is required in authenticated mode")
 		}
+		if err := identityService.ConfigureAdmin(ctx, adminToken); err != nil {
+			return fmt.Errorf("configure Admin identity: %w", err)
+		}
 		resolver = identity.AuthenticatedResolver{Authenticator: identityService}
 	default:
 		return fmt.Errorf("unsupported KAIROS_AUTH_MODE %q", authMode)

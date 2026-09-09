@@ -25,9 +25,12 @@ export function App() {
   const queryClient = useQueryClient()
   const [authentication, setAuthentication] = useState<AuthenticationState>({ status: 'loading' })
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0)
+  const sessionGeneration = useRef(0)
 
   useEffect(() => {
     let active = true
+    const generation = ++sessionGeneration.current
+    const isCurrent = () => active && generation === sessionGeneration.current
     async function bootstrap() {
       setAuthentication({ status: 'loading' })
       let mode: AuthenticationMode
@@ -35,10 +38,10 @@ export function App() {
         const config = await api.getAuthenticationConfig()
         mode = config.mode
       } catch {
-        if (active) setAuthentication({ status: 'error', source: 'config' })
+        if (isCurrent()) setAuthentication({ status: 'error', source: 'config' })
         return
       }
-      if (!active) return
+      if (!isCurrent()) return
       configureAuthenticationMode(mode)
       if (mode === 'trusted') {
         try {
@@ -60,9 +63,9 @@ export function App() {
       }
       try {
         const identity = await api.getSession()
-        if (active) setAuthentication({ status: 'ready', mode, identity })
+        if (isCurrent()) setAuthentication({ status: 'ready', mode, identity })
       } catch (error) {
-        if (!active) return
+        if (!isCurrent()) return
         if (error instanceof TokenStorageError) {
           setAuthentication({ status: 'error', source: 'storage' })
           return
@@ -86,6 +89,7 @@ export function App() {
 
   useEffect(() => {
     const requireAuthentication = () => {
+      sessionGeneration.current++
       queryClient.clear()
       try {
         clearBearerToken()
@@ -93,12 +97,11 @@ export function App() {
         setAuthentication({ status: 'error', source: 'storage' })
         return
       }
-      setAuthentication(current => current.status === 'ready' && current.mode === 'authenticated'
-        ? { status: 'login', error: 'sessionExpired' }
-        : current)
+      setAuthentication(current => ({ status: 'login', error: current.status === 'login' ? 'invalidToken' : 'sessionExpired' }))
     }
     window.addEventListener(authenticationRequiredEvent, requireAuthentication)
     const reportStorageUnavailable = () => {
+      sessionGeneration.current++
       queryClient.clear()
       setAuthentication({ status: 'error', source: 'storage' })
     }
@@ -110,12 +113,15 @@ export function App() {
   }, [queryClient])
 
   async function login(token: string) {
+    const generation = ++sessionGeneration.current
     try {
       saveBearerToken(token)
       const identity = await api.getSession()
+      if (generation !== sessionGeneration.current) return
       queryClient.clear()
       setAuthentication({ status: 'ready', mode: 'authenticated', identity })
     } catch (error) {
+      if (generation !== sessionGeneration.current) return
       if (error instanceof TokenStorageError) {
         setAuthentication({ status: 'error', source: 'storage' })
         return
@@ -132,6 +138,7 @@ export function App() {
   }
 
   function logout() {
+    sessionGeneration.current++
     queryClient.clear()
     try {
       clearBearerToken()
@@ -173,6 +180,7 @@ function TokenLogin({ error, onLogin }: { error?: AuthenticationError; onLogin: 
     const value = token.trim()
     if (!value || submitting) return
     setSubmitting(true)
+    setToken('')
     try {
       await onLogin(value)
     } finally {

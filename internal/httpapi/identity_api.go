@@ -18,13 +18,14 @@ type createIdentityRequest struct {
 }
 
 type identityResponse struct {
-	ID          domain.ActorID   `json:"id"`
-	Kind        domain.ActorKind `json:"kind"`
-	Role        string           `json:"role"`
-	TokenActive bool             `json:"token_active"`
-	Version     int64            `json:"version"`
-	CreatedAt   time.Time        `json:"created_at"`
-	UpdatedAt   time.Time        `json:"updated_at"`
+	ID               domain.ActorID   `json:"id"`
+	Kind             domain.ActorKind `json:"kind"`
+	Role             string           `json:"role"`
+	CredentialSource string           `json:"credential_source"`
+	TokenActive      bool             `json:"token_active"`
+	Version          int64            `json:"version"`
+	CreatedAt        time.Time        `json:"created_at"`
+	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
 type issuedTokenResponse struct {
@@ -129,7 +130,7 @@ func identityActor(request *http.Request) domain.ActorRef {
 func identityDTO(record identity.Record) identityResponse {
 	return identityResponse{
 		ID: record.Identity.Actor.ID, Kind: record.Identity.Actor.Kind, Role: record.Identity.Role,
-		TokenActive: record.TokenActive, Version: record.Version,
+		CredentialSource: record.CredentialSource, TokenActive: record.TokenActive, Version: record.Version,
 		CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
 }
