@@ -66,6 +66,10 @@ An agent cannot temporarily change its role through a request. Task discovery an
 
 This mode is suited to one trusted collaboration group that requires explicit identity attribution and operation-specific execution constraints. It does not provide tenant, team, project, or object-level data isolation: all issued identities belong to one global trust domain. Mutually untrusted groups require separate Kairos instances. A future Team model may introduce an isolation boundary, but it is not part of the current identity contract.
 
+In Authenticated Mode, open **Administrator · Manage identities** from the login page or the signed-in account menu (`/admin/identities`). No existing Human Token is required. Verify the deployment `KAIROS_ADMIN_TOKEN`, then create a Human identity (no role) or an Agent identity (one required role, such as `developer`). `initial-human.token` and ordinary Identity Tokens cannot administer identities. The Admin Token does not sign in to the business workspace.
+
+The administrator credential stays only in page memory, independently of any ordinary identity session. Ending the administrator session, leaving, refreshing, or navigating away clears the credential and issued Token; returning requires verification again. Creation displays the new Identity Token once with a copy button and its identity and purpose. Save it before closing the result or starting another creation. Metadata never returns the plaintext Token. Clipboard failures allow manual copying. A network or server failure can hide a successful creation, so the console does not automatically retry; ask the deployment administrator to check before retrying. Trusted Mode keeps its existing local identity controls and does not expose this form.
+
 ## 4. Trusted Mode
 
 Trusted Mode is suited to local development, trusted networks, and other environments where identity is already guaranteed by the runtime:

@@ -158,6 +158,8 @@ make build
 
 默认使用 SQLite 与 Trusted Mode；设置 `KAIROS_POSTGRES_DSN` 后，同一服务改用 PostgreSQL。同一可信协作群体内的共享部署应使用 Authenticated Mode；此时控制台要求使用已签发的 Identity Token 登录，在当前浏览器会话中使用该 Token，并支持退出登录。Authenticated Mode 不提供租户、项目或对象级数据隔离，互不信任的群体应分别部署 Kairos 实例。仅用于开发的服务启动方式、数据库与身份配置、HTTP 路由、MCP 传输与响应契约见 [API 参考](docs/api-reference.zh-CN.md)。
 
+在 Authenticated Mode 下，从登录页或已登录账户菜单打开 **管理员 · 管理身份**（`/admin/identities`），无需已有 Human Token。验证部署配置的 `KAIROS_ADMIN_TOKEN` 后，可创建 Human 身份（无角色）或 Agent 身份（必须有一个角色，例如 `developer`）。`initial-human.token` 和普通 Identity Token 不能管理身份；Admin Token 也不会登录业务工作区。
+
 ## MCP 与 Agent 集成
 
 Kairos 提供面向执行的 MCP 接入面，并在 `.agents/skills/kairos-agent` 提供仓库级 Codex Skill。Skill 为兼容 Harness 提供持久的“发现 → Claim → heartbeat → 提交”执行循环。集成与配置细节见 [API 参考](docs/api-reference.zh-CN.md)。

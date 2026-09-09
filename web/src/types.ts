@@ -115,3 +115,13 @@ export interface CreateWorkItemInput {
   definition_id: string; mode: Mode; title: string; goal: string
   context: string; constraints: string; acceptance_criteria: string; acceptance_mode: 'none' | 'agent' | 'human'; tags: string[]
 }
+
+// Admin issuance is separate from the console's business identity session.
+export interface CreateIdentityInput {
+  id: string
+  kind: 'human' | 'agent'
+  role: string
+}
+export interface IssuedIdentityToken extends CreateIdentityInput {
+  token: string
+}

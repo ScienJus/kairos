@@ -82,6 +82,35 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 	requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/identities", map[string]any{
 		"id": "invalid-human", "kind": "human", "role": "reviewer",
 	}, authenticatedTestAdminToken, http.StatusBadRequest, "invalid_request")
+	// Administrator credentials and issued business identities are separate trust boundaries.
+	for _, token := range []string{"", "incorrect-admin", human.Token, agent.Token} {
+		requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/identities", nil, token, http.StatusUnauthorized, "unauthenticated")
+		requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/identities", map[string]any{
+			"id": "unauthorized", "kind": "human", "role": "",
+		}, token, http.StatusUnauthorized, "unauthenticated")
+	}
+	requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/session", nil, authenticatedTestAdminToken, http.StatusUnauthorized, "unauthenticated")
+	agentSession := authenticatedRequestData[sessionPayload](t, client, http.MethodGet, server.URL+"/api/v1/session", nil, agent.Token, http.StatusOK)
+	if agentSession.ID != agent.ID || agentSession.Kind != domain.ActorAgent || agentSession.Role != "database" {
+		t.Fatal("issued Agent Token did not resolve to the expected identity and role")
+	}
+	for _, body := range []map[string]any{
+		{"id": "  ", "kind": "human", "role": ""},
+		{"id": "blank-role", "kind": "agent", "role": "  "},
+		{"id": "invalid-kind", "kind": "other", "role": ""},
+	} {
+		requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/identities", body, authenticatedTestAdminToken, http.StatusBadRequest, "invalid_request")
+	}
+	metadata := authenticatedRequestData[[]map[string]any](t, client, http.MethodGet, server.URL+"/api/v1/identities", nil, authenticatedTestAdminToken, http.StatusOK)
+	if len(metadata) != 2 {
+		t.Fatalf("identity count = %d, want 2", len(metadata))
+	}
+	metadata = append(metadata, authenticatedRequestData[map[string]any](t, client, http.MethodGet, server.URL+"/api/v1/identities/human/reviewer", nil, authenticatedTestAdminToken, http.StatusOK))
+	for _, record := range metadata {
+		if _, exists := record["token"]; exists {
+			t.Fatal("identity metadata exposes token")
+		}
+	}
 	stored, err := repo.GetIdentity(ctx, domain.ActorRef{Kind: domain.ActorAgent, ID: "codex-database"})
 	if err != nil {
 		t.Fatalf("get stored identity: %v", err)

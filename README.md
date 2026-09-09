@@ -159,6 +159,8 @@ Development builds report `dev`; release builds report their tag with `./bin/kai
 
 The default uses SQLite and Trusted Mode. Set `KAIROS_POSTGRES_DSN` to run the same service with PostgreSQL instead. Shared deployments within one trusted collaboration group should use Authenticated Mode; the console then requires an issued identity Token, uses it for the browser session, and provides sign-out. Authenticated Mode does not provide tenant, project, or object-level data isolation, so mutually untrusted groups need separate Kairos instances. See the [API Reference](docs/api-reference.md) for development-only server startup, database and identity configuration, HTTP routes, MCP transport, and response contracts.
 
+In Authenticated Mode, open **Administrator · Manage identities** from the login page or the signed-in account menu (`/admin/identities`). No existing Human Token is required. Verify the deployment `KAIROS_ADMIN_TOKEN`, then create a Human identity (no role) or an Agent identity (one required role, such as `developer`). `initial-human.token` and ordinary Identity Tokens cannot administer identities. The Admin Token does not sign in to the business workspace.
+
 ## MCP and Agent Integration
 
 Kairos exposes an execution-focused MCP surface and a repository-level Codex Skill at `.agents/skills/kairos-agent`. The Skill gives compatible harnesses a durable discover → claim → heartbeat → submit loop. Integration and configuration details live in the [API Reference](docs/api-reference.md).

@@ -180,3 +180,31 @@ describe('console authentication', () => {
     expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
   })
 })
+
+it('opens admin directly without identity login or access to session storage', async () => {
+  window.history.replaceState({}, '', '/admin/identities')
+  vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
+  const session = vi.spyOn(api, 'getSession')
+  const original = Storage.prototype.getItem
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key) {
+    if (this === sessionStorage) throw new Error('storage blocked')
+    return original.call(this, key)
+  })
+  renderApp()
+  expect(await screen.findByLabelText('Admin Token')).toBeInTheDocument()
+  expect(session).not.toHaveBeenCalled()
+  expect(api.listWorkItems).not.toHaveBeenCalled()
+})
+
+it('provides admin entry before identity login and hides it in Trusted Mode', async () => {
+  vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
+  const page = renderApp()
+  expect(await screen.findByRole('link', { name: 'Administrator · Manage identities' })).toHaveAttribute('href', '/admin/identities')
+  page.unmount()
+  vi.mocked(api.getAuthenticationConfig).mockResolvedValue({ mode: 'trusted' })
+  window.history.replaceState({}, '', '/admin/identities')
+  renderApp()
+  await screen.findByLabelText('Identity settings')
+  expect(screen.queryByLabelText('Admin Token')).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Administrator · Manage identities' })).not.toBeInTheDocument()
+})

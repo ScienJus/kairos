@@ -72,7 +72,7 @@ paths:
     post:
       operationId: createIdentity
       summary: Create Identity
-      description: Requires the administrator bearer token. The returned token is shown only once.
+      description: Requires the deployment administrator bearer token, not an issued Identity Token. Atomically creates an identity and issues its initial token, returned only once. A lost response cannot retrieve that token again; do not blindly retry.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -1220,9 +1220,9 @@ components:
       additionalProperties: false
       required: [id, kind]
       properties:
-        id: { type: string }
+        id: { type: string, description: "Must contain a non-whitespace character. Meaningful surrounding whitespace is preserved. Unique within the actor kind." }
         kind: { $ref: '#/components/schemas/ActorKind' }
-        role: { type: string }
+        role: { type: string, description: "Trimmed by the server. Required and nonempty for Agent; empty or omitted for Human." }
     DefinitionMetadata:
       type: object
       required: [id, version, name, description, agent_instructions, suggested_tags, created_at, updated_at]

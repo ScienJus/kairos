@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { GitBranch, KeyRound, Languages, Library, LoaderCircle, LogOut, Plus, RefreshCw, UserRound } from 'lucide-react'
 import { APIError, api, authenticationRequiredEvent, clearBearerToken, configureAuthenticationMode, loadBearerToken, loadIdentity, saveBearerToken, saveIdentity, tokenStorageUnavailableEvent, TokenStorageError } from './api'
 import { CreateWorkModal, IdentityModal, type WorkDefinitionTarget } from './AppModals'
+import { AdminIdentitiesPage } from './AdminIdentitiesPage'
 import { HomePage } from './HomePage'
 import { useI18n } from './i18n'
 import { readRoute, routePath, type RouteState } from './route'
@@ -14,6 +15,7 @@ const WorkflowsPage = lazy(() => import('./WorkflowsPage').then(module => ({ def
 const WorkflowEditorPage = lazy(() => import('./WorkflowEditorPage').then(module => ({ default: module.WorkflowEditorPage })))
 
 type AuthenticationState =
+  | { status: 'admin' }
   | { status: 'loading' }
   | { status: 'error'; source: 'config' | 'session' | 'storage' }
   | { status: 'login'; error?: AuthenticationError }
@@ -45,6 +47,10 @@ export function App() {
           clearBearerToken()
         } catch { /* Trusted transport does not depend on Token storage. */ }
         setAuthentication({ status: 'ready', mode, identity: loadIdentity() })
+        return
+      }
+      if (readRoute(window.location.pathname).adminIdentities) {
+        setAuthentication({ status: 'admin' })
         return
       }
       let token: string
@@ -142,6 +148,7 @@ export function App() {
     setAuthentication({ status: 'login' })
   }
 
+  if (authentication.status === 'admin') return <AdminIdentitiesPage />
   if (authentication.status === 'loading') return <AuthenticationPage mode="loading" />
   if (authentication.status === 'error') return <AuthenticationPage mode="error" errorSource={authentication.source} onRetry={() => setBootstrapAttempt(value => value + 1)} />
   if (authentication.status === 'login') return <TokenLogin error={authentication.error} onLogin={login} />
@@ -194,6 +201,7 @@ function TokenLogin({ error, onLogin }: { error?: AuthenticationError; onLogin: 
         <input id="identity-token" type="password" autoComplete="off" autoFocus value={token} onChange={event => setToken(event.target.value)} placeholder={t('identityTokenPlaceholder')} aria-invalid={Boolean(error)} />
         {error && <div className="auth-error" role="alert">{t(error)}</div>}
         <button className="primary-button token-submit" type="submit" disabled={!token.trim() || submitting}>{submitting ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}{submitting ? t('authenticating') : t('signIn')}</button>
+        <a className="admin-link" href="/admin/identities">{t('adminIdentities')}</a>
       </form>
     </main>
   </div>
@@ -263,7 +271,7 @@ function ConsoleApp({ identity: initialIdentity, authenticationMode, onLogout }:
         <button className="language-button" onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')} aria-label={locale === 'en' ? '切换到中文' : 'Switch to English'}><Languages size={16} /><span>{locale === 'en' ? '中文' : 'EN'}</span></button>
         {authenticationMode === 'trusted'
           ? <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label={t('identitySettings')} title={`${t('identity')}: ${identity.id}`}><UserRound size={17} /></button>
-          : <div className="account-menu" ref={accountMenuRef}><button ref={accountTriggerRef} className="icon-button account-trigger" aria-label={`${t('authenticatedAs')}: ${identity.id}`} title={`${t('authenticatedAs')}: ${identity.id}`} aria-controls={accountOpen ? 'account-popover' : undefined} aria-expanded={accountOpen} onClick={() => setAccountOpen(open => !open)}><UserRound size={17} /></button>{accountOpen && <div id="account-popover" className="account-popover"><div className="account-identity"><span>{t('authenticatedAs')}</span><strong>{identity.id}</strong>{identity.role && <small>{identity.role}</small>}</div><button onClick={onLogout}><LogOut size={15} />{t('logout')}</button></div>}</div>}
+          : <div className="account-menu" ref={accountMenuRef}><button ref={accountTriggerRef} className="icon-button account-trigger" aria-label={`${t('authenticatedAs')}: ${identity.id}`} title={`${t('authenticatedAs')}: ${identity.id}`} aria-controls={accountOpen ? 'account-popover' : undefined} aria-expanded={accountOpen} onClick={() => setAccountOpen(open => !open)}><UserRound size={17} /></button>{accountOpen && <div id="account-popover" className="account-popover"><div className="account-identity"><span>{t('authenticatedAs')}</span><strong>{identity.id}</strong>{identity.role && <small>{identity.role}</small>}</div><a className="admin-link" href="/admin/identities">{t('adminIdentities')}</a><button onClick={onLogout}><LogOut size={15} />{t('logout')}</button></div>}</div>}
         {!route.workItemID && route.blackboardID === undefined && route.workflowID === undefined && <button className="primary-button" onClick={() => setCreateOpen(true)}><Plus size={17} />{t('startSomething')}</button>}
       </div>
     </header>

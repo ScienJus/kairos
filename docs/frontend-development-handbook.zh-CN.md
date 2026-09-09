@@ -116,7 +116,7 @@ Task 操作不能按按钮逐个追加。实现前应列出最小操作矩阵：
 
 Kairos Web UI 服务人类使用者。Agent 通过 MCP 或 Skill 工作，前端不保留模拟 Agent transport 的调试分支；确有调试需求时再作为独立工具补充。
 
-- 浏览器身份只采集 Human Actor ID。
+- Trusted Mode 的浏览器业务身份只采集 Human Actor ID。管理员创建表单可以签发 Human/Agent 身份，但不会切换当前业务身份。
 - Task 的 `executor` 仍可显示 human、agent 或 either，但这不改变当前 UI 使用者的身份。
 - Mutation API 必须使用明确的输入类型，不使用笼统的 `object` 或 `Record<string, unknown>` 绕过编译检查。
 - FormData 在组件边界转换为明确的字符串、枚举和数组，再传给 API。
@@ -158,3 +158,7 @@ git diff --check
 - 一个按钮由前端推断资格时，检查其他领域操作是否也维护了重复规则。
 
 Review 的目标不是逐项修补，而是识别产生这类问题的共同结构，并一次收紧边界。
+
+## 11. 管理员会话
+
+`/admin/identities` 通过独立的 `adminApi.ts` 显式传入 Admin Bearer，不复用业务身份 Header、sessionStorage 或全局 401 事件。管理员入口使用完整文档导航，卸载业务页面；返回后普通认证门重新恢复已有身份。Admin Token 和签发结果只在管理员组件内存中，不进入 Query/Mutation 缓存。页面卸载时取消请求并清除凭据；pagehide 同步清除敏感状态，避免浏览器前进后退缓存恢复秘密。会话代次阻止迟到的验证、创建或复制响应恢复旧状态。身份创建 POST 不自动重试，响应丢失必须提示结果不确定。测试应覆盖这两类凭据的隔离、退出、刷新/前后退、迟到请求及剪贴板失败。

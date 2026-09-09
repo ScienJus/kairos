@@ -94,7 +94,11 @@ Agent 创建 Task Claim 或 Coordination Claim 时，可以附带一个由客户
 
 认证用于确定调用方身份；Task 发现、领取以及基于 Claim 的执行等操作仍受各自规则约束。但认证不是数据隔离边界：所有已签发身份都属于同一个全局信任域，Kairos 当前不会按租户、Team、项目或对象隔离读写。需要阻止不同群体访问彼此数据时，应分别部署 Kairos 实例。
 
-Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式。在 Authenticated Mode 下，控制台会在加载任何工作区数据前显示 Token 登录页，通过 `GET /api/v1/session` 验证 Token，之后所有 API 请求、托管上传和 Artifact 下载都使用该 Bearer 凭据。Token 只保存在浏览器 `sessionStorage` 中，因此仅属于当前标签页会话，不会形成持久浏览器登录；如果浏览器禁止访问该存储，控制台会明确报告不可用。退出登录会清除 Token 和缓存的 API 数据；包括 Token 被撤销或轮换在内的任何 `401` 响应，也会清除会话并返回登录页。
+Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式。在 Authenticated Mode 下，控制台会在加载任何工作区数据前显示 Token 登录页，通过 `GET /api/v1/session` 验证 Token，之后所有 API 请求、托管上传和 Artifact 下载都使用该 Bearer 凭据。Token 只保存在浏览器 `sessionStorage` 中，因此仅属于当前标签页会话，不会形成持久浏览器登录；如果浏览器禁止访问该存储，控制台会明确报告不可用。退出登录会清除 Token 和缓存的 API 数据；包括 Token 被撤销或轮换在内的业务 API `401` 响应，也会清除会话并返回登录页。
+
+在 Authenticated Mode 下，从登录页或已登录账户菜单打开 **管理员 · 管理身份**（`/admin/identities`），无需已有 Human Token。验证部署配置的 `KAIROS_ADMIN_TOKEN` 后，可创建 Human 身份（无角色）或 Agent 身份（必须有一个角色，例如 `developer`）。`initial-human.token` 和普通 Identity Token 不能管理身份；Admin Token 也不会登录业务工作区。
+
+管理员凭据只保存在页面内存，与普通身份会话独立。结束管理员会话、离开、刷新或导航离页都会清除凭据和已签发的 Token，返回时必须重新验证。创建成功后仅展示一次新 Identity Token，提供复制按钮并标明身份与用途；请在关闭结果或开始下一次创建前保存。身份元数据不会返回明文 Token。剪贴板失败时可手动复制。网络或服务错误可能发生在创建成功之后，因此控制台不自动重试，请先联系部署管理员核查。Trusted Mode 保持原有本地身份设置，不显示此表单。
 
 `GET /api/v1/auth/config` 无需认证，返回 `{ "data": { "mode": "trusted" | "authenticated" } }`。`GET /api/v1/session` 使用普通业务路由的认证方式，返回传输层实际解析出的身份：`{ "data": { "id": string, "kind": "human" | "agent", "role": string } }`。客户端应信任该结果，而不是自行从 Token 推导身份字段。
 
