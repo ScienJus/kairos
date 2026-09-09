@@ -44,6 +44,9 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new identity service: %v", err)
 	}
+	if err := identityService.ConfigureAdmin(ctx, authenticatedTestAdminToken); err != nil {
+		t.Fatal(err)
+	}
 	handler, err := httpapi.NewWithIdentityManagement(
 		applicationService,
 		identity.AuthenticatedResolver{Authenticator: identityService},
@@ -82,6 +85,38 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 	requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/identities", map[string]any{
 		"id": "invalid-human", "kind": "human", "role": "reviewer",
 	}, authenticatedTestAdminToken, http.StatusBadRequest, "invalid_request")
+	// Only the deployment credential grants identity administration.
+	for _, token := range []string{"", "incorrect-admin", human.Token, agent.Token} {
+		requestAuthenticatedError(t, client, http.MethodGet, server.URL+"/api/v1/identities", nil, token, http.StatusUnauthorized, "unauthenticated")
+		requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/identities", map[string]any{
+			"id": "unauthorized", "kind": "human", "role": "",
+		}, token, http.StatusUnauthorized, "unauthenticated")
+	}
+	adminSession := authenticatedRequestData[sessionPayload](t, client, http.MethodGet, server.URL+"/api/v1/session", nil, authenticatedTestAdminToken, http.StatusOK)
+	if adminSession.Kind != domain.ActorHuman || adminSession.Role != "" || adminSession.ID == human.ID {
+		t.Fatal("Admin must have a dedicated ordinary Human session")
+	}
+	agentSession := authenticatedRequestData[sessionPayload](t, client, http.MethodGet, server.URL+"/api/v1/session", nil, agent.Token, http.StatusOK)
+	if agentSession.ID != agent.ID || agentSession.Kind != domain.ActorAgent || agentSession.Role != "database" {
+		t.Fatal("issued Agent Token did not resolve to the expected identity and role")
+	}
+	for _, body := range []map[string]any{
+		{"id": "  ", "kind": "human", "role": ""},
+		{"id": "blank-role", "kind": "agent", "role": "  "},
+		{"id": "invalid-kind", "kind": "other", "role": ""},
+	} {
+		requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/identities", body, authenticatedTestAdminToken, http.StatusBadRequest, "invalid_request")
+	}
+	metadata := authenticatedRequestData[[]map[string]any](t, client, http.MethodGet, server.URL+"/api/v1/identities", nil, authenticatedTestAdminToken, http.StatusOK)
+	if len(metadata) != 3 {
+		t.Fatalf("identity count = %d, want 3", len(metadata))
+	}
+	metadata = append(metadata, authenticatedRequestData[map[string]any](t, client, http.MethodGet, server.URL+"/api/v1/identities/human/reviewer", nil, authenticatedTestAdminToken, http.StatusOK))
+	for _, record := range metadata {
+		if _, exists := record["token"]; exists {
+			t.Fatal("identity metadata exposes token")
+		}
+	}
 	stored, err := repo.GetIdentity(ctx, domain.ActorRef{Kind: domain.ActorAgent, ID: "codex-database"})
 	if err != nil {
 		t.Fatalf("get stored identity: %v", err)
@@ -218,8 +253,8 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 
 	records := authenticatedRequestData[[]identityRecordPayload](t, client, http.MethodGet,
 		server.URL+"/api/v1/identities", nil, authenticatedTestAdminToken, http.StatusOK)
-	if len(records) != 2 {
-		t.Fatalf("identity records = %+v, want two", records)
+	if len(records) != 3 {
+		t.Fatalf("identity records = %+v, want three", records)
 	}
 	for _, record := range records {
 		if record.ID == "codex-database" && record.TokenActive {
@@ -298,9 +333,10 @@ type authenticationConfigPayload struct {
 }
 
 type sessionPayload struct {
-	ID   domain.ActorID   `json:"id"`
-	Kind domain.ActorKind `json:"kind"`
-	Role string           `json:"role"`
+	DisplayName string           `json:"display_name"`
+	ID          domain.ActorID   `json:"id"`
+	Kind        domain.ActorKind `json:"kind"`
+	Role        string           `json:"role"`
 }
 
 type identityRecordPayload struct {

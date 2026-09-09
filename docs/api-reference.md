@@ -96,11 +96,26 @@ Authenticated Mode is intended for shared environments within one trusted collab
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
-KAIROS_ADMIN_TOKEN='<at-least-32-character-high-entropy-token>' \
+KAIROS_ADMIN_TOKEN='<at-least-32-visible-ASCII-high-entropy-token>' \
 go run ./cmd/kairos-server
 ```
 
-Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes normally use an issued identity token. Authenticated Mode ignores trusted actor headers.
+Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes accept an issued Identity Token or the deployment Admin Token as an ordinary Human. Authenticated Mode ignores trusted actor headers.
+
+### Admin Token business identity
+
+`KAIROS_ADMIN_TOKEN` also signs in through the console's existing login form and authenticates HTTP and MCP business requests as an ordinary Human (`kind=human`, empty `role`, no Executor scope). It can create WorkItems and execute Human/either Tasks; Agent-only Tasks, other actors' Claims and ended Claims retain ordinary Human restrictions. Only the configured Admin credential can manage identities; a Human identity alone grants no administration rights.
+
+At authenticated startup, migration 005 and a transaction create or load the single identity with `credential_source=admin`. Its random `admin-` ID is independent of the Token. A conflicting Human ID is retried without adopting or overwriting it; the same text in an Agent ID is a separate actor. A unique partial index makes concurrent initialization converge. Constraints and startup validation reject invalid kind, role or stored credential state. Existing databases are upgraded without rewriting migrations 001–004 or existing identities. Back up the complete database, including this row; deleting or manually changing it is unsupported. A new database has a new Human identity.
+
+Restarting against the same database preserves the actor. To rotate the Admin Token, change deployment configuration and restart every instance: the new Token resolves to the same Human and the old Token fails business and management authentication once all old processes stop. There is no hot reload. The Admin credential/hash is never stored as an ordinary Identity credential. Startup rejects collisions with an existing Identity Token and rejects canonical Executor-format credentials. Configuration requires at least 32 visible ASCII characters (0x21–0x7E), no whitespace or control characters, and should be generated with high entropy; invalid or missing configuration fails without printing it.
+
+The console account menu displays `system admin` for this credential. `/session` includes the optional presentation field `display_name: "system admin"`; ordinary Identity sessions and Trusted Mode omit it and display their actor ID. The stable `id`, Human `kind` and empty `role` remain the business identity over both HTTP and MCP. Names and ID prefixes never grant permissions. Previously accepted non-ASCII/control-character Admin configurations must be replaced with a random visible-ASCII credential before restarting; the database-bound actor is preserved.
+
+Identity management responses include `credential_source` (`identity` or `admin`). `token_active` describes an issued Identity Token only, so it is false for the deployment-managed Human. Rotating or revoking that row through `/identities/{kind}/{actor_id}/token` returns 403; use deployment configuration instead. Ordinary identity issuance, rotation and revocation are unchanged.
+
+The console stores either accepted credential in the current tab's sessionStorage. Refresh restores the session; sign-out or a current credential's 401 clears the credential and cached business state. Submitting a login clears its password input, including failures. Late session responses cannot restore an invalidated session. Storage failures are shown explicitly. Never put credentials in URLs, WorkItems, logs or screenshots.
+
 
 An Agent may include an optional client-generated `executor_token` when it creates a Task Claim or Coordination Claim. The token must use the `krs_claim_` prefix followed by 256 random bits encoded as unpadded base64url; Core stores only its SHA-256 hash. In Authenticated Mode the token can then be used as the Bearer credential for the lifetime of that exact active Claim. It can read Task and WorkItem contexts and submitted Artifacts inside the bound WorkItem. A Task Executor may also create or upload Artifacts for its exact Task Claim and extend a Blackboard plan; a Coordination Executor is read-only. All other operations are denied. Ending or reaping the Claim invalidates the token, while rotating or revoking the Agent's identity token does not affect an already active Executor token.
 

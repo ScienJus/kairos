@@ -162,3 +162,7 @@ git diff --check
 - 一个按钮由前端推断资格时，检查其他领域操作是否也维护了重复规则。
 
 Review 的目标不是逐项修补，而是识别产生这类问题的共同结构，并一次收紧边界。
+
+## 登录会话
+
+Authenticated 登录框接受 Identity Token 或部署 Admin Token，完全使用 `/session` 返回的身份；Admin Token 返回普通 Human、空 role，前端不推导管理员权限。两者均使用当前标签页 sessionStorage。提交时清空密码输入；退出和当前凭据的 401 清除凭据与 Query 缓存，并使在途 session 请求失效。存储不可用时展示错误。覆盖恢复、失败、迟到响应、退出、中英文与键盘操作。 当前身份菜单优先展示服务端可选 `display_name`，Admin 为 `system admin`，缺省回落 actor ID；不根据 `admin-` 前缀推断身份，不用展示名称判断权限或 Claim 归属。Admin 配置仅接受至少 32 个可见 ASCII 字符（0x21–0x7E），确保可由浏览器 Authorization header 传输。

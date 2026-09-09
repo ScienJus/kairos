@@ -80,8 +80,8 @@ func NewWithIdentityManagement(
 	if service == nil || resolver == nil || identityService == nil {
 		return nil, errors.New("application service, identity resolver and identity service are required")
 	}
-	if len(adminToken) < 32 || adminToken != strings.TrimSpace(adminToken) {
-		return nil, errors.New("admin token must be trimmed and at least 32 characters")
+	if err := identity.ValidateAdminToken(adminToken); err != nil {
+		return nil, err
 	}
 	configured, err := httpOptions(options)
 	if err != nil {
@@ -192,11 +192,16 @@ func (h *Handler) getSession(writer http.ResponseWriter, request *http.Request) 
 		writeError(writer, err)
 		return
 	}
+	displayName := ""
+	if h.authenticationMode == AuthenticationModeAuthenticated && h.isAdminRequest(request) {
+		displayName = "system admin"
+	}
 	writeJSON(writer, http.StatusOK, dataResponse{Data: struct {
-		ID   domain.ActorID   `json:"id"`
-		Kind domain.ActorKind `json:"kind"`
-		Role string           `json:"role"`
-	}{ID: actor.Actor.ID, Kind: actor.Actor.Kind, Role: actor.Role}})
+		ID          domain.ActorID   `json:"id"`
+		Kind        domain.ActorKind `json:"kind"`
+		Role        string           `json:"role"`
+		DisplayName string           `json:"display_name,omitempty"`
+	}{ID: actor.Actor.ID, Kind: actor.Actor.Kind, Role: actor.Role, DisplayName: displayName}})
 }
 
 func (h *Handler) getTaskDetail(writer http.ResponseWriter, request *http.Request) {

@@ -96,11 +96,26 @@ X-Kairos-Actor-Role: backend
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
-KAIROS_ADMIN_TOKEN='<至少-32-字符的高熵-token>' \
+KAIROS_ADMIN_TOKEN='<at-least-32-visible-ASCII-high-entropy-token>' \
 go run ./cmd/kairos-server
 ```
 
-身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由通常使用签发的 identity token。Authenticated Mode 忽略 Trusted actor headers。
+身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由接受签发的 Identity Token，或作为普通 Human 的部署 Admin Token。Authenticated Mode 忽略 Trusted actor headers。
+
+### Admin Token 业务身份
+
+`KAIROS_ADMIN_TOKEN` 可直接通过工作台原登录框登录，也可用于 HTTP 和 MCP 业务请求，身份为普通 Human（`kind=human`、空 `role`、无 Executor scope）。它可创建 WorkItem、执行 Human/either Task；Agent-only Task、他人 Claim 和已结束 Claim 仍适用普通 Human 限制。只有配置的 Admin 凭据可以管理身份，Human 身份本身不授予管理权限。
+
+Authenticated 启动时，migration 005 与事务创建或读取唯一的 `credential_source=admin` 身份。随机 `admin-` ID 与 Token 无关；与已有 Human ID 冲突时重新生成，不认领或覆盖旧记录；同名 Agent 是另一 actor。唯一部分索引确保并发初始化收敛。数据库约束和启动校验拒绝错误 kind、role 或已存凭据状态。升级保留 migrations 001–004 和已有身份。备份必须包含完整数据库及该行；不支持手工删除或修改该行。新数据库会创建新的 Human 身份。
+
+同库重启保持 actor 不变。更换 Admin Token 应修改部署配置并重启所有实例；新 Token 仍对应原 Human，所有旧进程停止后，旧 Token 的业务和管理认证均失败。不提供热更新，也不将 Admin 凭据或 hash 存成普通 Identity 凭据。启动拒绝与已有 Identity Token 的碰撞及完整规范 Executor 格式。配置至少 32 个可见 ASCII 字符（0x21–0x7E），不接受非 ASCII、空白或控制字符，应使用高熵随机值；无效或缺失配置启动失败且不输出凭据。
+
+该凭据在控制台当前身份菜单显示为 `system admin`。`/session` 增加可选展示字段 `display_name: "system admin"`；普通 Identity 会话和 Trusted Mode 不返回此字段，仍显示 actor ID。稳定的 `id`、Human `kind` 和空 `role` 继续作为 HTTP 与 MCP 的业务身份。名称或 ID 前缀不授予权限。旧配置若含非 ASCII 或控制字符，须在重启前替换为随机可见 ASCII 凭据；数据库绑定的 actor 保持不变。
+
+身份管理响应新增 `credential_source`（`identity` 或 `admin`）。`token_active` 只表示是否存在已签发的 Identity Token，因此部署管理的 Human 为 false。对该行调用 `/identities/{kind}/{actor_id}/token` 轮换或撤销返回 403，应改部署配置。普通身份签发、轮换和撤销不变。
+
+工作台将任一有效凭据保存在当前标签页 sessionStorage；刷新恢复会话，退出或当前凭据收到 401 时清除凭据及业务缓存。登录提交时清空密码输入，失败时也不残留。迟到会话响应不能恢复已失效会话；存储不可用时明确报错。不要把凭据放入 URL、WorkItem、日志或截图。
+
 
 Agent 创建 Task Claim 或 Coordination Claim 时，可以附带一个由客户端生成的 `executor_token`。Token 必须以 `krs_claim_` 开头，后接按无填充 base64url 编码的 256 位随机值；Core 只保存其 SHA-256 hash。在 Authenticated Mode 中，该 Token 可在对应 Claim 保持 Active 期间作为 Bearer 凭据使用。它可以读取绑定 WorkItem 内的 Task、WorkItem context 和已提交 Artifact；Task Executor 还可以为其精确绑定的 Task Claim 创建或上传 Artifact，并扩展 Blackboard 计划，Coordination Executor 只读。其他操作一律拒绝。Claim 结束或被 reaper 回收后 Token 失效；Agent identity token 的轮换或撤销不影响已经 Active 的 Executor Token。
 

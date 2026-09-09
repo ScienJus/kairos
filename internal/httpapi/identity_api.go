@@ -18,13 +18,14 @@ type createIdentityRequest struct {
 }
 
 type identityResponse struct {
-	ID          domain.ActorID   `json:"id"`
-	Kind        domain.ActorKind `json:"kind"`
-	Role        string           `json:"role"`
-	TokenActive bool             `json:"token_active"`
-	Version     int64            `json:"version"`
-	CreatedAt   time.Time        `json:"created_at"`
-	UpdatedAt   time.Time        `json:"updated_at"`
+	ID               domain.ActorID   `json:"id"`
+	Kind             domain.ActorKind `json:"kind"`
+	Role             string           `json:"role"`
+	CredentialSource string           `json:"credential_source"`
+	TokenActive      bool             `json:"token_active"`
+	Version          int64            `json:"version"`
+	CreatedAt        time.Time        `json:"created_at"`
+	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
 type issuedTokenResponse struct {
@@ -102,21 +103,25 @@ func (h *Handler) revokeIdentityToken(writer http.ResponseWriter, request *http.
 }
 
 func (h *Handler) authorizeAdmin(writer http.ResponseWriter, request *http.Request) bool {
-	if !h.hasAdminToken {
-		writeError(writer, identity.ErrUnauthenticated)
-		return false
-	}
-	parts := strings.Fields(request.Header.Get("Authorization"))
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		writeError(writer, identity.ErrUnauthenticated)
-		return false
-	}
-	provided := sha256.Sum256([]byte(parts[1]))
-	if subtle.ConstantTimeCompare(provided[:], h.adminTokenHash[:]) != 1 {
+	if !h.isAdminRequest(request) {
 		writeError(writer, identity.ErrUnauthenticated)
 		return false
 	}
 	return true
+}
+
+// isAdminRequest also identifies the session's presentation label. Business
+// authorization continues to use the resolved ordinary Human actor.
+func (h *Handler) isAdminRequest(request *http.Request) bool {
+	if !h.hasAdminToken {
+		return false
+	}
+	parts := strings.Fields(request.Header.Get("Authorization"))
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return false
+	}
+	provided := sha256.Sum256([]byte(parts[1]))
+	return subtle.ConstantTimeCompare(provided[:], h.adminTokenHash[:]) == 1
 }
 
 func identityActor(request *http.Request) domain.ActorRef {
@@ -129,7 +134,7 @@ func identityActor(request *http.Request) domain.ActorRef {
 func identityDTO(record identity.Record) identityResponse {
 	return identityResponse{
 		ID: record.Identity.Actor.ID, Kind: record.Identity.Actor.Kind, Role: record.Identity.Role,
-		TokenActive: record.TokenActive, Version: record.Version,
+		CredentialSource: record.CredentialSource, TokenActive: record.TokenActive, Version: record.Version,
 		CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
 }

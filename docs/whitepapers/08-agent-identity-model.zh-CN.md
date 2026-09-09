@@ -140,3 +140,7 @@ Kairos 可以在 Task 上提供仓库和工作目录信息，使 Agent 找到对
 Kairos 可以托管轻量的 Agent Profile，例如 role、展示标签和描述；项目级执行规则仍由仓库维护。
 
 > Identity 告诉 Kairos 是谁在行动，Role 则限定这个 Agent 可以领取哪些工作。
+
+## 部署管理员作为 Human
+
+部署 Admin Token 也可通过 HTTP、MCP 和工作台认证为稳定、绑定数据库、role 为空的普通 Human。业务权限遵循 Human 规则；身份管理仍只接受配置的凭据。更换 Token 保持 actor，并要求重启所有实例，不授予 Agent discovery 或 Executor 权限。持久化、冲突、迁移和会话语义见 [API 参考](../api-reference.zh-CN.md#admin-token-业务身份)。 控制台通过可选会话展示字段显示 `system admin`，actor ID 不变。Admin 配置要求至少 32 个可见 ASCII 字符（0x21–0x7E），不允许空白和控制字符。

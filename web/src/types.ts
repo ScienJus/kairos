@@ -80,7 +80,9 @@ export interface WorkflowDefinition extends Definition {
   graph: { start_task_ids: string[]; tasks: WorkflowTaskDefinition[]; relations: WorkflowRelationDefinition[]; max_task_executions: number }
 }
 export interface AuthenticationConfig { mode: AuthenticationMode }
-export interface Identity { id: string; kind: 'human' | 'agent'; role: string }
+export interface Identity { id: string; kind: 'human' | 'agent'; role: string; display_name?: string }
+// Deployment-managed Humans have no issued Identity Token (token_active is false).
+export interface IdentityRecord extends Identity { credential_source: 'identity' | 'admin'; token_active: boolean; version: number; created_at: string; updated_at: string }
 // human_task includes unclaimed Human Tasks and the current Human’s actively claimed Tasks (including either).
 export interface HumanAttentionItem { kind: 'review' | 'human_task' | 'work_item_acceptance'; work_item: WorkItem; task: Task | null }
 

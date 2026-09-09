@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -17,20 +18,22 @@ import (
 // StoredIdentity is the persistence representation of one managed identity.
 // TokenHash is never returned through the management API.
 type StoredIdentity struct {
-	Identity  Identity
-	TokenHash string
-	Version   int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Identity         Identity
+	CredentialSource string
+	TokenHash        string
+	Version          int64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // Record is the public management view of one identity.
 type Record struct {
-	Identity    Identity
-	TokenActive bool
-	Version     int64
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	Identity         Identity
+	CredentialSource string
+	TokenActive      bool
+	Version          int64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // IssuedToken contains plaintext token material that is returned only when a
@@ -72,9 +75,11 @@ func (SecureTokenGenerator) NewToken() (string, error) {
 
 // Service manages identity records and authenticates bearer tokens.
 type Service struct {
-	repository Repository
-	clock      Clock
-	tokens     TokenGenerator
+	repository    Repository
+	clock         Clock
+	tokens        TokenGenerator
+	adminHash     string
+	adminIdentity Identity
 }
 
 type microsecondClock struct {
@@ -122,6 +127,9 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Identity, err
 	if token == "" {
 		return Identity{}, fmt.Errorf("%w: bearer token is required", ErrUnauthenticated)
 	}
+	if s.adminHash != "" && subtle.ConstantTimeCompare([]byte(hashToken(token)), []byte(s.adminHash)) == 1 {
+		return s.adminIdentity, nil
+	}
 	stored, err := s.repository.GetIdentityByTokenHash(ctx, hashToken(token))
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -129,7 +137,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Identity, err
 		}
 		return Identity{}, fmt.Errorf("authenticate bearer token: %w", err)
 	}
-	if stored.TokenHash == "" {
+	if stored.CredentialSource == "admin" || stored.TokenHash == "" {
 		return Identity{}, fmt.Errorf("%w: bearer token is revoked", ErrUnauthenticated)
 	}
 	if err := validateStoredIdentity(stored); err != nil {
@@ -169,6 +177,9 @@ func (s *Service) RotateToken(ctx context.Context, actor domain.ActorRef) (Issue
 	if err != nil {
 		return IssuedToken{}, err
 	}
+	if stored.CredentialSource == "admin" {
+		return IssuedToken{}, fmt.Errorf("%w: change the deployment Admin Token and restart instead", ErrForbidden)
+	}
 	token, tokenHash, err := s.newToken()
 	if err != nil {
 		return IssuedToken{}, err
@@ -187,6 +198,9 @@ func (s *Service) RevokeToken(ctx context.Context, actor domain.ActorRef) error 
 	stored, err := s.repository.GetIdentity(ctx, actor)
 	if err != nil {
 		return err
+	}
+	if stored.CredentialSource == "admin" {
+		return fmt.Errorf("%w: change the deployment Admin Token and restart instead", ErrForbidden)
 	}
 	if stored.TokenHash == "" {
 		return nil
@@ -208,6 +222,9 @@ func (s *Service) newToken() (string, string, error) {
 	if strings.TrimSpace(token) == "" || token != strings.TrimSpace(token) || strings.HasPrefix(token, ExecutorTokenPrefix) {
 		return "", "", fmt.Errorf("%w: generated token is empty, untrimmed, or uses a reserved prefix", ErrInvalid)
 	}
+	if s.adminHash != "" && hashToken(token) == s.adminHash {
+		return "", "", fmt.Errorf("%w: generated token conflicts with deployment credential", ErrConflict)
+	}
 	return token, hashToken(token), nil
 }
 
@@ -217,8 +234,13 @@ func hashToken(token string) string {
 }
 
 func publicRecord(stored StoredIdentity) Record {
+	source := stored.CredentialSource
+	if source == "" {
+		source = "identity"
+	}
 	return Record{
-		Identity: stored.Identity, TokenActive: stored.TokenHash != "", Version: stored.Version,
+		CredentialSource: source,
+		Identity:         stored.Identity, TokenActive: stored.TokenHash != "", Version: stored.Version,
 		CreatedAt: stored.CreatedAt, UpdatedAt: stored.UpdatedAt,
 	}
 }
