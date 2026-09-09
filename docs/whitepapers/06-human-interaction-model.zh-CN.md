@@ -34,9 +34,10 @@ Workspace 区分仍在推进的工作与已经进入终态的工作，并通过 
 
 - 待处理的 Review；
 - `executor=human`、Pending 且尚未被 Claim 的 Task；
+- 当前 Human 持有有效 Claim 的 Working Task，包括 `executor=either` 的 Task；
 - 等待人工验收的 WorkItem 完成提案。
 
-它是同一份持久工作模型的行动投影，不是具有独立生命周期语义的另一套队列。当前投影不包含 `executor=either` Task，尽管人仍可通过 Task 详情 Claim 这类 Task。
+它是同一份持久工作模型的行动投影，不是具有独立生命周期语义的另一套队列。尚未认领的 `executor=either` Task 仍不进入该投影，当前 Human 认领后会展示；不包含其他执行者正在处理的 Task。所有者筛选在分页之前完成；释放后不再作为进行中任务展示，但未认领的 Human Task 仍符合列表条件。
 
 ## 3. WorkItem 进展
 

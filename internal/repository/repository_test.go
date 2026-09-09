@@ -525,7 +525,7 @@ func testCursorPagination(
 		humanTasks = append(humanTasks, humanTask)
 	}
 	if err := repository.View(ctx, func(store application.ReadStore) error {
-		all, err := store.ListHumanAttention(application.PageRequest[application.HumanAttentionCursor]{})
+		all, err := store.ListHumanAttention(domain.ActorRef{Kind: domain.ActorHuman, ID: "attention-human"}, application.PageRequest[application.HumanAttentionCursor]{})
 		if err != nil {
 			return err
 		}
@@ -539,7 +539,7 @@ func testCursorPagination(
 		if len(all) < 2 {
 			return fmt.Errorf("Human Attention collection = %#v, want at least two items", all)
 		}
-		first, err := store.ListHumanAttention(application.PageRequest[application.HumanAttentionCursor]{Limit: 1})
+		first, err := store.ListHumanAttention(domain.ActorRef{Kind: domain.ActorHuman, ID: "attention-human"}, application.PageRequest[application.HumanAttentionCursor]{Limit: 1})
 		if err != nil {
 			return err
 		}
@@ -547,7 +547,7 @@ func testCursorPagination(
 			return fmt.Errorf("first Human Attention repository page = %#v, all = %#v", first, all)
 		}
 		cursor := first[0].Cursor()
-		second, err := store.ListHumanAttention(application.PageRequest[application.HumanAttentionCursor]{Limit: 1, After: &cursor})
+		second, err := store.ListHumanAttention(domain.ActorRef{Kind: domain.ActorHuman, ID: "attention-human"}, application.PageRequest[application.HumanAttentionCursor]{Limit: 1, After: &cursor})
 		if err != nil {
 			return err
 		}

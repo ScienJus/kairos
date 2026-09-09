@@ -34,9 +34,10 @@ The current Needs Human projection aggregates:
 
 - pending Reviews;
 - unclaimed Pending Tasks with `executor=human`;
+- Working Tasks actively claimed by the requesting Human, including `executor=either` Tasks;
 - WorkItem completion proposals awaiting human acceptance.
 
-This is an action-oriented projection of the same durable work model, not a separate queue with independent lifecycle semantics. It does not currently include `executor=either` Tasks, even though a person may Claim those Tasks through their detail surface.
+This is an action-oriented projection of the same durable work model, not a separate queue with independent lifecycle semantics. Unclaimed `executor=either` Tasks remain outside this projection; they appear once the requesting Human claims them. Another actor’s Working Tasks are excluded. Ownership is selected before pagination, and a release removes the active-claim entry (an unclaimed Human Task remains eligible).
 
 ## 3. WorkItem Progress
 

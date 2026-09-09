@@ -108,6 +108,8 @@ A human operator can terminally cancel an active WorkItem from its detail page. 
 
 ## Human Interaction
 
+The human-attention view includes pending Reviews, unclaimed Human Tasks, Tasks actively claimed by the current Human (including `either`), and WorkItems awaiting human acceptance.
+
 The operations console currently provides a workspace overview, a human-attention view, and WorkItem detail. Inside a WorkItem:
 
 - Workflow is shown as a flow graph with execution history.

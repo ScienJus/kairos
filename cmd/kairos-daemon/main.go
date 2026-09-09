@@ -40,7 +40,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 	coreURL := flags.String("core-url", "http://localhost:8080", "Kairos Core base URL")
 	mcpURL := flags.String("mcp-url", "", "MCP endpoint (defaults to Core URL + /mcp)")
 	adapter := flags.String("adapter", "unavailable", "unavailable, fake-abandon (diagnostics), or codex")
-	codexExecutable := flags.String("codex-executable", "codex", "Codex CLI executable (0.146.x)")
+	codexExecutable := flags.String("codex-executable", "codex", "Codex CLI executable (0.146.0 or newer; required execution options are probed)")
 	codexHome := flags.String("codex-home", "", "dedicated authenticated Codex home (required with --adapter=codex)")
 	codexModel := flags.String("codex-model", "", "explicit model for Codex (required with --adapter=codex)")
 	tags := flags.String("tags", "", "comma-separated discovery tags")

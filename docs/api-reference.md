@@ -41,6 +41,20 @@ The HTTP read timeout bounds the total time spent reading a request, including J
 
 For an internet-facing deployment, place Kairos behind a reverse proxy that terminates TLS and enforces connection and request-rate limits. Configure the proxy's upstream timeouts slightly above the corresponding Kairos timeouts so Kairos closes slow requests predictably. A proxy may intentionally impose a smaller upload limit; otherwise its request-body limit must allow `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` plus multipart overhead.
 
+For MCP forwarded to a loopback listener, the proxy must send the upstream authority as Host. For example, in the Nginx server block for `kairos.example.com`, use a dedicated location (retain your existing rate, body-size and timeout limits):
+
+```nginx
+location = /mcp {
+    if ($host != kairos.example.com) { return 421; }
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $proxy_host;
+    proxy_buffering off;
+}
+```
+
+This supports non-browser MCP clients such as Codex without changing the SDK's default localhost protection. Keep the public Host for the console and REST routes. Preserve Authorization and Origin headers; do not remove Origin to bypass cross-origin checks. Browser MCP requests carrying the public Origin require separate origin-aware proxy configuration because that Origin differs from the rewritten upstream Host. A `403` containing `invalid Host header` indicates proxy/loopback configuration, not an expired Token or business failure. Correct deployment configuration before retrying the client.
+
 Runtime fields used by discovery, authorization narrowing, filtering, or ordering are stored in dedicated columns as well as in the aggregate payload. PostgreSQL uses native `TEXT[]` columns for WorkItem/Task tags and Task allowed roles, with GIN indexes for the current containment queries. SQLite stores the same logical fields as validated JSON-array `TEXT` columns and evaluates containment through `json_each`; SQLite is intended for local and smaller deployments. Empty collections are stored and returned as arrays, never `null`.
 
 Database timestamps are normalized at the application boundary to UTC with microsecond precision, so API values, aggregate payloads, and query columns use the same instant. PostgreSQL uses `TIMESTAMPTZ`; SQLite uses a fixed-width RFC 3339 UTC representation so textual range comparisons preserve chronological order. Definitions, WorkItems, Tasks, Workflow activations, and Identities have `created_at` and `updated_at` matching their domain metadata. Task Relations persist their immutable `created_at`; mutable Claims, staged Artifacts, and idempotency records update `updated_at` when their state changes. Rows with a more specific immutable-event or lifecycle timestamp retain names such as `occurred_at`, `claimed_at`, or `applied_at` instead of adding a meaningless duplicate timestamp.
@@ -112,6 +126,8 @@ The operations console discovers the configured mode through the public `GET /ap
 | Blackboard planning | WorkItem Tasks, relations, completion; Task decomposition, children, and skipping |
 | Human attention | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities`, token rotation and revocation routes |
+
+`GET /api/v1/human-attention` includes pending Reviews, unclaimed Pending Human Tasks, Working Tasks with an active Claim owned by the requesting Human (including `executor=either`), and WorkItems awaiting human acceptance. Another actor’s Working Tasks and unclaimed `either` Tasks are excluded. The existing `human_task` kind covers both pending and owned Working Tasks; `task.status` distinguishes them. Ownership filtering precedes cursor pagination. Terminal WorkItems do not contribute Task entries.
 
 The WorkItem, Human Attention, Definition catalog, Definition version-history, and submitted Artifact list routes use cursor pagination. `limit` defaults to 50 and accepts 1-200. A page returns `{ "data": [...], "next_cursor": string | null }`; pass a non-null value back as `cursor` on the same collection route, preserving any filters. Cursors are opaque and collection-specific. An invalid cursor or limit returns `400 invalid_request`. WorkItems are ordered by `updated_at DESC, id ASC`, Human Attention puts Reviews first and otherwise orders by item update time, Definition catalogs by `id ASC`, version histories by `version DESC`, and Artifacts by `created_at ASC, id ASC`.
 

@@ -122,7 +122,7 @@ func (s *sqlStore) ListWorkItems(filter application.WorkItemFilter) ([]domain.Wo
 	return result, normalizeError(rows.Err())
 }
 
-func (s *sqlStore) ListHumanAttention(page application.PageRequest[application.HumanAttentionCursor]) ([]application.HumanAttentionItem, error) {
+func (s *sqlStore) ListHumanAttention(actor domain.ActorRef, page application.PageRequest[application.HumanAttentionCursor]) ([]application.HumanAttentionItem, error) {
 	query := `
 		SELECT kind, work_item_payload, task_payload
 		FROM (
@@ -136,7 +136,14 @@ func (s *sqlStore) ListHumanAttention(page application.PageRequest[application.H
 				w.id AS work_item_id, t.id AS task_id, w.payload AS work_item_payload, t.payload AS task_payload
 			FROM tasks t
 			JOIN work_items w ON w.id = t.work_item_id
-			WHERE w.status = ? AND t.status = ? AND t.executor = ? AND t.active_claim_id IS NULL
+			WHERE w.status = ? AND (
+				(t.status = ? AND t.executor = ? AND t.active_claim_id IS NULL)
+				OR (t.status = ? AND ? = 'human' AND EXISTS (
+					SELECT 1 FROM claims c
+					WHERE c.id = t.active_claim_id AND c.task_id = t.id
+					AND c.active = ? AND c.executor_kind = ? AND c.executor_id = ?
+				))
+			)
 			UNION ALL
 			SELECT 'work_item_acceptance' AS kind, 1 AS priority, w.updated_at AS item_updated,
 				w.id AS work_item_id, '' AS task_id, w.payload AS work_item_payload, NULL AS task_payload
@@ -146,6 +153,7 @@ func (s *sqlStore) ListHumanAttention(page application.PageRequest[application.H
 	args := []any{
 		domain.WorkItemStatusOpen, domain.TaskStatusInReview,
 		domain.WorkItemStatusOpen, domain.TaskStatusPending, domain.ExecutorHuman,
+		domain.TaskStatusWorking, actor.Kind, true, actor.Kind, actor.ID,
 		domain.WorkItemStatusAwaitingHumanAcceptance,
 	}
 	if page.After != nil {

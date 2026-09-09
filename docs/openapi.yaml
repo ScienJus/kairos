@@ -335,6 +335,7 @@ paths:
     get:
       operationId: listHumanAttention
       summary: List Human Attention
+      description: Returns pending Reviews, unclaimed Pending Human Tasks, Working Tasks actively claimed by the requesting Human (including executor=either), and WorkItems awaiting human acceptance. Other actors' Working Tasks and unclaimed either Tasks are excluded. Ownership filtering precedes pagination; existing human_task entries may have task.status pending or working. Terminal WorkItems do not contribute Task entries.
       parameters:
         - $ref: '#/components/parameters/PageLimitQuery'
         - $ref: '#/components/parameters/PageCursorQuery'

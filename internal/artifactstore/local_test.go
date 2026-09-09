@@ -106,8 +106,13 @@ func TestLocalRejectsExistingFilesystemPermissions(t *testing.T) {
 	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatalf("create artifact root: %v", err)
 	}
-	if _, err := NewLocal(root); err == nil {
-		t.Fatal("expected an existing group-readable artifact directory to be rejected")
+	// Mkdir's mode is filtered by umask. Daemon workspaces use 077, so
+	// explicitly construct the permissive directory this guard must reject.
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatalf("set artifact root permissions: %v", err)
+	}
+	if _, err := NewLocal(root); err == nil || !strings.Contains(err.Error(), "existing artifact directory permissions are 755") {
+		t.Fatalf("expected an artifact permission error, got %v", err)
 	}
 	assertPermissions(t, root, 0o755)
 }

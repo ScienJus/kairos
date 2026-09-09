@@ -1,8 +1,10 @@
 # Local Codex Adapter
 
-Stage 4 implements a local, process-backed Adapter for **Codex CLI 0.146.x** on
-Linux and macOS. CLI 0.146.0 was inspected locally. Other platforms and versions
-fail preflight rather than assuming compatible flags. Real model execution is
+Stage 4 implements a local, process-backed Adapter for **Codex CLI 0.146.0 or newer** on
+Linux and macOS. Preflight checks a stable minimum version and parses the required
+execution options with `exec --help`, without launching a model. Newer stable
+versions are not rejected solely by version number; unsupported options still
+fail preflight. Passing this parser check does not establish full runtime compatibility. Real model execution is
 opt-in; automated tests use a fake CLI process with real Core HTTP/MCP and SQLite.
 
 ## Run
@@ -33,7 +35,8 @@ rules, disables inherited project instructions, and establishes a new project
 root marker for each attempt. Arbitrary user profiles/custom providers/hooks are
 not configured by this MVP. Machine-managed Codex policies still apply.
 
-`Probe` runs only `--version` and `login status`. It checks installation and local
+`Probe` runs `--version`, an `exec --help` parser check with the required flags,
+and `login status`. It checks installation, CLI option compatibility and local
 login state, not provider quota, model availability, network reachability, or task
 fitness. Successful Probe is not a guarantee that execution will succeed.
 
@@ -67,12 +70,22 @@ data; they remain in the private workspace for operator inspection.
 The Codex-specific envelope has the mode's `task` or `coordination` member plus
 `runtime_failure`. Exactly one is non-null. Business results retain the existing
 Daemon outcome semantics. For infrastructure problems, the Harness returns
-`runtime_failure: {"system": false}` (candidate-specific) or `system: true`
+`runtime_failure: {"system": false, "reason": "Chrome exited before page load; browser verification is still required."}` (candidate-specific) or `system: true`
 (Harness/Provider-wide); no business failure is fabricated. Missing, malformed,
 oversized, or invalid results and normal nonzero exits become runtime failures. A generic
 nonzero exit code is candidate-scoped; signal termination instead becomes `lost`.
 The Adapter does not guess provider health
-from free-form error messages.
+from free-form error messages. The generated schema requests a concise reason
+(up to 4096 UTF-8 bytes) with the failed operation, observed error and recovery step.
+It is retained only in the private outcome file, never in error strings or scheduler
+logs; credentials and raw tool output must not be included. Older outcome files
+without a reason remain readable. No Core API, persistence or lifecycle contract changes.
+
+Browser availability is separate from CLI preflight: a system Chrome installation
+may fail to launch inside the Codex sandbox. Do not disable the sandbox or label
+unperformed browser checks as passing. Use a functioning isolated browser environment
+to record evidence against the exact reviewed commit, then have the operator resume
+the suppressed candidate. Raw CLI output remains discarded.
 
 Start errors occur before a process is created. Once `exec.Start` succeeds, Start
 returns a valid RunRef even if cancellation races with that success. Stop sends
@@ -120,7 +133,7 @@ KAIROS_TEST_CODEX_EXECUTABLE=/absolute/path/codex \
 - [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 
 When validating another CLI release, check its actual flags and configuration
-before widening the supported-version check. A live-model smoke test is a separate,
+even when it passes the minimum-version and option checks. A live-model smoke test is a separate,
 explicit operator action after fake-process and Core integration tests pass.
 
 Live-model smoke passed on 2026-09-06: macOS, CLI 0.146.0, ChatGPT authentication,
@@ -131,3 +144,12 @@ first attempt with `OutcomeApplied` and `ClaimEnded`; exact content, final compl
 WorkItem, and zero retained Adapter runs were verified. The test took about 275 seconds.
 The temporary authentication copy was removed. This does not establish Linux,
 other models, or all real-provider failure/recovery scenarios as validated.
+
+Codex 0.146.0 can be rejected by providers for models requiring a newer client.
+On 2026-09-09, local macOS Codex 0.153.4 completed a minimal authenticated
+`gpt-6-astra` request with reasoning effort `high`. This verifies that model/client
+combination only, not completion of a production Workflow. The real-CLI simulated
+Provider regression also passed normal completion, graceful interruption and forced
+termination on 0.153.4; the parser probe passed on both 0.146.0 and 0.153.4. A version/options
+preflight error pauses new Claims; install a compatible CLI and allow Probe to
+recover. Provider-side model rejection is not detected by this preflight.

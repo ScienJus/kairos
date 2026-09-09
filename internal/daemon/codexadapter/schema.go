@@ -48,6 +48,9 @@ func outcomeSchema(candidate daemon.Candidate) ([]byte, error) {
 	for key, value := range properties {
 		properties[key] = nullable(value)
 	}
-	properties["runtime_failure"] = nullable(object(map[string]any{"system": map[string]any{"type": "boolean"}}))
+	properties["runtime_failure"] = nullable(object(map[string]any{
+		"system": map[string]any{"type": "boolean"},
+		"reason": map[string]any{"type": "string", "description": "Concise failed operation, observed error and recovery step; at most 4096 UTF-8 bytes. Never include credentials or raw tool output."},
+	}))
 	return json.MarshalIndent(object(properties), "", "  ")
 }

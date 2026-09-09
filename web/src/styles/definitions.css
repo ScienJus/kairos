@@ -131,9 +131,15 @@
 .artifact-file-input, .artifact-uri-input { display: grid; gap: 5px; color: #66746f; font-size: 10px; }
 .artifact-file-input input { width: 100%; padding: 7px; color: #5d706d; background: #fbfcfa; border: 1px solid #d9e2dd; border-radius: 7px; font-size: 11px; }
 .artifact-ready { color: #34755f; font-size: 13px; }
-.artifact-list { display: grid; gap: 8px; }
-.artifact-list > div { display: grid; grid-template-columns: minmax(120px, .35fr) minmax(0, 1fr); gap: 12px; align-items: baseline; }
-.artifact-list a, .artifact-list span { min-width: 0; overflow-wrap: anywhere; }
+.artifact-list { display: grid; gap: 10px; margin-bottom: 16px; }
+.artifact-list > div { display: grid; grid-template-columns: minmax(0, 140px) minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.artifact-list strong, .artifact-list a, .artifact-list span { min-width: 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+.artifact-list strong { font-weight: 600; }
+.artifact-list a { color: var(--signal); text-decoration: none; }
+.artifact-list a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.artifact-list a:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 2px; }
+.artifact-list > div > span { color: var(--muted); }
+.artifact-list .quiet-button { justify-self: start; min-height: 30px; padding: 5px 8px; }
 .task-artifacts { display: grid; gap: 12px; margin: 20px 20px 0; padding: 15px 16px; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft); }
 .task-artifacts-heading { display: flex; align-items: center; gap: 7px; color: var(--muted); }
 .task-artifacts-heading span { font-family: Inter, system-ui, sans-serif; font-size: 10px; font-weight: 600; }
@@ -145,6 +151,7 @@
 .task-artifact-list a svg { flex: 0 0 auto; }
 .task-artifact-list .quiet-button { width: fit-content; min-height: 30px; padding: 5px 8px; }
 @media (max-width: 760px) {
+  .artifact-list > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .task-artifact-list > div { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .task-artifact-list a span, .task-artifact-list > div > span { word-break: break-all; }
 }

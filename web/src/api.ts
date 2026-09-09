@@ -181,7 +181,7 @@ export const api = {
     method: 'POST', body: JSON.stringify({ reason }),
   }),
   claimTask: (identity: Identity, taskID: string) => createResource<Claim>(`/api/v1/tasks/${taskID}/claims`, identity),
-  releaseClaim: (identity: Identity, taskID: string, claimID: string) => request<void>(`/api/v1/tasks/${taskID}/claims/${claimID}`, identity, { method: 'DELETE' }),
+  releaseClaim: (identity: Identity, taskID: string, claimID: string) => requestJSON<void>(`/api/v1/tasks/${taskID}/claims/${claimID}`, identity, { method: 'DELETE' }),
   createArtifact: (identity: Identity, taskID: string, input: { claim_id: string; name: string; uri: string }) => createResource<Artifact>(`/api/v1/tasks/${taskID}/artifacts`, identity, JSON.stringify(input)),
   uploadArtifact: (identity: Identity, taskID: string, claimID: string, name: string, file: File, operationID: string) => {
     const form = new FormData()

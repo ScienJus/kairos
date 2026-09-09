@@ -1828,8 +1828,13 @@ func TestListHumanAttentionAggregatesHumanTasksAndReviews(t *testing.T) {
 		t.Fatalf("claim human task: %v", err)
 	}
 	page, err = service.ListHumanAttention(context.Background(), human, PageRequest[HumanAttentionCursor]{Limit: 50})
-	if err != nil || len(page.Items) != 0 {
+	if err != nil || len(page.Items) != 1 || page.Items[0].Task.ID != task.ID || page.Items[0].Task.Status != domain.TaskStatusWorking {
 		t.Fatalf("claimed human attention = %+v, err = %v", page.Items, err)
+	}
+	otherHuman := Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "other-reviewer"}}
+	page, err = service.ListHumanAttention(context.Background(), otherHuman, PageRequest[HumanAttentionCursor]{Limit: 50})
+	if err != nil || len(page.Items) != 0 {
+		t.Fatalf("another Human's claimed attention = %+v, err = %v", page.Items, err)
 	}
 	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
 		TaskID: task.ID, ClaimID: claim.ID, Identity: human, Result: "Ready for review", RequestReview: true,
@@ -3368,7 +3373,7 @@ func (r *testRepository) ListTasks(workItemID domain.WorkItemID) ([]domain.Task,
 	return r.tasksFor(workItemID), nil
 }
 
-func (r *testRepository) ListHumanAttention(page PageRequest[HumanAttentionCursor]) ([]HumanAttentionItem, error) {
+func (r *testRepository) ListHumanAttention(actor domain.ActorRef, page PageRequest[HumanAttentionCursor]) ([]HumanAttentionItem, error) {
 	result := make([]HumanAttentionItem, 0)
 	for _, workItem := range r.workItems {
 		if workItem.Status == domain.WorkItemStatusAwaitingHumanAcceptance {
@@ -3384,6 +3389,10 @@ func (r *testRepository) ListHumanAttention(page PageRequest[HumanAttentionCurso
 				kind = HumanAttentionReview
 			} else if task.Status == domain.TaskStatusPending && task.ActiveClaimID == nil && task.Executor == domain.ExecutorHuman {
 				kind = HumanAttentionTask
+			} else if task.Status == domain.TaskStatusWorking && task.ActiveClaimID != nil && actor.Kind == domain.ActorHuman {
+				if claim, ok := r.claims[*task.ActiveClaimID]; ok && claim.TaskID == task.ID && claim.Active() && sameActor(claim.Executor, actor) {
+					kind = HumanAttentionTask
+				}
 			}
 			if kind != "" {
 				taskCopy := task
