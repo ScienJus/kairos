@@ -74,13 +74,27 @@ describe('console authentication', () => {
 
   it('accepts the server-resolved Admin Human without inferring a role', async () => {
     vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
-    vi.spyOn(api, 'getSession').mockResolvedValue({ id: 'admin-stable-id', kind: 'human', role: '' })
+    vi.spyOn(api, 'getSession').mockResolvedValue({ id: 'admin-stable-id', kind: 'human', role: '', display_name: 'system admin' })
     const user = userEvent.setup()
     renderApp()
     expect(await screen.findByText('Enter your identity Token or the deployment Admin Token.')).toBeInTheDocument()
     await user.type(screen.getByLabelText('Identity Token'), 'test-deployment-credential')
     await user.keyboard('{Enter}')
-    expect(await screen.findByTitle('Authenticated as: admin-stable-id')).toBeInTheDocument()
+    await user.click(await screen.findByTitle('Authenticated as: system admin'))
+    expect(screen.getByText('system admin')).toBeInTheDocument()
+    expect(screen.queryByText('admin-stable-id')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+  })
+
+  it('uses the actor ID when an ordinary session has an admin-like ID and no display name', async () => {
+    sessionStorage.setItem('kairos-console-token', 'test-ordinary-credential')
+    vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
+    vi.spyOn(api, 'getSession').mockResolvedValue({ id: 'admin-ordinary-human', kind: 'human', role: '' })
+    const user = userEvent.setup()
+    renderApp()
+    await user.click(await screen.findByTitle('Authenticated as: admin-ordinary-human'))
+    expect(screen.getByText('admin-ordinary-human')).toBeInTheDocument()
+    expect(screen.queryByText('system admin')).not.toBeInTheDocument()
   })
 
   it.each(['bootstrap', 'login'])('does not restore a late %s session after invalidation', async source => {

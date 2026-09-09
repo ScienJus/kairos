@@ -333,9 +333,10 @@ type authenticationConfigPayload struct {
 }
 
 type sessionPayload struct {
-	ID   domain.ActorID   `json:"id"`
-	Kind domain.ActorKind `json:"kind"`
-	Role string           `json:"role"`
+	DisplayName string           `json:"display_name"`
+	ID          domain.ActorID   `json:"id"`
+	Kind        domain.ActorKind `json:"kind"`
+	Role        string           `json:"role"`
 }
 
 type identityRecordPayload struct {

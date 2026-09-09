@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode"
 
 	"github.com/ScienJus/kairos/internal/domain"
 )
@@ -57,8 +56,11 @@ func (s *Service) ConfigureAdmin(ctx context.Context, token string) error {
 
 // ValidateAdminToken keeps deployment credentials out of the Claim namespace.
 func ValidateAdminToken(token string) error {
-	if len(token) < 32 || token != strings.TrimSpace(token) || strings.ContainsFunc(token, unicode.IsSpace) {
-		return fmt.Errorf("%w: Admin Token must be at least 32 UTF-8 bytes and contain no whitespace", ErrInvalid)
+	if len(token) < 32 {
+		return fmt.Errorf("%w: Admin Token must contain at least 32 visible ASCII characters", ErrInvalid)
+	}
+	if strings.ContainsFunc(token, func(r rune) bool { return r < 0x21 || r > 0x7e }) {
+		return fmt.Errorf("%w: Admin Token must contain only visible ASCII characters (0x21-0x7E)", ErrInvalid)
 	}
 	if _, err := ExecutorTokenHash(token); err == nil {
 		return fmt.Errorf("%w: Admin Token must not use the canonical Executor format", ErrInvalid)

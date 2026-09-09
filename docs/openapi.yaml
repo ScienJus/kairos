@@ -49,7 +49,7 @@ paths:
     get:
       operationId: getSession
       summary: Get Session
-      description: The deployment Admin Token resolves to a stable database-bound Human with an empty role, using ordinary Human business permissions.
+      description: The deployment Admin Token resolves to a stable database-bound Human with an empty role, using ordinary Human business permissions. Its optional display_name is system admin; the actor ID remains unchanged.
       responses:
         '200': { $ref: '#/components/responses/Session' }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -964,7 +964,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: Identity Token, deployment Admin Token (ordinary Human), or scoped canonical `krs_claim_` Executor Token for business routes; only the deployment Admin Token for identity routes. Admin configuration requires at least 32 UTF-8 bytes, no whitespace, and must not match canonical Executor format or an existing Identity credential.
+      description: Identity Token, deployment Admin Token (ordinary Human), or scoped canonical `krs_claim_` Executor Token for business routes; only the deployment Admin Token for identity routes. Admin configuration requires at least 32 visible ASCII characters (0x21–0x7E), no whitespace or control characters, and must not match canonical Executor format or an existing Identity credential.
     trustedActorId:
       type: apiKey
       in: header
@@ -1211,7 +1211,16 @@ components:
     SessionEnvelope:
       type: object
       required: [data]
-      properties: { data: { $ref: '#/components/schemas/Session' } }
+      properties:
+        data:
+          allOf:
+            - $ref: '#/components/schemas/Session'
+            - type: object
+              properties:
+                display_name:
+                  type: string
+                  const: system admin
+                  description: Presentation only; included for an authenticated deployment Admin Token session, omitted for ordinary Identity and Trusted Mode sessions. Never used for authorization or actor attribution.
     IdentityResponse:
       type: object
       required: [data]
