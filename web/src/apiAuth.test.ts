@@ -15,6 +15,26 @@ afterEach(() => {
 })
 
 describe('API authentication transport', () => {
+  it('releases a Claim successfully when the server returns 204 without a JSON body', async () => {
+    saveBearerToken('identity-secret')
+    const response = new Response(null, { status: 204 })
+    const json = vi.spyOn(response, 'json')
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response)
+
+    await expect(api.releaseClaim(trustedIdentity, 'task-1', 'claim-1')).resolves.toBeUndefined()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/tasks/task-1/claims/claim-1')
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('DELETE')
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer identity-secret')
+    expect(json).not.toHaveBeenCalled()
+  })
+
+  it('still reports a rejected Claim release as an API error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: { message: 'Claim is no longer active' } }), { status: 409 }))
+    await expect(api.releaseClaim(trustedIdentity, 'task-1', 'claim-1')).rejects.toMatchObject({ status: 409, message: 'Claim is no longer active' })
+  })
+
   it('uses the session Token instead of trusted actor headers', async () => {
     saveBearerToken('identity-secret')
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [] }), {

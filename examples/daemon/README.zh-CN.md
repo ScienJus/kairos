@@ -5,7 +5,7 @@
 此示例启动独立的 Authenticated Core/SQLite，创建 Workflow 和 Blackboard WorkItem，
 再启动单 slot 的 Codex Daemon。原生 MCP [quickstart](https://github.com/ScienJus/kairos/tree/main/examples/quickstart) 保持独立。
 
-需要 Linux/macOS、curl、jq、openssl、Perl（自带 POSIX 模块）、Codex CLI 0.146.x 和专用的 Codex 登录目录。
+需要 Linux/macOS、curl、jq、openssl、Perl（自带 POSIX 模块）、Codex CLI 0.146.0+ 和专用的 Codex 登录目录。
 源码构建还需要 Go/Node。发布包同时提供 `kairos-server`、`kairos-daemon`，不打包 Codex
 或模型凭据。先按正常 Codex 登录流程配置专用目录，然后：
 
@@ -43,3 +43,5 @@ Daemon 清理期间 Core 仍可用，退出后 Claim 已释放。不调用模型
 quarantine，候选代次变化或重启才解除。撤销 Agent Identity Token 不立即撤销 Active
 Executor Token，其有效性由 Claim 生命周期控制。Stop 是尽力请求；Daemon 崩溃后 Core
 只回收 Claim，不清理外部进程。不可信工作应使用独立 OS 用户或容器隔离。
+
+接入经反向代理连接 loopback 的 Core 时，在代理中将上游 Host 配置为 loopback 目标地址，规则见 [API 参考](../../docs/api-reference.zh-CN.md)。Host 拒绝属于基础设施问题，不是 Token 或 Task 失败。恢复执行前检查私有 `run-*/outcome.json` 中的运行失败原因；CLI preflight 不验证浏览器能否启动。

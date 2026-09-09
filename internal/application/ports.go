@@ -186,7 +186,7 @@ type ReadStore interface {
 	ListClaims(domain.TaskID) ([]domain.Claim, error)
 	ListClaimsByWorkItem(domain.WorkItemID) ([]domain.Claim, error)
 	ListCoordinationClaims(domain.WorkItemID) ([]domain.CoordinationClaim, error)
-	ListHumanAttention(PageRequest[HumanAttentionCursor]) ([]HumanAttentionItem, error)
+	ListHumanAttention(domain.ActorRef, PageRequest[HumanAttentionCursor]) ([]HumanAttentionItem, error)
 	GetArtifact(domain.ArtifactID) (domain.Artifact, error)
 	ListArtifacts(ArtifactFilter) ([]domain.Artifact, error)
 	GetArtifactBlob(string) (domain.ArtifactBlob, error)

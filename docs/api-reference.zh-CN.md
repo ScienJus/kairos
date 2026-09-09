@@ -41,6 +41,20 @@ HTTP read timeout 限制读取完整请求的总时间，包含 JSON、MCP 和�
 
 公网部署应在 Kairos 前配置反向代理，由其终止 TLS，并限制连接数和请求速率。代理连接上游的 timeout 应略长于 Kairos 对应配置，使慢请求由 Kairos 可预测地关闭。代理可以有意采用更小的上传上限；否则其请求体限制应允许 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` 以及 multipart 开销。
 
+MCP 经代理转发到 loopback 监听地址时，代理应发送上游目标地址作为 Host。例如在 `kairos.example.com` 的 Nginx server 块中单独配置以下 location，并保留现有速率、请求体和 timeout 限制：
+
+```nginx
+location = /mcp {
+    if ($host != kairos.example.com) { return 421; }
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $proxy_host;
+    proxy_buffering off;
+}
+```
+
+这适用于 Codex 等非浏览器 MCP 客户端，无需修改 SDK 默认的 localhost 防护。控制台及 REST 路由继续保留公网 Host。保留 Authorization 和 Origin 请求头，不要通过清除 Origin 绕过跨站校验。携带公网 Origin 的浏览器 MCP 请求需要另外配置正确的来源校验，因为它与改写后的上游 Host 不同。含 `invalid Host header` 的 `403` 表示代理与 loopback 配置问题，不是 Token 过期或业务失败；先修正部署，再重试客户端。
+
 参与发现、授权候选收窄、筛选或排序的运行时字段，除了保留在聚合 payload 中，也存入专用列。PostgreSQL 对 WorkItem/Task tags 和 Task allowed roles 使用原生 `TEXT[]`，并为当前的包含查询建立 GIN 索引。SQLite 将相同逻辑字段保存为经过校验的 JSON 数组 `TEXT` 列，通过 `json_each` 执行包含查询；SQLite 定位于本地和较小规模部署。空集合在存储和响应中均为数组，不使用 `null`。
 
 数据库时间在应用边界统一规范为 UTC、微秒精度，因此 API 值、聚合 payload 和查询列表示同一个时间点。PostgreSQL 使用 `TIMESTAMPTZ`；SQLite 使用固定宽度的 RFC 3339 UTC 文本，使文本范围比较保持时间顺序。Definition、WorkItem、Task、Workflow activation 和 Identity 按照领域元数据使用 `created_at` 与 `updated_at`。Task Relation 持久化其不可变的 `created_at`；可变的 Claim、暂存 Artifact 和幂等记录在状态变化时更新 `updated_at`。具有更精确不可变事件或生命周期语义的行继续使用 `occurred_at`、`claimed_at`、`applied_at` 等字段名，不额外添加没有含义的重复时间列。
@@ -112,6 +126,8 @@ Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式�
 | Blackboard 规划 | WorkItem Task、relation、completion；Task decomposition、children 与 skipping |
 | 人工关注 | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities` 及 Token 轮换、撤销路由 |
+
+`GET /api/v1/human-attention` 包含待处理 Review、未认领的 Pending Human Task、当前 Human 持有有效 Claim 的 Working Task（包括 `executor=either`），以及等待人工验收的 WorkItem。不包含其他执行者正在处理的 Task 或未认领的 `either` Task。沿用 `human_task` kind，通过 `task.status` 区分待认领和进行中任务。所有者过滤在游标分页之前完成，终态 WorkItem 不再提供 Task 条目。
 
 WorkItem、Human Attention、Definition 目录、Definition 版本历史和已提交 Artifact 的列表路由使用 cursor 分页。`limit` 默认为 50，允许范围为 1-200。每页返回 `{ "data": [...], "next_cursor": string | null }`；当该值非空时，将其作为 `cursor` 传回同一集合路由，并保留原有过滤参数。Cursor 是不透明且与集合绑定的；无效 cursor 或 limit 返回 `400 invalid_request`。WorkItem 按 `updated_at DESC, id ASC` 排序，Human Attention 优先返回 Review，其余按条目更新时间排序；Definition 目录按 `id ASC` 排序，版本历史按 `version DESC` 排序，Artifact 按 `created_at ASC, id ASC` 排序。
 
