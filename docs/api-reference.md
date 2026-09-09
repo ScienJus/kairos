@@ -41,6 +41,20 @@ The HTTP read timeout bounds the total time spent reading a request, including J
 
 For an internet-facing deployment, place Kairos behind a reverse proxy that terminates TLS and enforces connection and request-rate limits. Configure the proxy's upstream timeouts slightly above the corresponding Kairos timeouts so Kairos closes slow requests predictably. A proxy may intentionally impose a smaller upload limit; otherwise its request-body limit must allow `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` plus multipart overhead.
 
+For MCP forwarded to a loopback listener, the proxy must send the upstream authority as Host. For example, in the Nginx server block for `kairos.example.com`, use a dedicated location (retain your existing rate, body-size and timeout limits):
+
+```nginx
+location = /mcp {
+    if ($host != kairos.example.com) { return 421; }
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $proxy_host;
+    proxy_buffering off;
+}
+```
+
+This supports non-browser MCP clients such as Codex without changing the SDK's default localhost protection. Keep the public Host for the console and REST routes. Preserve Authorization and Origin headers; do not remove Origin to bypass cross-origin checks. Browser MCP requests carrying the public Origin require separate origin-aware proxy configuration because that Origin differs from the rewritten upstream Host. A `403` containing `invalid Host header` indicates proxy/loopback configuration, not an expired Token or business failure. Correct deployment configuration before retrying the client.
+
 Runtime fields used by discovery, authorization narrowing, filtering, or ordering are stored in dedicated columns as well as in the aggregate payload. PostgreSQL uses native `TEXT[]` columns for WorkItem/Task tags and Task allowed roles, with GIN indexes for the current containment queries. SQLite stores the same logical fields as validated JSON-array `TEXT` columns and evaluates containment through `json_each`; SQLite is intended for local and smaller deployments. Empty collections are stored and returned as arrays, never `null`.
 
 Database timestamps are normalized at the application boundary to UTC with microsecond precision, so API values, aggregate payloads, and query columns use the same instant. PostgreSQL uses `TIMESTAMPTZ`; SQLite uses a fixed-width RFC 3339 UTC representation so textual range comparisons preserve chronological order. Definitions, WorkItems, Tasks, Workflow activations, and Identities have `created_at` and `updated_at` matching their domain metadata. Task Relations persist their immutable `created_at`; mutable Claims, staged Artifacts, and idempotency records update `updated_at` when their state changes. Rows with a more specific immutable-event or lifecycle timestamp retain names such as `occurred_at`, `claimed_at`, or `applied_at` instead of adding a meaningless duplicate timestamp.
@@ -82,11 +96,26 @@ Authenticated Mode is intended for shared environments within one trusted collab
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
-KAIROS_ADMIN_TOKEN='<at-least-32-character-high-entropy-token>' \
+KAIROS_ADMIN_TOKEN='<at-least-32-visible-ASCII-high-entropy-token>' \
 go run ./cmd/kairos-server
 ```
 
-Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes normally use an issued identity token. Authenticated Mode ignores trusted actor headers.
+Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes accept an issued Identity Token or the deployment Admin Token as an ordinary Human. Authenticated Mode ignores trusted actor headers.
+
+### Admin Token business identity
+
+`KAIROS_ADMIN_TOKEN` also signs in through the console's existing login form and authenticates HTTP and MCP business requests as an ordinary Human (`kind=human`, empty `role`, no Executor scope). It can create WorkItems and execute Human/either Tasks; Agent-only Tasks, other actors' Claims and ended Claims retain ordinary Human restrictions. Only the configured Admin credential can manage identities; a Human identity alone grants no administration rights.
+
+At authenticated startup, migration 005 and a transaction create or load the single identity with `credential_source=admin`. Its random `admin-` ID is independent of the Token. A conflicting Human ID is retried without adopting or overwriting it; the same text in an Agent ID is a separate actor. A unique partial index makes concurrent initialization converge. Constraints and startup validation reject invalid kind, role or stored credential state. Existing databases are upgraded without rewriting migrations 001–004 or existing identities. Back up the complete database, including this row; deleting or manually changing it is unsupported. A new database has a new Human identity.
+
+Restarting against the same database preserves the actor. To rotate the Admin Token, change deployment configuration and restart every instance: the new Token resolves to the same Human and the old Token fails business and management authentication once all old processes stop. There is no hot reload. The Admin credential/hash is never stored as an ordinary Identity credential. Startup rejects collisions with an existing Identity Token and rejects canonical Executor-format credentials. Configuration requires at least 32 visible ASCII characters (0x21–0x7E), no whitespace or control characters, and should be generated with high entropy; invalid or missing configuration fails without printing it.
+
+The console account menu displays `system admin` for this credential. `/session` includes the optional presentation field `display_name: "system admin"`; ordinary Identity sessions and Trusted Mode omit it and display their actor ID. The stable `id`, Human `kind` and empty `role` remain the business identity over both HTTP and MCP. Names and ID prefixes never grant permissions. Previously accepted non-ASCII/control-character Admin configurations must be replaced with a random visible-ASCII credential before restarting; the database-bound actor is preserved.
+
+Identity management responses include `credential_source` (`identity` or `admin`). `token_active` describes an issued Identity Token only, so it is false for the deployment-managed Human. Rotating or revoking that row through `/identities/{kind}/{actor_id}/token` returns 403; use deployment configuration instead. Ordinary identity issuance, rotation and revocation are unchanged.
+
+The console stores either accepted credential in the current tab's sessionStorage. Refresh restores the session; sign-out or a current credential's 401 clears the credential and cached business state. Submitting a login clears its password input, including failures. Late session responses cannot restore an invalidated session. Storage failures are shown explicitly. Never put credentials in URLs, WorkItems, logs or screenshots.
+
 
 An Agent may include an optional client-generated `executor_token` when it creates a Task Claim or Coordination Claim. The token must use the `krs_claim_` prefix followed by 256 random bits encoded as unpadded base64url; Core stores only its SHA-256 hash. In Authenticated Mode the token can then be used as the Bearer credential for the lifetime of that exact active Claim. It can read Task and WorkItem contexts and submitted Artifacts inside the bound WorkItem. A Task Executor may also create or upload Artifacts for its exact Task Claim and extend a Blackboard plan; a Coordination Executor is read-only. All other operations are denied. Ending or reaping the Claim invalidates the token, while rotating or revoking the Agent's identity token does not affect an already active Executor token.
 
@@ -96,9 +125,9 @@ Authentication establishes caller identity and operation-specific rules still co
 
 The operations console discovers the configured mode through the public `GET /api/v1/auth/config` endpoint. In Authenticated Mode it presents a Token login before loading any workspace data, validates the Token through `GET /api/v1/session`, and then uses it as the Bearer credential for API requests, managed uploads, and Artifact downloads. The Token is held only in browser `sessionStorage`, so it is scoped to the current tab session rather than persisted as a durable browser login; the console reports an unavailable state if the browser blocks that storage. Signing out clears the Token and cached API data. A business API `401` response, including one caused by Token revocation or rotation, also clears the session and returns the console to login.
 
-In Authenticated Mode, open **Administrator · Manage identities** from the login page or the signed-in account menu (`/admin/identities`). No existing Human Token is required. Verify the deployment `KAIROS_ADMIN_TOKEN`, then create a Human identity (no role) or an Agent identity (one required role, such as `developer`). `initial-human.token` and ordinary Identity Tokens cannot administer identities. The Admin Token does not sign in to the business workspace.
+In Authenticated Mode, sign in with the deployment `KAIROS_ADMIN_TOKEN` using the existing login form, then open the single **Token management** entry in the account menu (`/admin/identities`). Create a Human (no role) or an Agent (one required role, such as `developer`), inspect identity metadata, and rotate or revoke issued Tokens on this page. Rotation and revocation require confirmation and invalidate the previous Token immediately. The deployment-managed Admin credential is read-only here; change it through deployment configuration. Ordinary Identity Tokens, including `initial-human.token`, cannot access management. The server returns `can_manage_identities` on `/session`, true only for the configured Admin credential when identity management is available; the UI never derives access from an ID, role or display name. Every management endpoint still checks the credential.
 
-The administrator credential stays only in page memory, independently of any ordinary identity session. Ending the administrator session, leaving, refreshing, or navigating away clears the credential and issued Token; returning requires verification again. Creation displays the new Identity Token once with a copy button and its identity and purpose. Save it before closing the result or starting another creation. Metadata never returns the plaintext Token. Clipboard failures allow manual copying. A network or server failure can hide a successful creation, so the console does not automatically retry; ask the deployment administrator to check before retrying. Trusted Mode keeps its existing local identity controls and does not expose this form.
+Management uses the existing login credential in current-tab sessionStorage, with no second administrator session. Sign-out and a current-credential 401 clear login and cached workspace state. Newly issued Tokens stay only in page memory and are never placed in URLs, browser storage or Query/Mutation caches. Copy and save them before dismissing the result, starting another operation, navigating away or refreshing. Clipboard failure allows manual copying. List and detail responses never return plaintext Tokens. Failed write requests are not automatically retried because the operation may already have succeeded; refresh metadata before deciding whether to rotate a replacement. Trusted Mode retains local identity settings and does not expose management.
 
 `GET /api/v1/auth/config` is unauthenticated and returns `{ "data": { "mode": "trusted" | "authenticated" } }`. `GET /api/v1/session` uses the normal work-route authentication and returns the transport-resolved identity as `{ "data": { "id": string, "kind": "human" | "agent", "role": string } }`. Clients should use this resolved identity rather than deriving identity fields from a Token.
 
@@ -116,6 +145,8 @@ The administrator credential stays only in page memory, independently of any ord
 | Blackboard planning | WorkItem Tasks, relations, completion; Task decomposition, children, and skipping |
 | Human attention | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities`, token rotation and revocation routes |
+
+`GET /api/v1/human-attention` includes pending Reviews, unclaimed Pending Human Tasks, Working Tasks with an active Claim owned by the requesting Human (including `executor=either`), and WorkItems awaiting human acceptance. Another actor’s Working Tasks and unclaimed `either` Tasks are excluded. The existing `human_task` kind covers both pending and owned Working Tasks; `task.status` distinguishes them. Ownership filtering precedes cursor pagination. Terminal WorkItems do not contribute Task entries.
 
 The WorkItem, Human Attention, Definition catalog, Definition version-history, and submitted Artifact list routes use cursor pagination. `limit` defaults to 50 and accepts 1-200. A page returns `{ "data": [...], "next_cursor": string | null }`; pass a non-null value back as `cursor` on the same collection route, preserving any filters. Cursors are opaque and collection-specific. An invalid cursor or limit returns `400 invalid_request`. WorkItems are ordered by `updated_at DESC, id ASC`, Human Attention puts Reviews first and otherwise orders by item update time, Definition catalogs by `id ASC`, version histories by `version DESC`, and Artifacts by `created_at ASC, id ASC`.
 

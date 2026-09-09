@@ -69,6 +69,51 @@ describe('console authentication', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('This Token is invalid or has been revoked.')
     expect(sessionStorage.getItem('kairos-console-token')).toBeNull()
+    expect(screen.getByLabelText('Identity Token')).toHaveValue('')
+  })
+
+  it('accepts the server-resolved Admin Human without inferring a role', async () => {
+    vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
+    vi.spyOn(api, 'getSession').mockResolvedValue({ id: 'admin-stable-id', kind: 'human', role: '', display_name: 'system admin' })
+    const user = userEvent.setup()
+    renderApp()
+    expect(await screen.findByText('Enter your identity Token or the deployment Admin Token.')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Identity Token'), 'test-deployment-credential')
+    await user.keyboard('{Enter}')
+    await user.click(await screen.findByTitle('Authenticated as: system admin'))
+    expect(screen.getByText('system admin')).toBeInTheDocument()
+    expect(screen.queryByText('admin-stable-id')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
+  })
+
+  it('uses the actor ID when an ordinary session has an admin-like ID and no display name', async () => {
+    sessionStorage.setItem('kairos-console-token', 'test-ordinary-credential')
+    vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
+    vi.spyOn(api, 'getSession').mockResolvedValue({ id: 'admin-ordinary-human', kind: 'human', role: '' })
+    const user = userEvent.setup()
+    renderApp()
+    await user.click(await screen.findByTitle('Authenticated as: admin-ordinary-human'))
+    expect(screen.getByText('admin-ordinary-human')).toBeInTheDocument()
+    expect(screen.queryByText('system admin')).not.toBeInTheDocument()
+  })
+
+  it.each(['bootstrap', 'login'])('does not restore a late %s session after invalidation', async source => {
+    let resolveSession!: (identity: Identity) => void
+    vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
+    const session = vi.spyOn(api, 'getSession').mockImplementation(() => new Promise(resolve => { resolveSession = resolve }))
+    if (source === 'bootstrap') sessionStorage.setItem('kairos-console-token', 'test-old-credential')
+    const user = userEvent.setup()
+    renderApp()
+    if (source === 'login') {
+      await user.type(await screen.findByLabelText('Identity Token'), 'test-old-credential')
+      await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    }
+    await waitFor(() => expect(session).toHaveBeenCalled())
+    window.dispatchEvent(new Event(authenticationRequiredEvent))
+    await screen.findByRole('heading', { name: 'Sign in to Kairos' })
+    resolveSession(authenticatedIdentity)
+    await waitFor(() => expect(screen.queryByTitle('Authenticated as: console-human')).not.toBeInTheDocument())
+    expect(sessionStorage.getItem('kairos-console-token')).toBeNull()
   })
 
   it('restores a saved Token and supports logout', async () => {
@@ -181,30 +226,31 @@ describe('console authentication', () => {
   })
 })
 
-it('opens admin directly without identity login or access to session storage', async () => {
+it('requires ordinary login on the management deep link', async () => {
   window.history.replaceState({}, '', '/admin/identities')
   vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
-  const session = vi.spyOn(api, 'getSession')
-  const original = Storage.prototype.getItem
-  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key) {
-    if (this === sessionStorage) throw new Error('storage blocked')
-    return original.call(this, key)
-  })
   renderApp()
-  expect(await screen.findByLabelText('Admin Token')).toBeInTheDocument()
-  expect(session).not.toHaveBeenCalled()
-  expect(api.listWorkItems).not.toHaveBeenCalled()
+  expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Token management' })).not.toBeInTheDocument()
 })
 
-it('provides admin entry before identity login and hides it in Trusted Mode', async () => {
+it.each([
+  { id: 'ordinary', kind: 'human' as const, role: '', can_manage_identities: false },
+  { id: 'admin-spoof', kind: 'human' as const, role: '', display_name: 'system admin' },
+  { id: 'real-admin', kind: 'human' as const, role: '', can_manage_identities: true },
+])('shows exactly one management entry based on the server capability: $id', async identity => {
+  sessionStorage.setItem('kairos-console-token', 'synthetic-login')
   vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
-  const page = renderApp()
-  expect(await screen.findByRole('link', { name: 'Administrator · Manage identities' })).toHaveAttribute('href', '/admin/identities')
-  page.unmount()
-  vi.mocked(api.getAuthenticationConfig).mockResolvedValue({ mode: 'trusted' })
-  window.history.replaceState({}, '', '/admin/identities')
+  vi.spyOn(api, 'getSession').mockResolvedValue(identity)
   renderApp()
-  await screen.findByLabelText('Identity settings')
-  expect(screen.queryByLabelText('Admin Token')).not.toBeInTheDocument()
-  expect(screen.queryByRole('link', { name: 'Administrator · Manage identities' })).not.toBeInTheDocument()
+  await userEvent.setup().click(await screen.findByTitle(`Authenticated as: ${identity.display_name || identity.id}`))
+  expect(screen.queryAllByRole('button', { name: 'Token management' })).toHaveLength(identity.can_manage_identities ? 1 : 0)
+})
+
+it('denies direct management access to ordinary and Trusted Mode users', async () => {
+  window.history.replaceState({}, '', '/admin/identities')
+  vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'trusted' })
+  renderApp()
+  expect(await screen.findByText(/Admin Token rejected/)).toBeInTheDocument()
+  expect(screen.queryByLabelText('Identity ID')).not.toBeInTheDocument()
 })

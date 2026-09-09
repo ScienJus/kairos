@@ -38,7 +38,8 @@ func (i HumanAttentionItem) Cursor() HumanAttentionCursor {
 	return HumanAttentionCursor{Priority: priority, UpdatedAt: updatedAt, WorkItemID: i.WorkItem.ID, TaskID: taskID}
 }
 
-// ListHumanAttention returns a page of pending Reviews, human Tasks, and human acceptances.
+// ListHumanAttention includes pending Reviews, unclaimed human Tasks, the
+// requesting Human's actively claimed Tasks, and human acceptances.
 func (s *Service) ListHumanAttention(ctx context.Context, identity Identity, page PageRequest[HumanAttentionCursor]) (Page[HumanAttentionItem], error) {
 	if err := identity.Validate(); err != nil {
 		return Page[HumanAttentionItem]{}, err
@@ -48,7 +49,7 @@ func (s *Service) ListHumanAttention(ctx context.Context, identity Identity, pag
 	}
 	items := make([]HumanAttentionItem, 0)
 	err := s.repository.View(ctx, func(store ReadStore) error {
-		candidates, err := store.ListHumanAttention(page)
+		candidates, err := store.ListHumanAttention(identity.Actor, page)
 		if err != nil {
 			return fmt.Errorf("list human attention: %w", err)
 		}

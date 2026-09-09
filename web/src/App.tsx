@@ -3,19 +3,18 @@ import { useQueryClient } from '@tanstack/react-query'
 import { GitBranch, KeyRound, Languages, Library, LoaderCircle, LogOut, Plus, RefreshCw, UserRound } from 'lucide-react'
 import { APIError, api, authenticationRequiredEvent, clearBearerToken, configureAuthenticationMode, loadBearerToken, loadIdentity, saveBearerToken, saveIdentity, tokenStorageUnavailableEvent, TokenStorageError } from './api'
 import { CreateWorkModal, IdentityModal, type WorkDefinitionTarget } from './AppModals'
-import { AdminIdentitiesPage } from './AdminIdentitiesPage'
 import { HomePage } from './HomePage'
 import { useI18n } from './i18n'
 import { readRoute, routePath, type RouteState } from './route'
 import type { AuthenticationMode, Identity } from './types'
 
+const AdminIdentitiesPage = lazy(() => import('./AdminIdentitiesPage').then(module => ({ default: module.AdminIdentitiesPage })))
 const BlackboardsPage = lazy(() => import('./BlackboardsPage').then(module => ({ default: module.BlackboardsPage })))
 const WorkItemPage = lazy(() => import('./WorkItemPage').then(module => ({ default: module.WorkItemPage })))
 const WorkflowsPage = lazy(() => import('./WorkflowsPage').then(module => ({ default: module.WorkflowsPage })))
 const WorkflowEditorPage = lazy(() => import('./WorkflowEditorPage').then(module => ({ default: module.WorkflowEditorPage })))
 
 type AuthenticationState =
-  | { status: 'admin' }
   | { status: 'loading' }
   | { status: 'error'; source: 'config' | 'session' | 'storage' }
   | { status: 'login'; error?: AuthenticationError }
@@ -27,9 +26,12 @@ export function App() {
   const queryClient = useQueryClient()
   const [authentication, setAuthentication] = useState<AuthenticationState>({ status: 'loading' })
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0)
+  const sessionGeneration = useRef(0)
 
   useEffect(() => {
     let active = true
+    const generation = ++sessionGeneration.current
+    const isCurrent = () => active && generation === sessionGeneration.current
     async function bootstrap() {
       setAuthentication({ status: 'loading' })
       let mode: AuthenticationMode
@@ -37,20 +39,16 @@ export function App() {
         const config = await api.getAuthenticationConfig()
         mode = config.mode
       } catch {
-        if (active) setAuthentication({ status: 'error', source: 'config' })
+        if (isCurrent()) setAuthentication({ status: 'error', source: 'config' })
         return
       }
-      if (!active) return
+      if (!isCurrent()) return
       configureAuthenticationMode(mode)
       if (mode === 'trusted') {
         try {
           clearBearerToken()
         } catch { /* Trusted transport does not depend on Token storage. */ }
         setAuthentication({ status: 'ready', mode, identity: loadIdentity() })
-        return
-      }
-      if (readRoute(window.location.pathname).adminIdentities) {
-        setAuthentication({ status: 'admin' })
         return
       }
       let token: string
@@ -66,9 +64,9 @@ export function App() {
       }
       try {
         const identity = await api.getSession()
-        if (active) setAuthentication({ status: 'ready', mode, identity })
+        if (isCurrent()) setAuthentication({ status: 'ready', mode, identity })
       } catch (error) {
-        if (!active) return
+        if (!isCurrent()) return
         if (error instanceof TokenStorageError) {
           setAuthentication({ status: 'error', source: 'storage' })
           return
@@ -92,6 +90,7 @@ export function App() {
 
   useEffect(() => {
     const requireAuthentication = () => {
+      sessionGeneration.current++
       queryClient.clear()
       try {
         clearBearerToken()
@@ -99,12 +98,11 @@ export function App() {
         setAuthentication({ status: 'error', source: 'storage' })
         return
       }
-      setAuthentication(current => current.status === 'ready' && current.mode === 'authenticated'
-        ? { status: 'login', error: 'sessionExpired' }
-        : current)
+      setAuthentication(current => ({ status: 'login', error: current.status === 'login' ? 'invalidToken' : 'sessionExpired' }))
     }
     window.addEventListener(authenticationRequiredEvent, requireAuthentication)
     const reportStorageUnavailable = () => {
+      sessionGeneration.current++
       queryClient.clear()
       setAuthentication({ status: 'error', source: 'storage' })
     }
@@ -116,12 +114,15 @@ export function App() {
   }, [queryClient])
 
   async function login(token: string) {
+    const generation = ++sessionGeneration.current
     try {
       saveBearerToken(token)
       const identity = await api.getSession()
+      if (generation !== sessionGeneration.current) return
       queryClient.clear()
       setAuthentication({ status: 'ready', mode: 'authenticated', identity })
     } catch (error) {
+      if (generation !== sessionGeneration.current) return
       if (error instanceof TokenStorageError) {
         setAuthentication({ status: 'error', source: 'storage' })
         return
@@ -138,6 +139,7 @@ export function App() {
   }
 
   function logout() {
+    sessionGeneration.current++
     queryClient.clear()
     try {
       clearBearerToken()
@@ -148,7 +150,6 @@ export function App() {
     setAuthentication({ status: 'login' })
   }
 
-  if (authentication.status === 'admin') return <AdminIdentitiesPage />
   if (authentication.status === 'loading') return <AuthenticationPage mode="loading" />
   if (authentication.status === 'error') return <AuthenticationPage mode="error" errorSource={authentication.source} onRetry={() => setBootstrapAttempt(value => value + 1)} />
   if (authentication.status === 'login') return <TokenLogin error={authentication.error} onLogin={login} />
@@ -180,6 +181,7 @@ function TokenLogin({ error, onLogin }: { error?: AuthenticationError; onLogin: 
     const value = token.trim()
     if (!value || submitting) return
     setSubmitting(true)
+    setToken('')
     try {
       await onLogin(value)
     } finally {
@@ -201,7 +203,6 @@ function TokenLogin({ error, onLogin }: { error?: AuthenticationError; onLogin: 
         <input id="identity-token" type="password" autoComplete="off" autoFocus value={token} onChange={event => setToken(event.target.value)} placeholder={t('identityTokenPlaceholder')} aria-invalid={Boolean(error)} />
         {error && <div className="auth-error" role="alert">{t(error)}</div>}
         <button className="primary-button token-submit" type="submit" disabled={!token.trim() || submitting}>{submitting ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}{submitting ? t('authenticating') : t('signIn')}</button>
-        <a className="admin-link" href="/admin/identities">{t('adminIdentities')}</a>
       </form>
     </main>
   </div>
@@ -271,13 +272,17 @@ function ConsoleApp({ identity: initialIdentity, authenticationMode, onLogout }:
         <button className="language-button" onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')} aria-label={locale === 'en' ? '切换到中文' : 'Switch to English'}><Languages size={16} /><span>{locale === 'en' ? '中文' : 'EN'}</span></button>
         {authenticationMode === 'trusted'
           ? <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label={t('identitySettings')} title={`${t('identity')}: ${identity.id}`}><UserRound size={17} /></button>
-          : <div className="account-menu" ref={accountMenuRef}><button ref={accountTriggerRef} className="icon-button account-trigger" aria-label={`${t('authenticatedAs')}: ${identity.id}`} title={`${t('authenticatedAs')}: ${identity.id}`} aria-controls={accountOpen ? 'account-popover' : undefined} aria-expanded={accountOpen} onClick={() => setAccountOpen(open => !open)}><UserRound size={17} /></button>{accountOpen && <div id="account-popover" className="account-popover"><div className="account-identity"><span>{t('authenticatedAs')}</span><strong>{identity.id}</strong>{identity.role && <small>{identity.role}</small>}</div><a className="admin-link" href="/admin/identities">{t('adminIdentities')}</a><button onClick={onLogout}><LogOut size={15} />{t('logout')}</button></div>}</div>}
-        {!route.workItemID && route.blackboardID === undefined && route.workflowID === undefined && <button className="primary-button" onClick={() => setCreateOpen(true)}><Plus size={17} />{t('startSomething')}</button>}
+          : <div className="account-menu" ref={accountMenuRef}><button ref={accountTriggerRef} className="icon-button account-trigger" aria-label={`${t('authenticatedAs')}: ${identity.display_name || identity.id}`} title={`${t('authenticatedAs')}: ${identity.display_name || identity.id}`} aria-controls={accountOpen ? 'account-popover' : undefined} aria-expanded={accountOpen} onClick={() => setAccountOpen(open => !open)}><UserRound size={17} /></button>{accountOpen && <div id="account-popover" className="account-popover"><div className="account-identity"><span>{t('authenticatedAs')}</span><strong>{identity.display_name || identity.id}</strong>{identity.role && <small>{identity.role}</small>}</div>{identity.can_manage_identities && <button onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', adminIdentities: true })}><KeyRound size={15} />{t('adminIdentities')}</button>}<button onClick={onLogout}><LogOut size={15} />{t('logout')}</button></div>}</div>}
+        {!route.adminIdentities && !route.workItemID && route.blackboardID === undefined && route.workflowID === undefined && <button className="primary-button" onClick={() => setCreateOpen(true)}><Plus size={17} />{t('startSomething')}</button>}
       </div>
     </header>
 
     <main className={`workspace ${route.blackboardID !== undefined || route.workflowID !== undefined ? 'library-workspace' : ''} ${route.workItemID ? 'show-work' : 'show-queue'} ${route.taskID ? 'task-open' : ''}`}><Suspense fallback={<div className="panel-placeholder"><strong>{t('acquiring')}</strong></div>}>
-      {route.workflowID !== undefined
+      {route.adminIdentities
+        ? authenticationMode === 'authenticated' && identity.can_manage_identities
+          ? <AdminIdentitiesPage onLogout={onLogout} />
+          : <div className="panel-placeholder"><strong>{t('adminRejected')}</strong></div>
+        : route.workflowID !== undefined
         ? route.workflowEditing
           ? <WorkflowEditorPage identity={identity} workflowID={route.workflowID ?? null} workflowVersion={route.workflowVersion ?? null} navigate={navigate} />
           : <WorkflowsPage identity={identity} workflowID={route.workflowID ?? null} workflowVersion={route.workflowVersion ?? null} navigate={navigate} onStartWork={definition => { setCreateDefinition(definition); setCreateOpen(true) }} />

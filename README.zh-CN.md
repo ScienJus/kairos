@@ -107,6 +107,8 @@ Working
 
 ## 人类交互
 
+人工关注视图包含待处理 Review、未认领 Human Task、当前 Human 已认领的进行中 Task（含 `either`），以及等待人工验收的 WorkItem。
+
 当前 operations console 已提供 workspace 总览、人工关注视图和 WorkItem 详情。进入 WorkItem 后：
 
 - Workflow 显示为带执行历史的流程图。
@@ -156,9 +158,9 @@ make build
 
 开发构建执行 `./bin/kairos-server --version` 时输出 `dev`，Release 构建则输出对应 Tag。维护者发布步骤见 [Kairos 发布指南](docs/releasing.zh-CN.md)。
 
-默认使用 SQLite 与 Trusted Mode；设置 `KAIROS_POSTGRES_DSN` 后，同一服务改用 PostgreSQL。同一可信协作群体内的共享部署应使用 Authenticated Mode；此时控制台要求使用已签发的 Identity Token 登录，在当前浏览器会话中使用该 Token，并支持退出登录。Authenticated Mode 不提供租户、项目或对象级数据隔离，互不信任的群体应分别部署 Kairos 实例。仅用于开发的服务启动方式、数据库与身份配置、HTTP 路由、MCP 传输与响应契约见 [API 参考](docs/api-reference.zh-CN.md)。
+默认使用 SQLite 与 Trusted Mode；设置 `KAIROS_POSTGRES_DSN` 后，同一服务改用 PostgreSQL。同一可信协作群体内的共享部署应使用 Authenticated Mode；此时控制台支持使用已签发的 Identity Token 或部署 Admin Token（稳定的普通 Human 身份）登录，在当前浏览器会话中使用该 Token，并支持退出登录。Authenticated Mode 不提供租户、项目或对象级数据隔离，互不信任的群体应分别部署 Kairos 实例。仅用于开发的服务启动方式、数据库与身份配置、HTTP 路由、MCP 传输与响应契约见 [API 参考](docs/api-reference.zh-CN.md)。 Admin 会话显示 `system admin`，保留稳定 actor ID；Admin Token 配置要求至少 32 个可见 ASCII 字符，不允许空白或控制字符。
 
-在 Authenticated Mode 下，从登录页或已登录账户菜单打开 **管理员 · 管理身份**（`/admin/identities`），无需已有 Human Token。验证部署配置的 `KAIROS_ADMIN_TOKEN` 后，可创建 Human 身份（无角色）或 Agent 身份（必须有一个角色，例如 `developer`）。`initial-human.token` 和普通 Identity Token 不能管理身份；Admin Token 也不会登录业务工作区。
+在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
 
 ## MCP 与 Agent 集成
 

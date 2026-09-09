@@ -11,35 +11,28 @@ const adminToken = 'synthetic-admin'
 const issued = { id: 'new-human', kind: 'human', role: '', token: 'synthetic-issued' }
 const response = (status = 200, data: unknown = []) => new Response(JSON.stringify({ data }), { status })
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>
-function renderPage() { return render(<I18nProvider><AdminIdentitiesPage /></I18nProvider>) }
+function renderPage() { return render(<I18nProvider><AdminIdentitiesPage onLogout={() => window.dispatchEvent(new Event('pagehide'))} /></I18nProvider>) }
 async function connect() {
   const user = userEvent.setup()
-  await user.type(screen.getByLabelText('Admin Token'), adminToken)
-  await user.click(screen.getByRole('button', { name: 'Verify Admin Token' }))
-  await screen.findByLabelText('Identity ID')
+  await screen.findByText('No identities yet.')
   return user
 }
 beforeEach(() => {
   localStorage.setItem('kairos-console-locale', 'en')
-  sessionStorage.setItem('kairos-console-token', 'synthetic-business')
-  fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response())
+  sessionStorage.setItem('kairos-console-token', adminToken)
+  fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => response())
   vi.stubGlobal('fetch', fetchMock)
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear() })
 
 describe('administrator session', () => {
-  it('uses explicit credentials, avoids storage and caches, and clears rejected input without expiring business login', async () => {
+  it('uses the login credential and expires the current session on rejection', async () => {
     fetchMock.mockResolvedValue(response(401))
     const expired = vi.fn()
     window.addEventListener(authenticationRequiredEvent, expired)
     renderPage()
-    const user = userEvent.setup()
-    await user.type(screen.getByLabelText('Admin Token'), adminToken)
-    await user.click(screen.getByRole('button', { name: 'Verify Admin Token' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Admin Token rejected')
-    expect(screen.getByLabelText('Admin Token')).toHaveValue('')
-    expect(sessionStorage.getItem('kairos-console-token')).toBe('synthetic-business')
-    expect(expired).not.toHaveBeenCalled()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load identities')
+    expect(expired).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/identities', expect.objectContaining({ method: 'GET', headers: { Authorization: `Bearer ${adminToken}`, Accept: 'application/json' }, cache: 'no-store', redirect: 'error', credentials: 'omit' }))
     window.removeEventListener(authenticationRequiredEvent, expired)
   })
@@ -89,7 +82,7 @@ describe('administrator session', () => {
     await user.type(screen.getByLabelText('Identity ID'), 'new-human')
     fetchMock.mockResolvedValueOnce(response(status))
     await user.click(screen.getByRole('button', { name: 'Create identity and issue Token' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(status === 400 ? 'Invalid identity' : status === 409 ? 'already exists' : 'may already exist')
+    expect(await screen.findByRole('alert')).toHaveTextContent(status === 400 ? 'Invalid identity' : status === 409 ? 'already exists' : 'may already have changed')
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(screen.getByLabelText('Identity ID')).toHaveValue('new-human')
   })
@@ -107,9 +100,9 @@ describe('administrator session', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'))
     await user.click(screen.getByRole('button', { name: 'Copy Token' }))
     expect(await screen.findByRole('status')).toHaveTextContent('copy it manually')
-    await user.click(screen.getByRole('button', { name: 'End administrator session' }))
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
     expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Admin Token')).toHaveValue('')
+    expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
   })
 
   it.each(['logout', 'pagehide', 'unmount'])('discards late creation responses after %s', async action => {
@@ -120,16 +113,16 @@ describe('administrator session', () => {
     fetchMock.mockImplementationOnce(() => new Promise(done => { resolve = done }))
     await user.click(screen.getByRole('button', { name: 'Create identity and issue Token' }))
     const signal = fetchMock.mock.calls[1][1]!.signal!
-    if (action === 'logout') await user.click(screen.getByRole('button', { name: 'End administrator session' }))
+    if (action === 'logout') await user.click(screen.getByRole('button', { name: 'Sign out' }))
     else if (action === 'pagehide') fireEvent(window, new Event('pagehide'))
     else page.unmount()
     expect(signal.aborted).toBe(true)
     await act(async () => { resolve(response(201, issued)) })
     expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
-    if (action !== 'unmount') expect(screen.getByLabelText('Admin Token')).toHaveValue('')
+    if (action !== 'unmount') expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
   })
 
-  it('clears the previous result when starting another creation and expires only admin on 401', async () => {
+  it('clears the previous result when starting another creation and clears results on 401', async () => {
     renderPage()
     const user = await connect()
     fetchMock.mockResolvedValueOnce(response(201, issued))
@@ -139,8 +132,65 @@ describe('administrator session', () => {
     await user.type(screen.getByLabelText('Identity ID'), 'second-human')
     fetchMock.mockResolvedValueOnce(response(401))
     await user.click(screen.getByRole('button', { name: 'Create identity and issue Token' }))
-    await waitFor(() => expect(screen.getByLabelText('Admin Token')).toHaveValue(''))
+    await waitFor(() => expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument())
     expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
-    expect(sessionStorage.getItem('kairos-console-token')).toBe('synthetic-business')
+    expect(sessionStorage.getItem('kairos-console-token')).toBe(adminToken)
   })
+})
+
+it('confirms rotation and revocation, handles 204, and keeps the deployment credential read-only', async () => {
+  const records = [
+    { id: 'deployment', kind: 'human', role: '', credential_source: 'admin', token_active: false },
+    { id: 'person / one', kind: 'human', role: '', credential_source: 'identity', token_active: true },
+  ]
+  fetchMock.mockImplementation(async () => response(200, records))
+  renderPage()
+  const user = userEvent.setup()
+  await screen.findByText('person / one')
+  expect(screen.getAllByRole('button', { name: 'Rotate Token' })).toHaveLength(1)
+  await user.click(screen.getByRole('button', { name: 'Rotate Token' }))
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(screen.getByText(/current Token will stop working immediately/)).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  await user.click(screen.getByRole('button', { name: 'Rotate Token' }))
+  fetchMock.mockResolvedValueOnce(response(200, { ...issued, id: records[1].id }))
+  await user.click(screen.getByRole('button', { name: 'Confirm change' }))
+  expect(await screen.findByLabelText('Identity Token')).toHaveValue(issued.token)
+  expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/identities/human/person%20%2F%20one/token')
+  expect(fetchMock.mock.calls[1][1]!.method).toBe('POST')
+  await user.click(screen.getByRole('button', { name: 'Revoke Token' }))
+  expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
+  fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+  records[1].token_active = false
+  await user.click(screen.getByRole('button', { name: 'Confirm change' }))
+  expect(await screen.findByText(/Token inactive/)).toBeInTheDocument()
+  expect(fetchMock.mock.calls[3][1]!.method).toBe('DELETE')
+  expect(screen.getByRole('button', { name: 'Revoke Token' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Rotate Token' })).toBeEnabled()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+it('does not let delayed copy feedback or list responses restore dismissed state', async () => {
+  const page = renderPage()
+  const user = await connect()
+  fetchMock.mockResolvedValueOnce(response(201, issued))
+  await user.type(screen.getByLabelText('Identity ID'), 'new-human')
+  await user.click(screen.getByRole('button', { name: 'Create identity and issue Token' }))
+  await screen.findByLabelText('Identity Token')
+  let done!: () => void
+  vi.spyOn(navigator.clipboard, 'writeText').mockImplementation(() => new Promise(resolve => { done = resolve }))
+  await user.click(screen.getByRole('button', { name: 'Copy Token' }))
+  await user.click(screen.getByRole('button', { name: 'Close' }))
+  await act(async () => done())
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  page.unmount()
+  let listDone!: (value: Response) => void
+  fetchMock.mockImplementationOnce(() => new Promise(resolve => { listDone = resolve }))
+  renderPage()
+  const signal = fetchMock.mock.calls.at(-1)![1]!.signal!
+  fireEvent(window, new Event('pagehide'))
+  expect(signal.aborted).toBe(true)
+  await act(async () => listDone(response(200, [{ id: 'late', kind: 'human' }])))
+  expect(screen.queryByText('late')).not.toBeInTheDocument()
 })

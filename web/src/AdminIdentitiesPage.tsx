@@ -1,36 +1,38 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { flushSync } from 'react-dom'
-import { Languages } from 'lucide-react'
 import { APIError } from './api'
-import { createIdentity, verifyAdmin } from './adminApi'
+import { changeIdentityToken, createIdentity, listIdentities } from './adminApi'
 import { useI18n } from './i18n'
-import type { CreateIdentityInput, IssuedIdentityToken } from './types'
+import type { CreateIdentityInput, IdentityRecord, IssuedIdentityToken } from './types'
 
-export function AdminIdentitiesPage() {
-  const { locale, setLocale, t } = useI18n()
-  const credential = useRef('')
+export function AdminIdentitiesPage({ onLogout }: { onLogout: () => void }) {
+  const { t } = useI18n()
   const request = useRef<AbortController | null>(null)
   const generation = useRef(0)
-  const [token, setToken] = useState('')
-  const [authenticated, setAuthenticated] = useState(false)
+  const resultGeneration = useRef(0)
+  const loading = useRef<AbortController | null>(null)
+  const [identities, setIdentities] = useState<IdentityRecord[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [selection, setSelection] = useState<{ identity: IdentityRecord; action: 'rotate' | 'revoke' } | null>(null)
   const [busy, setBusy] = useState(false)
   const [id, setID] = useState('')
   const [kind, setKind] = useState<CreateIdentityInput['kind']>('human')
   const [role, setRole] = useState('')
   const [issued, setIssued] = useState<IssuedIdentityToken | null>(null)
-  const [error, setError] = useState<'adminRejected' | 'adminUnavailable' | 'adminInvalid' | 'adminConflict' | 'adminUncertain' | null>(null)
+  const [error, setError] = useState<'adminRejected' | 'adminUnavailable' | 'adminInvalid' | 'adminConflict' | 'adminUncertain' | 'adminForbidden' | null>(null)
   const [copyStatus, setCopyStatus] = useState<'adminCopied' | 'adminCopyFailed' | null>(null)
 
   const invalidateRequests = useCallback(() => {
     generation.current++
+    resultGeneration.current++
+    loading.current?.abort()
     request.current?.abort()
     request.current = null
-    credential.current = ''
   }, [])
 
   const clearSession = useCallback(() => {
     invalidateRequests()
-    setToken(''); setAuthenticated(false); setBusy(false)
+    setIdentities([]); setLoaded(false); setSelection(null); setBusy(false)
     setID(''); setKind('human'); setRole(''); setIssued(null); setCopyStatus(null); setError(null)
   }, [invalidateRequests])
 
@@ -44,34 +46,45 @@ export function AdminIdentitiesPage() {
     }
   }, [clearSession, invalidateRequests])
 
+  const refresh = useCallback(async (controller: AbortController) => {
+    loading.current?.abort()
+    loading.current = controller
+    try {
+      const records = await listIdentities(controller.signal)
+      if (!controller.signal.aborted) { setIdentities(records); setLoaded(true) }
+    } catch {
+      if (!controller.signal.aborted) { setLoaded(false); setError('adminUnavailable') }
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void refresh(controller)
+    return () => controller.abort()
+  }, [refresh])
+
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (!id.trim() || (kind === 'agent' && !role.trim())) return
+    await mutate(() => createIdentity({ id, kind, role: kind === 'agent' ? role.trim() : '' }, request.current!.signal))
+  }
+
+  async function mutate(operation: () => Promise<IssuedIdentityToken | null>) {
     if (request.current) return
-    if (authenticated ? !id.trim() || (kind === 'agent' && !role.trim()) : !token.trim()) return
     const controller = new AbortController()
     request.current = controller
     const current = ++generation.current
+    resultGeneration.current++
     setBusy(true); setError(null); setIssued(null); setCopyStatus(null)
-    const authenticating = !authenticated
-    const submittedToken = authenticating ? token.trim() : credential.current
-    setToken('')
     try {
-      if (authenticating) {
-        await verifyAdmin(submittedToken, controller.signal)
-        if (current !== generation.current) return
-        credential.current = submittedToken
-        setAuthenticated(true)
-      } else {
-        const result = await createIdentity(submittedToken, { id, kind, role: kind === 'agent' ? role.trim() : '' }, controller.signal)
-        if (current !== generation.current) return
-        setIssued(result); setID(''); setRole('')
-      }
+      const result = await operation()
+      if (current !== generation.current) return
+      setIssued(result); setID(''); setRole(''); setSelection(null)
+      await refresh(controller)
     } catch (cause) {
       if (current !== generation.current) return
-      if (cause instanceof APIError && cause.status === 401) {
-        clearSession()
-        setError('adminRejected')
-      } else if (authenticating) setError('adminUnavailable')
+      if (cause instanceof APIError && cause.status === 401) { clearSession(); setError('adminRejected') }
+      else if (cause instanceof APIError && cause.status === 403) setError('adminForbidden')
       else if (cause instanceof APIError && cause.status === 409) setError('adminConflict')
       else if (cause instanceof APIError && cause.status === 400) setError('adminInvalid')
       else setError('adminUncertain')
@@ -82,37 +95,28 @@ export function AdminIdentitiesPage() {
 
   async function copyToken() {
     if (!issued) return
-    const current = generation.current
+    const current = resultGeneration.current
     try {
       await navigator.clipboard.writeText(issued.token)
-      if (current === generation.current) setCopyStatus('adminCopied')
+      if (current === resultGeneration.current) setCopyStatus('adminCopied')
     } catch {
-      if (current === generation.current) setCopyStatus('adminCopyFailed')
+      if (current === resultGeneration.current) setCopyStatus('adminCopyFailed')
     }
   }
 
   function dismissResult() {
-    generation.current++
+    resultGeneration.current++
     setIssued(null); setCopyStatus(null)
   }
 
-  return <div className="auth-shell">
-    <header className="auth-header">
-      <a className="auth-brand" href="/" onClick={clearSession}><img className="brand-mark" src="/kairos-logo-mark.png" alt="" /><strong>Kairos</strong></a>
-      <button className="language-button" onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')} aria-label={locale === 'en' ? '切换到中文' : 'Switch to English'}><Languages size={16} /><span>{locale === 'en' ? '中文' : 'EN'}</span></button>
-    </header>
-    <main className="auth-main">
-      <section className="token-login admin-panel">
+  return <section className="token-login admin-panel">
         <h1>{t('adminIdentities')}</h1>
         <p>{t('adminBody')}</p>
         <form className="admin-form" onSubmit={submit}>
-          {!authenticated ? <><label htmlFor="admin-token">Admin Token</label><input id="admin-token" type="password" autoComplete="off" autoFocus value={token} disabled={busy} onChange={event => setToken(event.target.value)} /><button className="primary-button token-submit" disabled={busy || !token.trim()}>{busy ? t('authenticating') : t('adminConnect')}</button></>
-            : <>
               <label htmlFor="new-identity-id">{t('adminID')}</label><input id="new-identity-id" value={id} disabled={busy} autoComplete="off" onChange={event => setID(event.target.value)} />
               <label htmlFor="new-identity-kind">{t('adminKind')}</label><select id="new-identity-kind" value={kind} disabled={busy} onChange={event => { setKind(event.target.value as CreateIdentityInput['kind']); setRole('') }}><option value="human">Human</option><option value="agent">Agent</option></select>
               {kind === 'agent' && <><label htmlFor="new-identity-role">{t('adminRole')}</label><input id="new-identity-role" value={role} disabled={busy} placeholder="developer" onChange={event => setRole(event.target.value)} /></>}
-              <button className="primary-button token-submit" disabled={busy || !id.trim() || (kind === 'agent' && !role.trim())}>{busy ? t('adminCreating') : t('adminCreate')}</button>
-            </>}
+              <button className="primary-button token-submit" disabled={busy || !loaded || !id.trim() || (kind === 'agent' && !role.trim())}>{busy ? t('adminCreating') : t('adminCreate')}</button>
         </form>
         {error && <div className="auth-error" role="alert">{t(error)}</div>}
         {issued && <section className="admin-result" aria-label={t('adminIssued')}>
@@ -122,9 +126,22 @@ export function AdminIdentitiesPage() {
           <div className="admin-actions"><button type="button" onClick={() => void copyToken()}>{t('adminCopy')}</button><button type="button" onClick={dismissResult}>{t('close')}</button></div>
           {copyStatus && <p role="status">{t(copyStatus)}</p>}
         </section>}
-        {(authenticated || busy) && <button className="admin-link" type="button" onClick={clearSession}>{t('adminEnd')}</button>}
-        <a className="admin-link" href="/" onClick={clearSession}>{t('adminBack')}</a>
+        <section className="admin-list" aria-label={t('adminExisting')}>
+          <h2>{t('adminExisting')}</h2>
+          <button type="button" disabled={busy} onClick={() => void mutate(async () => null)}>{t('adminRefresh')}</button>
+          {!loaded ? <p>{t('adminLoading')}</p> : identities.length === 0 ? <p>{t('adminEmpty')}</p> : identities.map(record => <div className="admin-record" key={`${record.kind}:${record.id}`}>
+            <strong>{record.id}</strong><p>{record.kind}{record.role && ` · ${record.role}`} · {t(record.credential_source === 'admin' ? 'adminManaged' : record.token_active ? 'adminActive' : 'adminRevoked')}</p>
+            {record.credential_source !== 'admin' && <div className="admin-actions">
+              <button type="button" disabled={busy} onClick={() => { dismissResult(); setSelection({ identity: record, action: 'rotate' }) }}>{t('adminRotate')}</button>
+              <button type="button" disabled={busy || !record.token_active} onClick={() => { dismissResult(); setSelection({ identity: record, action: 'revoke' }) }}>{t('adminRevoke')}</button>
+            </div>}
+        {selection && selection.identity.id === record.id && selection.identity.kind === record.kind && <section className="admin-result" aria-label={t('adminConfirm')}>
+          <h2>{t(selection.action === 'rotate' ? 'adminRotate' : 'adminRevoke')} · {selection.identity.id}</h2>
+          <p>{t(selection.action === 'rotate' ? 'adminRotateWarning' : 'adminRevokeWarning')}</p>
+          <div className="admin-actions"><button type="button" disabled={busy} onClick={() => void mutate(() => changeIdentityToken(selection.identity, selection.action, request.current!.signal))}>{t('adminConfirm')}</button><button type="button" disabled={busy} onClick={() => setSelection(null)}>{t('cancel')}</button></div>
+        </section>}
+          </div>)}
+        </section>
+        <button className="admin-link" type="button" onClick={() => { clearSession(); onLogout() }}>{t('logout')}</button>
       </section>
-    </main>
-  </div>
 }

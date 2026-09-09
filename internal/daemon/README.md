@@ -62,7 +62,9 @@ candidates; cancellation or an authorization failure prevents using that partial
 batch. Custom `DiscoveryCore` implementations receive the per-request timeout
 explicitly and must honor cancellation.
 
-Probe precedes acquisition, including cooldown recovery. Unhealthy Probe pauses
+Probe precedes acquisition, including cooldown recovery. For the Codex Adapter,
+this includes the minimum CLI version, required option parsing without a model,
+and local login state; it does not prove Provider/model compatibility. Unhealthy Probe pauses
 admissions with exponential backoff (up to 1m plus up to 25% jitter). Adapters mark
 system-wide failures with `SystemError` or `RunObservation.SystemFailure`; ordinary
 errors affect only the current candidate. System failures pause new admissions
@@ -243,3 +245,9 @@ candidate kinds, outcome legality, Claim and finalization response loss, stable
 idempotency, Artifact binding, Workflow transitions, runtime retries, cancellation,
 reaping, best-effort stopping, lost runs, and continued heartbeat during slow work.
 They do not launch a real Harness or call a model provider.
+
+Codex infrastructure failures can include a bounded diagnostic `reason` in the private
+`run-*/outcome.json`; it is not copied into scheduler logs or Core business results.
+An installed CLI/login probe does not verify browser launch inside the sandbox.
+For reverse-proxied MCP Host failures, correct the proxy’s upstream Host configuration
+as documented in the API reference before resuming a suppressed candidate.

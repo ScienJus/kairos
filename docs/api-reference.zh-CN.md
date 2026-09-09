@@ -41,6 +41,20 @@ HTTP read timeout 限制读取完整请求的总时间，包含 JSON、MCP 和�
 
 公网部署应在 Kairos 前配置反向代理，由其终止 TLS，并限制连接数和请求速率。代理连接上游的 timeout 应略长于 Kairos 对应配置，使慢请求由 Kairos 可预测地关闭。代理可以有意采用更小的上传上限；否则其请求体限制应允许 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` 以及 multipart 开销。
 
+MCP 经代理转发到 loopback 监听地址时，代理应发送上游目标地址作为 Host。例如在 `kairos.example.com` 的 Nginx server 块中单独配置以下 location，并保留现有速率、请求体和 timeout 限制：
+
+```nginx
+location = /mcp {
+    if ($host != kairos.example.com) { return 421; }
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $proxy_host;
+    proxy_buffering off;
+}
+```
+
+这适用于 Codex 等非浏览器 MCP 客户端，无需修改 SDK 默认的 localhost 防护。控制台及 REST 路由继续保留公网 Host。保留 Authorization 和 Origin 请求头，不要通过清除 Origin 绕过跨站校验。携带公网 Origin 的浏览器 MCP 请求需要另外配置正确的来源校验，因为它与改写后的上游 Host 不同。含 `invalid Host header` 的 `403` 表示代理与 loopback 配置问题，不是 Token 过期或业务失败；先修正部署，再重试客户端。
+
 参与发现、授权候选收窄、筛选或排序的运行时字段，除了保留在聚合 payload 中，也存入专用列。PostgreSQL 对 WorkItem/Task tags 和 Task allowed roles 使用原生 `TEXT[]`，并为当前的包含查询建立 GIN 索引。SQLite 将相同逻辑字段保存为经过校验的 JSON 数组 `TEXT` 列，通过 `json_each` 执行包含查询；SQLite 定位于本地和较小规模部署。空集合在存储和响应中均为数组，不使用 `null`。
 
 数据库时间在应用边界统一规范为 UTC、微秒精度，因此 API 值、聚合 payload 和查询列表示同一个时间点。PostgreSQL 使用 `TIMESTAMPTZ`；SQLite 使用固定宽度的 RFC 3339 UTC 文本，使文本范围比较保持时间顺序。Definition、WorkItem、Task、Workflow activation 和 Identity 按照领域元数据使用 `created_at` 与 `updated_at`。Task Relation 持久化其不可变的 `created_at`；可变的 Claim、暂存 Artifact 和幂等记录在状态变化时更新 `updated_at`。具有更精确不可变事件或生命周期语义的行继续使用 `occurred_at`、`claimed_at`、`applied_at` 等字段名，不额外添加没有含义的重复时间列。
@@ -82,11 +96,26 @@ X-Kairos-Actor-Role: backend
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
-KAIROS_ADMIN_TOKEN='<至少-32-字符的高熵-token>' \
+KAIROS_ADMIN_TOKEN='<at-least-32-visible-ASCII-high-entropy-token>' \
 go run ./cmd/kairos-server
 ```
 
-身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由通常使用签发的 identity token。Authenticated Mode 忽略 Trusted actor headers。
+身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由接受签发的 Identity Token，或作为普通 Human 的部署 Admin Token。Authenticated Mode 忽略 Trusted actor headers。
+
+### Admin Token 业务身份
+
+`KAIROS_ADMIN_TOKEN` 可直接通过工作台原登录框登录，也可用于 HTTP 和 MCP 业务请求，身份为普通 Human（`kind=human`、空 `role`、无 Executor scope）。它可创建 WorkItem、执行 Human/either Task；Agent-only Task、他人 Claim 和已结束 Claim 仍适用普通 Human 限制。只有配置的 Admin 凭据可以管理身份，Human 身份本身不授予管理权限。
+
+Authenticated 启动时，migration 005 与事务创建或读取唯一的 `credential_source=admin` 身份。随机 `admin-` ID 与 Token 无关；与已有 Human ID 冲突时重新生成，不认领或覆盖旧记录；同名 Agent 是另一 actor。唯一部分索引确保并发初始化收敛。数据库约束和启动校验拒绝错误 kind、role 或已存凭据状态。升级保留 migrations 001–004 和已有身份。备份必须包含完整数据库及该行；不支持手工删除或修改该行。新数据库会创建新的 Human 身份。
+
+同库重启保持 actor 不变。更换 Admin Token 应修改部署配置并重启所有实例；新 Token 仍对应原 Human，所有旧进程停止后，旧 Token 的业务和管理认证均失败。不提供热更新，也不将 Admin 凭据或 hash 存成普通 Identity 凭据。启动拒绝与已有 Identity Token 的碰撞及完整规范 Executor 格式。配置至少 32 个可见 ASCII 字符（0x21–0x7E），不接受非 ASCII、空白或控制字符，应使用高熵随机值；无效或缺失配置启动失败且不输出凭据。
+
+该凭据在控制台当前身份菜单显示为 `system admin`。`/session` 增加可选展示字段 `display_name: "system admin"`；普通 Identity 会话和 Trusted Mode 不返回此字段，仍显示 actor ID。稳定的 `id`、Human `kind` 和空 `role` 继续作为 HTTP 与 MCP 的业务身份。名称或 ID 前缀不授予权限。旧配置若含非 ASCII 或控制字符，须在重启前替换为随机可见 ASCII 凭据；数据库绑定的 actor 保持不变。
+
+身份管理响应新增 `credential_source`（`identity` 或 `admin`）。`token_active` 只表示是否存在已签发的 Identity Token，因此部署管理的 Human 为 false。对该行调用 `/identities/{kind}/{actor_id}/token` 轮换或撤销返回 403，应改部署配置。普通身份签发、轮换和撤销不变。
+
+工作台将任一有效凭据保存在当前标签页 sessionStorage；刷新恢复会话，退出或当前凭据收到 401 时清除凭据及业务缓存。登录提交时清空密码输入，失败时也不残留。迟到会话响应不能恢复已失效会话；存储不可用时明确报错。不要把凭据放入 URL、WorkItem、日志或截图。
+
 
 Agent 创建 Task Claim 或 Coordination Claim 时，可以附带一个由客户端生成的 `executor_token`。Token 必须以 `krs_claim_` 开头，后接按无填充 base64url 编码的 256 位随机值；Core 只保存其 SHA-256 hash。在 Authenticated Mode 中，该 Token 可在对应 Claim 保持 Active 期间作为 Bearer 凭据使用。它可以读取绑定 WorkItem 内的 Task、WorkItem context 和已提交 Artifact；Task Executor 还可以为其精确绑定的 Task Claim 创建或上传 Artifact，并扩展 Blackboard 计划，Coordination Executor 只读。其他操作一律拒绝。Claim 结束或被 reaper 回收后 Token 失效；Agent identity token 的轮换或撤销不影响已经 Active 的 Executor Token。
 
@@ -96,9 +125,9 @@ Agent 创建 Task Claim 或 Coordination Claim 时，可以附带一个由客户
 
 Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式。在 Authenticated Mode 下，控制台会在加载任何工作区数据前显示 Token 登录页，通过 `GET /api/v1/session` 验证 Token，之后所有 API 请求、托管上传和 Artifact 下载都使用该 Bearer 凭据。Token 只保存在浏览器 `sessionStorage` 中，因此仅属于当前标签页会话，不会形成持久浏览器登录；如果浏览器禁止访问该存储，控制台会明确报告不可用。退出登录会清除 Token 和缓存的 API 数据；包括 Token 被撤销或轮换在内的业务 API `401` 响应，也会清除会话并返回登录页。
 
-在 Authenticated Mode 下，从登录页或已登录账户菜单打开 **管理员 · 管理身份**（`/admin/identities`），无需已有 Human Token。验证部署配置的 `KAIROS_ADMIN_TOKEN` 后，可创建 Human 身份（无角色）或 Agent 身份（必须有一个角色，例如 `developer`）。`initial-human.token` 和普通 Identity Token 不能管理身份；Admin Token 也不会登录业务工作区。
+在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
 
-管理员凭据只保存在页面内存，与普通身份会话独立。结束管理员会话、离开、刷新或导航离页都会清除凭据和已签发的 Token，返回时必须重新验证。创建成功后仅展示一次新 Identity Token，提供复制按钮并标明身份与用途；请在关闭结果或开始下一次创建前保存。身份元数据不会返回明文 Token。剪贴板失败时可手动复制。网络或服务错误可能发生在创建成功之后，因此控制台不自动重试，请先联系部署管理员核查。Trusted Mode 保持原有本地身份设置，不显示此表单。
+管理页面复用当前标签页 sessionStorage 中的登录凭据，不建立第二套管理员会话。退出和当前凭据的 401 清除登录及工作区缓存。新签发的 Token 仅保存在页面内存，不进入 URL、浏览器存储或 Query/Mutation 缓存。请在关闭结果、开始其他操作、离开或刷新页面之前复制保存；剪贴板失败时可手动复制。列表和详情不会返回明文 Token。写请求失败时不自动重试，因为操作可能已成功；应先刷新元数据，再决定是否轮转新 Token。Trusted Mode 保留本地身份设置，不开放管理功能。
 
 `GET /api/v1/auth/config` 无需认证，返回 `{ "data": { "mode": "trusted" | "authenticated" } }`。`GET /api/v1/session` 使用普通业务路由的认证方式，返回传输层实际解析出的身份：`{ "data": { "id": string, "kind": "human" | "agent", "role": string } }`。客户端应信任该结果，而不是自行从 Token 推导身份字段。
 
@@ -116,6 +145,8 @@ Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式�
 | Blackboard 规划 | WorkItem Task、relation、completion；Task decomposition、children 与 skipping |
 | 人工关注 | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities` 及 Token 轮换、撤销路由 |
+
+`GET /api/v1/human-attention` 包含待处理 Review、未认领的 Pending Human Task、当前 Human 持有有效 Claim 的 Working Task（包括 `executor=either`），以及等待人工验收的 WorkItem。不包含其他执行者正在处理的 Task 或未认领的 `either` Task。沿用 `human_task` kind，通过 `task.status` 区分待认领和进行中任务。所有者过滤在游标分页之前完成，终态 WorkItem 不再提供 Task 条目。
 
 WorkItem、Human Attention、Definition 目录、Definition 版本历史和已提交 Artifact 的列表路由使用 cursor 分页。`limit` 默认为 50，允许范围为 1-200。每页返回 `{ "data": [...], "next_cursor": string | null }`；当该值非空时，将其作为 `cursor` 传回同一集合路由，并保留原有过滤参数。Cursor 是不透明且与集合绑定的；无效 cursor 或 limit 返回 `400 invalid_request`。WorkItem 按 `updated_at DESC, id ASC` 排序，Human Attention 优先返回 Review，其余按条目更新时间排序；Definition 目录按 `id ASC` 排序，版本历史按 `version DESC` 排序，Artifact 按 `created_at ASC, id ASC` 排序。
 

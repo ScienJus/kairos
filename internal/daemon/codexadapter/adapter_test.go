@@ -5,6 +5,7 @@ package codexadapter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,12 +32,22 @@ func TestMain(m *testing.M) {
 func helperCLI() {
 	mode := os.Getenv("KAIROS_FAKE_MODE")
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		if mode == "bad_version" {
+		if version := os.Getenv("KAIROS_FAKE_VERSION"); version != "" {
+			fmt.Println(version)
+		} else if mode == "bad_version" {
 			fmt.Println("codex-cli 0.1.0")
 		} else {
 			fmt.Println("codex-cli 0.146.0")
 		}
 		return
+	}
+	for _, arg := range os.Args[1:] {
+		if arg == "--help" {
+			if mode == "unsupported_options" {
+				os.Exit(2)
+			}
+			return
+		}
 	}
 	if len(os.Args) > 2 && os.Args[1] == "login" {
 		if mode == "unauthenticated" {
@@ -254,6 +265,43 @@ func TestProbeAndStartFailures(t *testing.T) {
 	}
 }
 
+func TestProbeVersionAndOptionsCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		mode    string
+		want    string
+	}{
+		{"codex-cli 0.145.9", "success", "Codex CLI 0.146.0 or newer is required"},
+		{"codex-cli 0.146.0", "success", ""},
+		{"codex-cli 0.146.1", "success", ""},
+		{"codex-cli 0.147.0", "success", ""},
+		{"codex-cli 0.153.4", "success", ""},
+		{"codex-cli 1.0.0", "success", ""},
+		{"codex-cli 0.153.4-beta", "success", "Codex CLI 0.146.0 or newer is required"},
+		{"codex-cli 0.153", "success", "Codex CLI 0.146.0 or newer is required"},
+		{"codex-cli 0.153.18446744073709551616", "success", "Codex CLI 0.146.0 or newer is required"},
+		{"codex-cli 0.153.4", "unsupported_options", "Codex CLI does not support the required execution options"},
+	} {
+		t.Run(tc.version+"/"+tc.mode, func(t *testing.T) {
+			a, _ := fixture(t, tc.mode)
+			a.environment = append(a.environment, "KAIROS_FAKE_VERSION="+tc.version)
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+			defer cancel()
+			err := a.Probe(ctx)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || err.Error() != tc.want {
+				t.Fatalf("Probe error = %v, want %q", err, tc.want)
+			}
+			if len(a.runs) != 0 {
+				t.Fatal("Probe created a run")
+			}
+		})
+	}
+}
+
 func TestStopConfirmsExitAndPreservesIsolation(t *testing.T) {
 	for _, mode := range []string{"sleep", "tree", "ignore_interrupt"} {
 		t.Run(mode, func(t *testing.T) {
@@ -332,5 +380,40 @@ func TestRuntimeFailureAndCoordination(t *testing.T) {
 		if observation := observeEnd(t, a, ref); observation.State != daemon.OutcomeReady {
 			t.Fatalf("kind %s: %+v", kind, observation)
 		}
+	}
+}
+
+func TestRuntimeFailureReason(t *testing.T) {
+	_, request := fixture(t, "success")
+	for _, tc := range []struct {
+		name, reason string
+		tooLong      bool
+	}{
+		{"legacy", "", false},
+		{"diagnostic", "Chrome exited before page load; verify in a working browser.", false},
+		{"boundary", strings.Repeat("a", 4096), false},
+		{"beyond", strings.Repeat("a", 4097), true},
+		{"multibyte boundary", strings.Repeat("界", 1365) + "a", false},
+		{"multibyte beyond", strings.Repeat("界", 1365) + "ab", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "outcome.json")
+			data, err := json.Marshal(map[string]any{"task": nil, "runtime_failure": runtimeFailure{System: true, Reason: tc.reason}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err = readOutcome(path, request.Candidate)
+			var failure *runtimeFailure
+			if tc.tooLong {
+				if err == nil || err.Error() != "runtime failure reason exceeds 4096 UTF-8 bytes" || errors.As(err, &failure) {
+					t.Fatalf("wanted reason limit error, got %v", err)
+				}
+			} else if !errors.As(err, &failure) || !failure.System || failure.Reason != tc.reason || err.Error() != "Harness reported runtime failure" {
+				t.Fatalf("reason not retained privately: %v", err)
+			}
+		})
 	}
 }

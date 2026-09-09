@@ -7,7 +7,7 @@ and Blackboard WorkItems, then starts a single-slot Codex Daemon. The native MCP
 [quickstart](https://github.com/ScienJus/kairos/tree/main/examples/quickstart) remains available separately.
 
 Requirements: Linux/macOS, Go/Node for source builds, curl, jq, openssl, Perl (core POSIX module), Codex CLI
-0.146.x, and a dedicated authenticated Codex home. Release archives contain both
+0.146.0+, and a dedicated authenticated Codex home. Release archives contain both
 `kairos-server` and `kairos-daemon`; Codex itself and model authentication are not bundled.
 
 ```sh
@@ -53,3 +53,5 @@ generation changes or restart clear quarantine. Agent Identity Token revocation
 does not immediately revoke active Executor capabilities; their Claim lifecycle
 controls validity. Stop is best-effort; a Daemon crash leaves Core to reap Claims,
 not external processes. Use OS/container isolation for untrusted workloads.
+
+For a deployed Core behind a loopback reverse proxy, configure the proxy’s upstream Host to match the loopback destination; see the [API reference](../../docs/api-reference.md). A Host rejection is infrastructure failure, not a Token or Task failure. Inspect private `run-*/outcome.json` for a reported runtime failure reason before resuming; CLI preflight does not test browser launch.
