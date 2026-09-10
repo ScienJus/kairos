@@ -66,6 +66,10 @@ Agent 不能通过请求临时改变自己的 Role。Task 发现和领取均使�
 
 这种模式适合同一可信协作群体，用于明确身份归属和执行具体操作时的约束。它不提供租户、Team、项目或对象级数据隔离：所有已签发身份都属于同一个全局信任域。互不信任的群体需要分别部署 Kairos 实例。未来可以通过 Team 模型引入隔离边界，但这不属于当前身份契约。
 
+在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
+
+管理页面复用当前标签页 sessionStorage 中的登录凭据，不建立第二套管理员会话。退出和当前凭据的 401 清除登录及工作区缓存。新签发的 Token 仅保存在页面内存，不进入 URL、浏览器存储或 Query/Mutation 缓存。请在关闭结果、开始其他操作、离开或刷新页面之前复制保存；剪贴板失败时可手动复制。列表和详情不会返回明文 Token。写请求失败时不自动重试，因为操作可能已成功；应先刷新元数据，再决定是否轮转新 Token。Trusted Mode 保留本地身份设置，不开放管理功能。
+
 ## 4. Trusted Mode
 
 Trusted Mode 适合本地开发、受信网络和其他身份已由运行环境保证的场景：
@@ -144,3 +148,8 @@ Kairos 可以托管轻量的 Agent Profile，例如 role、展示标签和描述
 ## 部署管理员作为 Human
 
 部署 Admin Token 也可通过 HTTP、MCP 和工作台认证为稳定、绑定数据库、role 为空的普通 Human。业务权限遵循 Human 规则；身份管理仍只接受配置的凭据。更换 Token 保持 actor，并要求重启所有实例，不授予 Agent discovery 或 Executor 权限。持久化、冲突、迁移和会话语义见 [API 参考](../api-reference.zh-CN.md#admin-token-业务身份)。 控制台通过可选会话展示字段显示 `system admin`，actor ID 不变。Admin 配置要求至少 32 个可见 ASCII 字符（0x21–0x7E），不允许空白和控制字符。
+
+### 身份管理布局与 Actor ID
+身份管理沿用工作台资料架布局，以已有身份列表为主体，页头提供“创建身份”和“刷新身份列表”。创建及轮转／撤销确认使用共享弹窗。列表分为身份、类型／角色、Token 状态和操作；部署管理身份显示 **system admin**，完整内部 ID 放在次级信息中并支持复制。新 Token 使用独立的一次性结果区域。退出登录仅保留在账户菜单。
+
+Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`（保留的 URL 路径段）。继续支持 Unicode 和有意义的首尾空白；HTTP 创建身份保留原值，Trusted HTTP/MCP 身份头先去除首尾空白，再执行相同领域校验。详情、轮转和撤销 URL 中应将完整 Actor ID 编码为单一路径参数。非法输入在写入身份或签发凭据前被拒绝，修正后再重试。MCP 身份来自凭据／Trusted 请求头，不来自工具参数。本次无需迁移已有 ID；服务端生成的 Admin ID 已满足规则。

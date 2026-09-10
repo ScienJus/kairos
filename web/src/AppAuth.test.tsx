@@ -225,3 +225,32 @@ describe('console authentication', () => {
     expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
   })
 })
+
+it('requires ordinary login on the management deep link', async () => {
+  window.history.replaceState({}, '', '/admin/identities')
+  vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
+  renderApp()
+  expect(await screen.findByRole('button', { name: 'Sign in' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Token management' })).not.toBeInTheDocument()
+})
+
+it.each([
+  { id: 'ordinary', kind: 'human' as const, role: '', can_manage_identities: false },
+  { id: 'admin-spoof', kind: 'human' as const, role: '', display_name: 'system admin' },
+  { id: 'real-admin', kind: 'human' as const, role: '', can_manage_identities: true },
+])('shows exactly one management entry based on the server capability: $id', async identity => {
+  sessionStorage.setItem('kairos-console-token', 'synthetic-login')
+  vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'authenticated' })
+  vi.spyOn(api, 'getSession').mockResolvedValue(identity)
+  renderApp()
+  await userEvent.setup().click(await screen.findByTitle(`Authenticated as: ${identity.display_name || identity.id}`))
+  expect(screen.queryAllByRole('button', { name: 'Token management' })).toHaveLength(identity.can_manage_identities ? 1 : 0)
+})
+
+it('denies direct management access to ordinary and Trusted Mode users', async () => {
+  window.history.replaceState({}, '', '/admin/identities')
+  vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'trusted' })
+  renderApp()
+  expect(await screen.findByText(/Admin Token rejected/)).toBeInTheDocument()
+  expect(screen.queryByLabelText('Identity ID')).not.toBeInTheDocument()
+})

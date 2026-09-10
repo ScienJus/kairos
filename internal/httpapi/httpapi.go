@@ -197,11 +197,12 @@ func (h *Handler) getSession(writer http.ResponseWriter, request *http.Request) 
 		displayName = "system admin"
 	}
 	writeJSON(writer, http.StatusOK, dataResponse{Data: struct {
-		ID          domain.ActorID   `json:"id"`
-		Kind        domain.ActorKind `json:"kind"`
-		Role        string           `json:"role"`
-		DisplayName string           `json:"display_name,omitempty"`
-	}{ID: actor.Actor.ID, Kind: actor.Actor.Kind, Role: actor.Role, DisplayName: displayName}})
+		ID                  domain.ActorID   `json:"id"`
+		Kind                domain.ActorKind `json:"kind"`
+		Role                string           `json:"role"`
+		DisplayName         string           `json:"display_name,omitempty"`
+		CanManageIdentities bool             `json:"can_manage_identities"`
+	}{ID: actor.Actor.ID, Kind: actor.Actor.Kind, Role: actor.Role, DisplayName: displayName, CanManageIdentities: h.authenticationMode == AuthenticationModeAuthenticated && h.identityManagement != nil && h.isAdminRequest(request)}})
 }
 
 func (h *Handler) getTaskDetail(writer http.ResponseWriter, request *http.Request) {

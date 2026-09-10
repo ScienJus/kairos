@@ -8,6 +8,7 @@ import { useI18n } from './i18n'
 import { readRoute, routePath, type RouteState } from './route'
 import type { AuthenticationMode, Identity } from './types'
 
+const AdminIdentitiesPage = lazy(() => import('./AdminIdentitiesPage').then(module => ({ default: module.AdminIdentitiesPage })))
 const BlackboardsPage = lazy(() => import('./BlackboardsPage').then(module => ({ default: module.BlackboardsPage })))
 const WorkItemPage = lazy(() => import('./WorkItemPage').then(module => ({ default: module.WorkItemPage })))
 const WorkflowsPage = lazy(() => import('./WorkflowsPage').then(module => ({ default: module.WorkflowsPage })))
@@ -271,13 +272,17 @@ function ConsoleApp({ identity: initialIdentity, authenticationMode, onLogout }:
         <button className="language-button" onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')} aria-label={locale === 'en' ? '切换到中文' : 'Switch to English'}><Languages size={16} /><span>{locale === 'en' ? '中文' : 'EN'}</span></button>
         {authenticationMode === 'trusted'
           ? <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label={t('identitySettings')} title={`${t('identity')}: ${identity.id}`}><UserRound size={17} /></button>
-          : <div className="account-menu" ref={accountMenuRef}><button ref={accountTriggerRef} className="icon-button account-trigger" aria-label={`${t('authenticatedAs')}: ${identity.display_name || identity.id}`} title={`${t('authenticatedAs')}: ${identity.display_name || identity.id}`} aria-controls={accountOpen ? 'account-popover' : undefined} aria-expanded={accountOpen} onClick={() => setAccountOpen(open => !open)}><UserRound size={17} /></button>{accountOpen && <div id="account-popover" className="account-popover"><div className="account-identity"><span>{t('authenticatedAs')}</span><strong>{identity.display_name || identity.id}</strong>{identity.role && <small>{identity.role}</small>}</div><button onClick={onLogout}><LogOut size={15} />{t('logout')}</button></div>}</div>}
-        {!route.workItemID && route.blackboardID === undefined && route.workflowID === undefined && <button className="primary-button" onClick={() => setCreateOpen(true)}><Plus size={17} />{t('startSomething')}</button>}
+          : <div className="account-menu" ref={accountMenuRef}><button ref={accountTriggerRef} className="icon-button account-trigger" aria-label={`${t('authenticatedAs')}: ${identity.display_name || identity.id}`} title={`${t('authenticatedAs')}: ${identity.display_name || identity.id}`} aria-controls={accountOpen ? 'account-popover' : undefined} aria-expanded={accountOpen} onClick={() => setAccountOpen(open => !open)}><UserRound size={17} /></button>{accountOpen && <div id="account-popover" className="account-popover"><div className="account-identity"><span>{t('authenticatedAs')}</span><strong>{identity.display_name || identity.id}</strong>{identity.role && <small>{identity.role}</small>}</div>{identity.can_manage_identities && <button onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', adminIdentities: true })}><KeyRound size={15} />{t('adminIdentities')}</button>}<button onClick={onLogout}><LogOut size={15} />{t('logout')}</button></div>}</div>}
+        {!route.adminIdentities && !route.workItemID && route.blackboardID === undefined && route.workflowID === undefined && <button className="primary-button" onClick={() => setCreateOpen(true)}><Plus size={17} />{t('startSomething')}</button>}
       </div>
     </header>
 
-    <main className={`workspace ${route.blackboardID !== undefined || route.workflowID !== undefined ? 'library-workspace' : ''} ${route.workItemID ? 'show-work' : 'show-queue'} ${route.taskID ? 'task-open' : ''}`}><Suspense fallback={<div className="panel-placeholder"><strong>{t('acquiring')}</strong></div>}>
-      {route.workflowID !== undefined
+    <main className={`workspace ${route.adminIdentities || route.blackboardID !== undefined || route.workflowID !== undefined ? 'library-workspace' : ''} ${route.workItemID ? 'show-work' : 'show-queue'} ${route.taskID ? 'task-open' : ''}`}><Suspense fallback={<div className="panel-placeholder"><strong>{t('acquiring')}</strong></div>}>
+      {route.adminIdentities
+        ? authenticationMode === 'authenticated' && identity.can_manage_identities
+          ? <AdminIdentitiesPage />
+          : <div className="panel-placeholder"><strong>{t('adminRejected')}</strong></div>
+        : route.workflowID !== undefined
         ? route.workflowEditing
           ? <WorkflowEditorPage identity={identity} workflowID={route.workflowID ?? null} workflowVersion={route.workflowVersion ?? null} navigate={navigate} />
           : <WorkflowsPage identity={identity} workflowID={route.workflowID ?? null} workflowVersion={route.workflowVersion ?? null} navigate={navigate} onStartWork={definition => { setCreateDefinition(definition); setCreateOpen(true) }} />

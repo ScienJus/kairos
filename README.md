@@ -161,6 +161,8 @@ Development builds report `dev`; release builds report their tag with `./bin/kai
 
 The default uses SQLite and Trusted Mode. Set `KAIROS_POSTGRES_DSN` to run the same service with PostgreSQL instead. Shared deployments within one trusted collaboration group should use Authenticated Mode; the console then accepts an issued Identity Token or the deployment Admin Token (as a stable ordinary Human), uses it for the browser session, and provides sign-out. Authenticated Mode does not provide tenant, project, or object-level data isolation, so mutually untrusted groups need separate Kairos instances. See the [API Reference](docs/api-reference.md) for development-only server startup, database and identity configuration, HTTP routes, MCP transport, and response contracts. Admin sessions display `system admin` while retaining their stable actor ID; configured Admin Tokens require at least 32 visible ASCII characters (no whitespace or controls).
 
+In Authenticated Mode, sign in with the deployment `KAIROS_ADMIN_TOKEN` using the existing login form, then open the single **Token management** entry in the account menu (`/admin/identities`). Create a Human (no role) or an Agent (one required role, such as `developer`), inspect identity metadata, and rotate or revoke issued Tokens on this page. Rotation and revocation require confirmation and invalidate the previous Token immediately. The deployment-managed Admin credential is read-only here; change it through deployment configuration. Ordinary Identity Tokens, including `initial-human.token`, cannot access management. The server returns `can_manage_identities` on `/session`, true only for the configured Admin credential when identity management is available; the UI never derives access from an ID, role or display name. Every management endpoint still checks the credential.
+
 ## MCP and Agent Integration
 
 Kairos exposes an execution-focused MCP surface and a repository-level Codex Skill at `.agents/skills/kairos-agent`. The Skill gives compatible harnesses a durable discover → claim → heartbeat → submit loop. Integration and configuration details live in the [API Reference](docs/api-reference.md).
@@ -190,3 +192,8 @@ See the [contribution guide](CONTRIBUTING.md) before proposing a substantial cha
 ## License
 
 Kairos is licensed under the [Apache License 2.0](LICENSE).
+
+### Identity management layout and Actor IDs
+Identity management uses the workbench library layout: existing identities are the main list, with **Create identity** and **Refresh identities** in the page header. Creation and rotation/revocation confirmations use the shared dialog. Rows separate identity, type/role, Token status and actions; deployment-managed credentials show **system admin**, with the complete internal ID below and a copy action. New Tokens appear in a separate one-time result area. Sign out remains in the account menu.
+
+Actor IDs must contain a non-whitespace character and cannot equal `.` or `..` (reserved URL path segments). Unicode and meaningful surrounding whitespace remain supported; HTTP identity creation preserves the value, while Trusted HTTP/MCP headers trim surrounding whitespace before the same domain validation. Encode an Actor ID as one URL path component for detail/rotation/revocation. Invalid input is rejected before identity persistence or issuance; correct it before retrying. MCP derives identity from credentials/Trusted headers, not tool arguments. Existing stored IDs need no migration for this change; generated Admin IDs already satisfy the rule.

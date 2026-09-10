@@ -52,11 +52,18 @@ func TestAdminTokenIsAnOrdinaryHumanSession(t *testing.T) {
 	if session.Kind != domain.ActorHuman || session.Role != "" || session.ID == "" || session.ID == "spoofed-actor" || session.DisplayName != "system admin" {
 		t.Fatal("Admin session is not the dedicated Human")
 	}
+	capability := authenticatedRequestData[map[string]any](t, client, "GET", base+"/session", nil, token, 200)
+	if capability["can_manage_identities"] != true {
+		t.Fatal("Admin lacks management capability")
+	}
 	actor := domain.ActorRef{Kind: domain.ActorHuman, ID: session.ID}
 	human := authenticatedRequestData[issuedTokenPayload](t, client, "POST", base+"/identities", map[string]any{"kind": "human", "id": "admin-ordinary-human"}, token, 201)
 	agent := authenticatedRequestData[issuedTokenPayload](t, client, "POST", base+"/identities", map[string]any{"kind": "agent", "id": "ordinary-agent", "role": "developer"}, token, 201)
 	for _, credential := range []string{human.Token, agent.Token} {
 		ordinary := authenticatedRequestData[map[string]any](t, client, "GET", base+"/session", nil, credential, 200)
+		if ordinary["can_manage_identities"] != false {
+			t.Fatal("ordinary credential received management capability")
+		}
 		if _, exists := ordinary["display_name"]; exists {
 			t.Fatal("ordinary identity received Admin presentation metadata")
 		}

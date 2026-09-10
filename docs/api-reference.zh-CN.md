@@ -123,7 +123,11 @@ Agent 创建 Task Claim 或 Coordination Claim 时，可以附带一个由客户
 
 认证用于确定调用方身份；Task 发现、领取以及基于 Claim 的执行等操作仍受各自规则约束。但认证不是数据隔离边界：所有已签发身份都属于同一个全局信任域，Kairos 当前不会按租户、Team、项目或对象隔离读写。需要阻止不同群体访问彼此数据时，应分别部署 Kairos 实例。
 
-Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式。在 Authenticated Mode 下，控制台会在加载任何工作区数据前显示 Token 登录页，通过 `GET /api/v1/session` 验证 Token，之后所有 API 请求、托管上传和 Artifact 下载都使用该 Bearer 凭据。Token 只保存在浏览器 `sessionStorage` 中，因此仅属于当前标签页会话，不会形成持久浏览器登录；如果浏览器禁止访问该存储，控制台会明确报告不可用。退出登录会清除 Token 和缓存的 API 数据；包括 Token 被撤销或轮换在内的任何 `401` 响应，也会清除会话并返回登录页。
+Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式。在 Authenticated Mode 下，控制台会在加载任何工作区数据前显示 Token 登录页，通过 `GET /api/v1/session` 验证 Token，之后所有 API 请求、托管上传和 Artifact 下载都使用该 Bearer 凭据。Token 只保存在浏览器 `sessionStorage` 中，因此仅属于当前标签页会话，不会形成持久浏览器登录；如果浏览器禁止访问该存储，控制台会明确报告不可用。退出登录会清除 Token 和缓存的 API 数据；包括 Token 被撤销或轮换在内的业务 API `401` 响应，也会清除会话并返回登录页。
+
+在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
+
+管理页面复用当前标签页 sessionStorage 中的登录凭据，不建立第二套管理员会话。退出和当前凭据的 401 清除登录及工作区缓存。新签发的 Token 仅保存在页面内存，不进入 URL、浏览器存储或 Query/Mutation 缓存。请在关闭结果、开始其他操作、离开或刷新页面之前复制保存；剪贴板失败时可手动复制。列表和详情不会返回明文 Token。写请求失败时不自动重试，因为操作可能已成功；应先刷新元数据，再决定是否轮转新 Token。Trusted Mode 保留本地身份设置，不开放管理功能。
 
 `GET /api/v1/auth/config` 无需认证，返回 `{ "data": { "mode": "trusted" | "authenticated" } }`。`GET /api/v1/session` 使用普通业务路由的认证方式，返回传输层实际解析出的身份：`{ "data": { "id": string, "kind": "human" | "agent", "role": string } }`。客户端应信任该结果，而不是自行从 Token 推导身份字段。
 
@@ -206,3 +210,8 @@ Agent 通过 20 个 MCP 工具发现工作、承担责任、提交结果，并�
 `upload_artifact` 通过不带 data URI 前缀的 `content_base64` 接受标准 Base64 字节，解码后写入服务端配置的 Artifact Store，并返回供 `submit_task.artifact_ids` 使用的暂存 Artifact ID。解码后的大小上限与 HTTP multipart 上传共用 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES`；MCP 请求体上限会包含对应的 Base64 膨胀。该工具只面向小文件，因为 Base64 会增加约三分之一传输体积，且 MCP 请求会完整缓存在内存中。大文件应使用 `create_artifact` 登记 S3 或其他持久外部 URI。
 
 项目 Codex 配置位于 `.codex/config.toml`，执行指引位于 `.agents/skills/kairos-agent/SKILL.md`。
+
+### 身份管理布局与 Actor ID
+身份管理沿用工作台资料架布局，以已有身份列表为主体，页头提供“创建身份”和“刷新身份列表”。创建及轮转／撤销确认使用共享弹窗。列表分为身份、类型／角色、Token 状态和操作；部署管理身份显示 **system admin**，完整内部 ID 放在次级信息中并支持复制。新 Token 使用独立的一次性结果区域。退出登录仅保留在账户菜单。
+
+Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`（保留的 URL 路径段）。继续支持 Unicode 和有意义的首尾空白；HTTP 创建身份保留原值，Trusted HTTP/MCP 身份头先去除首尾空白，再执行相同领域校验。详情、轮转和撤销 URL 中应将完整 Actor ID 编码为单一路径参数。非法输入在写入身份或签发凭据前被拒绝，修正后再重试。MCP 身份来自凭据／Trusted 请求头，不来自工具参数。本次无需迁移已有 ID；服务端生成的 Admin ID 已满足规则。

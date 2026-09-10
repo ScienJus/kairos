@@ -56,3 +56,5 @@ The MCP surface is execution-only. Do not attempt to create or modify Definition
 If the Kairos tools are unavailable, do not replace this protocol with ad-hoc HTTP calls. The repository configures the local server in `.codex/config.toml`; start Kairos, set the Trusted or Authenticated identity environment variables, and restart the Codex task so project MCP configuration is loaded.
 
 An MCP transport `403` containing `invalid Host header` indicates the loopback/reverse-proxy Host guard, not an expired Token or business failure. Stop retrying and report the endpoint to the operator. The operator should check the reverse proxy’s upstream Host configuration as described in the API reference; do not change server security settings from a Task. Other `403` responses may have different causes, including cross-origin protection.
+
+Trusted Actor IDs are trimmed, must be nonblank, and cannot equal `.` or `..`. If transport validation rejects an ID, correct the configured identity before retrying; do not try to override it in tool arguments.
