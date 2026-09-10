@@ -192,3 +192,8 @@ See the [contribution guide](CONTRIBUTING.md) before proposing a substantial cha
 ## License
 
 Kairos is licensed under the [Apache License 2.0](LICENSE).
+
+### Identity management layout and Actor IDs
+Identity management uses the workbench library layout: existing identities are the main list, with **Create identity** and **Refresh identities** in the page header. Creation and rotation/revocation confirmations use the shared dialog. Rows separate identity, type/role, Token status and actions; deployment-managed credentials show **system admin**, with the complete internal ID below and a copy action. New Tokens appear in a separate one-time result area. Sign out remains in the account menu.
+
+Actor IDs must contain a non-whitespace character and cannot equal `.` or `..` (reserved URL path segments). Unicode and meaningful surrounding whitespace remain supported; HTTP identity creation preserves the value, while Trusted HTTP/MCP headers trim surrounding whitespace before the same domain validation. Encode an Actor ID as one URL path component for detail/rotation/revocation. Invalid input is rejected before identity persistence or issuance; correct it before retrying. MCP derives identity from credentials/Trusted headers, not tool arguments. Existing stored IDs need no migration for this change; generated Admin IDs already satisfy the rule.

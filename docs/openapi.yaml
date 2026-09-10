@@ -969,7 +969,7 @@ components:
       type: apiKey
       in: header
       name: X-Kairos-Actor-Id
-      description: Required Trusted Mode actor ID. The optional Kind and conditionally required Role are operation header parameters.
+      description: Required Trusted Mode actor ID. After trimming surrounding whitespace, must be nonblank and must not equal dot (.) or dot-dot (..). The optional Kind and conditionally required Role are operation header parameters.
   parameters:
     TrustedActorKindHeader:
       name: X-Kairos-Actor-Kind
@@ -1007,7 +1007,7 @@ components:
       name: actor_id
       in: path
       required: true
-      schema: { type: string }
+      schema: { $ref: '#/components/schemas/ActorID' }
     DefinitionIdPath:
       name: definition_id
       in: path
@@ -1139,6 +1139,11 @@ components:
       description: Review
       content: { application/json: { schema: { $ref: '#/components/schemas/ReviewResponse' } } }
   schemas:
+    ActorID:
+      type: string
+      minLength: 1
+      not: { enum: ['.', '..'] }
+      description: Must contain a non-whitespace character and must not equal the reserved URL path segments dot (.) or dot-dot (..). Unicode and meaningful surrounding whitespace are preserved. Unique within the actor kind. Trusted transport headers trim surrounding whitespace before validation.
     ActorKind: { type: string, enum: [human, agent] }
     CoordinationMode: { type: string, enum: [workflow, blackboard] }
     WorkItemStatus: { type: string, enum: [open, completed, cancelled, failed, awaiting_agent_acceptance, awaiting_human_acceptance] }
@@ -1176,7 +1181,7 @@ components:
       required: [kind, id]
       properties:
         kind: { $ref: '#/components/schemas/ActorKind' }
-        id: { type: string }
+        id: { $ref: '#/components/schemas/ActorID' }
     NullableActorRef:
       oneOf:
         - $ref: '#/components/schemas/ActorRef'
@@ -1185,7 +1190,7 @@ components:
       type: object
       required: [id, kind, role]
       properties:
-        id: { type: string }
+        id: { $ref: '#/components/schemas/ActorID' }
         kind: { $ref: '#/components/schemas/ActorKind' }
         role: { type: string }
     Identity:
@@ -1242,7 +1247,7 @@ components:
       additionalProperties: false
       required: [id, kind]
       properties:
-        id: { type: string, description: "Must contain a non-whitespace character. Meaningful surrounding whitespace is preserved. Unique within the actor kind." }
+        id: { $ref: '#/components/schemas/ActorID' }
         kind: { $ref: '#/components/schemas/ActorKind' }
         role: { type: string, description: "Trimmed by the server. Required and nonempty for Agent; empty or omitted for Human." }
     DefinitionMetadata:

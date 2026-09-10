@@ -11,10 +11,11 @@ const adminToken = 'synthetic-admin'
 const issued = { id: 'new-human', kind: 'human', role: '', token: 'synthetic-issued' }
 const response = (status = 200, data: unknown = []) => new Response(JSON.stringify({ data }), { status })
 let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>
-function renderPage() { return render(<I18nProvider><AdminIdentitiesPage onLogout={() => window.dispatchEvent(new Event('pagehide'))} /></I18nProvider>) }
+function renderPage() { return render(<I18nProvider><AdminIdentitiesPage /></I18nProvider>) }
 async function connect() {
   const user = userEvent.setup()
   await screen.findByText('No identities yet.')
+  await user.click(screen.getByRole('button', { name: 'Create identity' }))
   return user
 }
 beforeEach(() => {
@@ -100,12 +101,12 @@ describe('administrator session', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'))
     await user.click(screen.getByRole('button', { name: 'Copy Token' }))
     expect(await screen.findByRole('status')).toHaveTextContent('copy it manually')
-    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+    fireEvent(window, new Event('pagehide'))
     expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
   })
 
-  it.each(['logout', 'pagehide', 'unmount'])('discards late creation responses after %s', async action => {
+  it.each(['pagehide', 'unmount'])('discards late creation responses after %s', async action => {
     const page = renderPage()
     const user = await connect()
     await user.type(screen.getByLabelText('Identity ID'), 'new-human')
@@ -113,8 +114,7 @@ describe('administrator session', () => {
     fetchMock.mockImplementationOnce(() => new Promise(done => { resolve = done }))
     await user.click(screen.getByRole('button', { name: 'Create identity and issue Token' }))
     const signal = fetchMock.mock.calls[1][1]!.signal!
-    if (action === 'logout') await user.click(screen.getByRole('button', { name: 'Sign out' }))
-    else if (action === 'pagehide') fireEvent(window, new Event('pagehide'))
+    if (action === 'pagehide') fireEvent(window, new Event('pagehide'))
     else page.unmount()
     expect(signal.aborted).toBe(true)
     await act(async () => { resolve(response(201, issued)) })
@@ -129,6 +129,7 @@ describe('administrator session', () => {
     await user.type(screen.getByLabelText('Identity ID'), 'new-human')
     await user.click(screen.getByRole('button', { name: 'Create identity and issue Token' }))
     await screen.findByLabelText('Identity Token')
+    await user.click(screen.getByRole('button', { name: 'Create identity' }))
     await user.type(screen.getByLabelText('Identity ID'), 'second-human')
     fetchMock.mockResolvedValueOnce(response(401))
     await user.click(screen.getByRole('button', { name: 'Create identity and issue Token' }))
@@ -146,7 +147,10 @@ it('confirms rotation and revocation, handles 204, and keeps the deployment cred
   fetchMock.mockImplementation(async () => response(200, records))
   renderPage()
   const user = userEvent.setup()
-  await screen.findByText('person / one')
+  await screen.findByText('system admin')
+  expect(screen.getByRole('table')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Identity ID')).not.toBeInTheDocument()
   expect(screen.getAllByRole('button', { name: 'Rotate Token' })).toHaveLength(1)
   await user.click(screen.getByRole('button', { name: 'Rotate Token' }))
   expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -194,3 +198,34 @@ it('does not let delayed copy feedback or list responses restore dismissed state
   await act(async () => listDone(response(200, [{ id: 'late', kind: 'human' }])))
   expect(screen.queryByText('late')).not.toBeInTheDocument()
 })
+
+ it('keeps creation in a dismissible dialog and rejects reserved path IDs before sending', async () => {
+  renderPage()
+  const user = await connect()
+  expect(screen.getByRole('dialog', { name: 'Create identity' })).toBeInTheDocument()
+  for (const id of ['.', '..', '   ']) {
+    await user.clear(screen.getByLabelText('Identity ID'))
+    await user.type(screen.getByLabelText('Identity ID'), id)
+    expect(screen.getByRole('button', { name: 'Create identity and issue Token' })).toBeDisabled()
+    fireEvent.submit(screen.getByLabelText('Identity ID').closest('form')!)
+  }
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  await user.keyboard('{Escape}')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Create identity' }))
+  expect(screen.getByLabelText('Identity ID')).toHaveValue('')
+ })
+
+ it('copies the full deployment ID while presenting system admin and no credential actions', async () => {
+  const id = 'admin-long-internal-identity'
+  fetchMock.mockResolvedValue(response(200, [{ id, kind: 'human', role: '', credential_source: 'admin', token_active: false }]))
+  renderPage()
+  const user = userEvent.setup()
+  expect(await screen.findByText('system admin')).toBeInTheDocument()
+  const clipboard = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  await user.click(screen.getByRole('button', { name: `Copy ID: ${id}` }))
+  expect(clipboard).toHaveBeenCalledWith(id)
+  expect(screen.getByRole('status')).toHaveTextContent('ID copied')
+  expect(screen.queryByRole('button', { name: 'Rotate Token' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Revoke Token' })).not.toBeInTheDocument()
+ })

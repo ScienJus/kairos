@@ -148,3 +148,8 @@ Kairos 可以托管轻量的 Agent Profile，例如 role、展示标签和描述
 ## 部署管理员作为 Human
 
 部署 Admin Token 也可通过 HTTP、MCP 和工作台认证为稳定、绑定数据库、role 为空的普通 Human。业务权限遵循 Human 规则；身份管理仍只接受配置的凭据。更换 Token 保持 actor，并要求重启所有实例，不授予 Agent discovery 或 Executor 权限。持久化、冲突、迁移和会话语义见 [API 参考](../api-reference.zh-CN.md#admin-token-业务身份)。 控制台通过可选会话展示字段显示 `system admin`，actor ID 不变。Admin 配置要求至少 32 个可见 ASCII 字符（0x21–0x7E），不允许空白和控制字符。
+
+### 身份管理布局与 Actor ID
+身份管理沿用工作台资料架布局，以已有身份列表为主体，页头提供“创建身份”和“刷新身份列表”。创建及轮转／撤销确认使用共享弹窗。列表分为身份、类型／角色、Token 状态和操作；部署管理身份显示 **system admin**，完整内部 ID 放在次级信息中并支持复制。新 Token 使用独立的一次性结果区域。退出登录仅保留在账户菜单。
+
+Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`（保留的 URL 路径段）。继续支持 Unicode 和有意义的首尾空白；HTTP 创建身份保留原值，Trusted HTTP/MCP 身份头先去除首尾空白，再执行相同领域校验。详情、轮转和撤销 URL 中应将完整 Actor ID 编码为单一路径参数。非法输入在写入身份或签发凭据前被拒绝，修正后再重试。MCP 身份来自凭据／Trusted 请求头，不来自工具参数。本次无需迁移已有 ID；服务端生成的 Admin ID 已满足规则。

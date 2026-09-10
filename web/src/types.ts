@@ -30,6 +30,7 @@ export interface Task {
   position: number; created_at: string; updated_at: string; completed_at: string | null
   execution: 'required' | 'optional' | null; review_policy: 'none' | 'executor_decides' | 'required' | null; version: number
 }
+// Actor IDs are nonblank and cannot equal "." or ".."; meaningful whitespace is preserved.
 export interface ActorRef { kind: 'human' | 'agent'; id: string }
 export interface Claim {
   id: string; task_id: string; executor: ActorRef; claimed_at: string; last_heartbeat_at: string
@@ -120,6 +121,7 @@ export interface CreateWorkItemInput {
 }
 
 // Admin issuance is separate from the console's business identity session.
+// Uses the same Actor ID contract as ActorRef.
 export interface CreateIdentityInput {
   id: string
   kind: 'human' | 'agent'

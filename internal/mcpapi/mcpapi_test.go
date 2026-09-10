@@ -629,3 +629,21 @@ func (mcpClock) Now() time.Time { return time.Date(2026, 8, 16, 12, 0, 0, 0, tim
 type mcpIDs struct{ next atomic.Uint64 }
 
 func (g *mcpIDs) NewID() string { return fmt.Sprintf("mcp-%d", g.next.Add(1)) }
+
+func TestMCPRejectsReservedActorIDBeforeDispatch(t *testing.T) {
+	service, _ := newMCPFixture(t)
+	handler, err := New(service, identity.TrustedResolver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{".", ".."} {
+		request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+		request.Header.Set(identity.HeaderActorID, id)
+		request.Header.Set(identity.HeaderActorRole, "developer")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("reserved actor ID accepted: status %d", response.Code)
+		}
+	}
+}

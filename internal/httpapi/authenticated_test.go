@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ScienJus/kairos/internal/application"
@@ -106,6 +107,22 @@ func TestAuthenticatedHTTPModeEndToEnd(t *testing.T) {
 		{"id": "invalid-kind", "kind": "other", "role": ""},
 	} {
 		requestAuthenticatedError(t, client, http.MethodPost, server.URL+"/api/v1/identities", body, authenticatedTestAdminToken, http.StatusBadRequest, "invalid_request")
+	}
+	for _, id := range []string{".", ".."} {
+		response, err := client.Do(newAuthenticatedRequest(t, http.MethodPost, server.URL+"/api/v1/identities", map[string]any{"id": id, "kind": "agent", "role": "developer"}, authenticatedTestAdminToken))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var envelope struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		err = json.NewDecoder(response.Body).Decode(&envelope)
+		response.Body.Close()
+		if err != nil || response.StatusCode != http.StatusBadRequest || !strings.Contains(envelope.Error.Message, "reserved URL path segment") {
+			t.Fatalf("expected reserved Actor ID rejection, status %d, error %v, message %q", response.StatusCode, err, envelope.Error.Message)
+		}
 	}
 	metadata := authenticatedRequestData[[]map[string]any](t, client, http.MethodGet, server.URL+"/api/v1/identities", nil, authenticatedTestAdminToken, http.StatusOK)
 	if len(metadata) != 3 {

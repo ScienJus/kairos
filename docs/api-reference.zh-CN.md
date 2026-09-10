@@ -210,3 +210,8 @@ Agent 通过 20 个 MCP 工具发现工作、承担责任、提交结果，并�
 `upload_artifact` 通过不带 data URI 前缀的 `content_base64` 接受标准 Base64 字节，解码后写入服务端配置的 Artifact Store，并返回供 `submit_task.artifact_ids` 使用的暂存 Artifact ID。解码后的大小上限与 HTTP multipart 上传共用 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES`；MCP 请求体上限会包含对应的 Base64 膨胀。该工具只面向小文件，因为 Base64 会增加约三分之一传输体积，且 MCP 请求会完整缓存在内存中。大文件应使用 `create_artifact` 登记 S3 或其他持久外部 URI。
 
 项目 Codex 配置位于 `.codex/config.toml`，执行指引位于 `.agents/skills/kairos-agent/SKILL.md`。
+
+### 身份管理布局与 Actor ID
+身份管理沿用工作台资料架布局，以已有身份列表为主体，页头提供“创建身份”和“刷新身份列表”。创建及轮转／撤销确认使用共享弹窗。列表分为身份、类型／角色、Token 状态和操作；部署管理身份显示 **system admin**，完整内部 ID 放在次级信息中并支持复制。新 Token 使用独立的一次性结果区域。退出登录仅保留在账户菜单。
+
+Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`（保留的 URL 路径段）。继续支持 Unicode 和有意义的首尾空白；HTTP 创建身份保留原值，Trusted HTTP/MCP 身份头先去除首尾空白，再执行相同领域校验。详情、轮转和撤销 URL 中应将完整 Actor ID 编码为单一路径参数。非法输入在写入身份或签发凭据前被拒绝，修正后再重试。MCP 身份来自凭据／Trusted 请求头，不来自工具参数。本次无需迁移已有 ID；服务端生成的 Admin ID 已满足规则。

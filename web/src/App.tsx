@@ -277,10 +277,10 @@ function ConsoleApp({ identity: initialIdentity, authenticationMode, onLogout }:
       </div>
     </header>
 
-    <main className={`workspace ${route.blackboardID !== undefined || route.workflowID !== undefined ? 'library-workspace' : ''} ${route.workItemID ? 'show-work' : 'show-queue'} ${route.taskID ? 'task-open' : ''}`}><Suspense fallback={<div className="panel-placeholder"><strong>{t('acquiring')}</strong></div>}>
+    <main className={`workspace ${route.adminIdentities || route.blackboardID !== undefined || route.workflowID !== undefined ? 'library-workspace' : ''} ${route.workItemID ? 'show-work' : 'show-queue'} ${route.taskID ? 'task-open' : ''}`}><Suspense fallback={<div className="panel-placeholder"><strong>{t('acquiring')}</strong></div>}>
       {route.adminIdentities
         ? authenticationMode === 'authenticated' && identity.can_manage_identities
-          ? <AdminIdentitiesPage onLogout={onLogout} />
+          ? <AdminIdentitiesPage />
           : <div className="panel-placeholder"><strong>{t('adminRejected')}</strong></div>
         : route.workflowID !== undefined
         ? route.workflowEditing
