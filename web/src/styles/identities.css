@@ -1,0 +1,39 @@
+/* Uses the library page, shared buttons and shared dialog form. */
+.identities-page { min-width: 0; }
+.identity-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.identity-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.identity-actions .danger-button { margin: 0; color: #a04e4e; border-color: #dfc2be; background: #fff8f7; }
+.identity-table { width: 100%; border-collapse: collapse; text-align: left; color: #364c4c; font-size: 13px; table-layout: fixed; }
+.identity-table th { padding: 12px 16px; color: #71817f; font-size: 11px; font-weight: 500; border-bottom: 1px solid #dbe3df; }
+.identity-table td { padding: 20px 16px; border-bottom: 1px solid #e1e7e3; vertical-align: middle; overflow-wrap: anywhere; }
+.identity-table th:first-child { width: 32%; }
+.identity-table th:last-child { width: 26%; }
+.identity-name { font-size: 14px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.identity-id { display: flex; align-items: center; gap: 8px; margin-top: 7px; color: #7c8c88; }
+.identity-id code { min-width: 0; font-size: 10px; overflow-wrap: anywhere; }
+.identity-id button { flex-shrink: 0; }
+.identity-role { display: block; margin-top: 6px; color: #71817f; }
+.identity-status { display: inline-block; padding: 4px 8px; border-radius: 5px; background: #edf0ed; color: #71817f; font-size: 11px; line-height: 1.5; }
+.identity-status.active { color: #42756c; background: #e9f2ed; }
+.identity-status.managed { color: #557580; background: #eaf0f3; }
+.identity-readonly { color: #7c8c88; font-size: 12px; }
+.identity-result { margin-bottom: 30px; padding: 24px; border: 1px solid #c5d8d2; border-radius: 9px; background: #f0f6f2; overflow-wrap: anywhere; }
+.identity-result h2 { margin: 0; font-size: 18px; color: #284143; }
+.identity-result p, .identity-confirm p { font-size: 13px; color: #607471; line-height: 1.65; }
+.identity-result .identity-once { color: #365c58; font-weight: 550; }
+.identity-result label { font-size: 12px; color: #607471; }
+.identity-result textarea { display: block; width: 100%; margin: 8px 0 16px; min-height: 80px; resize: vertical; font-size: 13px; }
+.identity-confirm { padding: 20px; }
+.identity-confirm-id { overflow-wrap: anywhere; }
+.identity-confirm .identity-actions { justify-content: flex-end; margin-top: 24px; }
+@media (max-width: 760px) {
+  .identities-page .library-heading { align-items: flex-start; flex-direction: column; }
+  .identity-table, .identity-table tbody, .identity-table tr, .identity-table td { display: block; width: auto; }
+  .identity-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .identity-table tr { padding: 16px 0; border-bottom: 1px solid #dbe3df; }
+  .identity-table td { padding: 8px 0; border: 0; }
+  .identity-table td::before { content: attr(data-label); display: block; margin-bottom: 6px; font-size: 10px; color: #71817f; }
+  .identity-result { padding: 18px; }
+}
+
+.identity-field-hint { margin: -8px 0 0; color: #71817f; font-size: 12px; line-height: 1.5; }
