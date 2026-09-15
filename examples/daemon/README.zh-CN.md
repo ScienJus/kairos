@@ -45,3 +45,7 @@ Executor Token，其有效性由 Claim 生命周期控制。Stop 是尽力请求
 只回收 Claim，不清理外部进程。不可信工作应使用独立 OS 用户或容器隔离。
 
 接入经反向代理连接 loopback 的 Core 时，在代理中将上游 Host 配置为 loopback 目标地址，规则见 [API 参考](../../docs/api-reference.zh-CN.md)。Host 拒绝属于基础设施问题，不是 Token 或 Task 失败。恢复执行前检查私有 `run-*/outcome.json` 中的运行失败原因；CLI preflight 不验证浏览器能否启动。
+
+Workflow 示例中的 `max_task_executions` 为单节点上限，各节点分别计数，不是整个 WorkItem 的总次数。
+
+Workflow 失败时，等待人类选择继续执行或从头执行，再重新发现并认领任务。操作入口和上下文保留规则见 [API 参考](../../docs/api-reference.zh-CN.md)。

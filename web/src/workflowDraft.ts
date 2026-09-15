@@ -11,6 +11,7 @@ export interface WorkflowDraft {
   tasks: WorkflowTaskDefinition[]
   relations: WorkflowRelationDefinition[]
   startTaskIDs: string[]
+  // Shared per-node instance limit, not a total Workflow budget. Zero uses 100.
   maxTaskExecutions: number
   savedAt: string
 }
@@ -80,7 +81,7 @@ export function validateWorkflowDraft(draft: WorkflowDraft) {
   if (draft.tasks.some(task => !task.title.trim())) errors.push('titles')
   if (draft.tasks.some(task => task.artifacts.some(artifact => !artifact.name.trim() || !artifact.description.trim()))) errors.push('artifacts')
   if (draft.tasks.some(task => new Set(task.artifacts.map(artifact => artifact.name.trim())).size !== task.artifacts.length)) errors.push('duplicate-artifacts')
-  if (draft.maxTaskExecutions <= 0) errors.push('execution-limit')
+  if (!Number.isInteger(draft.maxTaskExecutions) || draft.maxTaskExecutions < 0 || draft.maxTaskExecutions > 500) errors.push('execution-limit')
   const pairs = new Set<string>()
   for (const relation of draft.relations) {
     const pair = `${relation.from_task_id}:${relation.to_task_id}`

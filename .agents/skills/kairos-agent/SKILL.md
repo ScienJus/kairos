@@ -24,6 +24,7 @@ Use the Kairos MCP server as the durable coordination layer. Perform the actual 
 8. If the Claim remains active and Kairos has not reported a terminal WorkItem, finish with exactly one lifecycle action:
    - Call `submit_task` with a durable result and every staged Artifact ID in `artifact_ids` when acceptance criteria are met. Workflow submissions must include every declared Artifact name; Blackboard submissions may include any useful Artifacts.
    - Call `fail_task` with `reopen` and a useful retry prompt when another attempt can succeed.
+   - In Workflow, call `fail_task` with action `fail_task` to stop this Task for Human recovery while other branches continue.
    - Call `fail_task` with `fail_work_item` only when the whole WorkItem cannot continue.
    - Call `release_claim` when stopping without a result or failure decision.
 9. When the final WorkItem status or Blackboard completion result matters, call `get_work_item_context` after the lifecycle action. This query works for open, acceptance-pending, and terminal WorkItems. Workflow WorkItems keep their result empty; read their durable outcomes from Task Submissions and Artifacts. After the last Task ends, call `find_work` again and handle the resulting Blackboard completion candidate.
@@ -56,3 +57,10 @@ The MCP surface is execution-only. Do not attempt to create or modify Definition
 If the Kairos tools are unavailable, do not replace this protocol with ad-hoc HTTP calls. The repository configures the local server in `.codex/config.toml`; start Kairos, set the Trusted or Authenticated identity environment variables, and restart the Codex task so project MCP configuration is loaded.
 
 An MCP transport `403` containing `invalid Host header` indicates the loopback/reverse-proxy Host guard, not an expired Token or business failure. Stop retrying and report the endpoint to the operator. The operator should check the reverse proxy’s upstream Host configuration as described in the API reference; do not change server security settings from a Task. Other `403` responses may have different causes, including cross-origin protection.
+
+## Failure and recovery
+
+- Workflow `reopen` creates a new Task; Blackboard `reopen` reuses the Task. After Workflow retry, rediscover and claim the replacement. Blackboard rejects action `fail_task` without changing state, even at the history limit; correct the action.
+- On a failed WorkItem, read `work_item.failure` and wait for Human recovery. Use the structured node ID and counters when the message abbreviates them; never reuse an ended Claim.
+- After recovery, read WorkItem context and Task description for current instructions, failure summaries and review feedback. `find_work` does not include generated recovery summaries; use the context tools before executing.
+- After Start over, only the current failure summary and current Human instructions are provided; old URLs, results, reviews and instructions remain on the source WorkItem. Scoped executor credentials cannot read that source. Use the external outcomes the Human lists in the new instructions, and revalidate them before reuse. See the [API reference](../../../docs/api-reference.md) for Human recovery operations.

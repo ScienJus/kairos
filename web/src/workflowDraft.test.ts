@@ -16,6 +16,20 @@ beforeEach(() => {
 })
 
 describe('Workflow local drafts', () => {
+  it.each([0, 1, 500])('accepts per-node limit %s independently of the number of start nodes', limit => {
+    const draft = draftFromDefinition(definition)
+    draft.maxTaskExecutions = limit
+    draft.startTaskIDs = ['a', 'b']
+    expect(validateWorkflowDraft(draft)).toEqual([])
+    expect(workflowDraftInput(draft).graph.max_task_executions).toBe(limit)
+  })
+
+  it.each([-1, 501, 1.5, NaN])('rejects invalid per-node limit %s', limit => {
+    const draft = draftFromDefinition(definition)
+    draft.maxTaskExecutions = limit
+    expect(validateWorkflowDraft(draft)).toContain('execution-limit')
+  })
+
   it('creates and restores isolated drafts', () => {
     const fresh = newWorkflowDraft()
     fresh.name = 'Local workflow'

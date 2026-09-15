@@ -73,6 +73,11 @@ func (r *SQLRepository) migrate(ctx context.Context) error {
 				return fmt.Errorf("migration %s: %w", version, err)
 			}
 		}
+		if version == "006_workflow_recovery" {
+			if err := backfillWorkItemFailures(ctx, tx, r.dialect); err != nil {
+				return fmt.Errorf("migration %s backfill: %w", version, err)
+			}
+		}
 		insert := "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)"
 		if _, err := tx.ExecContext(ctx, rebind(r.dialect, insert), version, databaseTime(time.Now())); err != nil {
 			return err

@@ -66,8 +66,10 @@ Supported collaboration capabilities:
 - **Progression guidance**: Relations may carry optional labels and agent guidance without changing the graph's existing progression semantics.
 - **Autonomous skipping**: upstream executors decide whether Optional Tasks are needed; decisions are combined at joins.
 - **Autonomous Review**: a Task can require no Review, let the executor decide, or require Review.
-- **Cycles**: executors can continue through a cycle path or exit it, with a maximum execution safeguard.
+- **Cycles**: executors can continue through a cycle path or exit it, with a maximum execution count per node.
 - **Automatic completion**: the WorkItem completes after every selected path closes.
+
+`max_task_executions` is shared configuration counted independently for each Workflow node and WorkItem; there is no total Task-instance limit.
 
 ### Blackboard
 
@@ -98,7 +100,7 @@ Working
   │                           ├── approve → Completed
   │                           └── reject  → Pending → Claim again
   └── fail
-       ├── reopen Task
+       ├── retry Task (new instance in Workflow)
        └── fail WorkItem
 ```
 
@@ -116,6 +118,8 @@ The operations console currently provides a workspace overview, a human-attentio
 - Blackboard is shown as a hierarchical Task workspace. WorkItem lifecycle decision controls are Human-only; Agents use the MCP Coordination Claim loop. Relations remain available through the HTTP and MCP surfaces but are not yet rendered or created by the console.
 
 Task lifecycle changes, responsibility, submissions, Reviews, failures, and Artifacts together show how the owning WorkItem is advancing. A complete WorkItem event timeline is planned; the underlying events are already persisted.
+
+For failed Workflows or current failed Tasks, Humans can **Continue execution** to retry failed/interrupted attempts while retaining successful branches, or **Start over** in a new WorkItem with the original goal and a failure summary. History stays on the source WorkItem; include external outcomes to reuse in your instructions because scoped executors cannot read the source history. See the [API reference](docs/api-reference.md).
 
 ## Project Status
 

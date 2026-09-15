@@ -107,13 +107,15 @@ type WorkflowGraph struct {
 	Tasks     []WorkflowTaskDefinition     `json:"tasks"`
 	Relations []WorkflowRelationDefinition `json:"relations"`
 
-	// MaxTaskExecutions is a safety limit for one WorkItem. Zero uses the system default.
+	// MaxTaskExecutions limits Task instances per Definition node within one
+	// WorkItem, including start and skipped instances. Zero uses the default.
+	// There is no separate limit on the total instances across all nodes.
 	MaxTaskExecutions int `json:"max_task_executions"`
 }
 
 // Workflow resource limits bound the immutable graph shape and runtime
 // expansion budget. Graph-size limits are Definition invariants; runtime
-// expansion is limited by MaxTaskExecutions rather than a second graph budget.
+// expansion is limited per node by MaxTaskExecutions, not by a total Task budget.
 const (
 	DefaultWorkflowMaxTaskExecutions = 100
 	MaxWorkflowTaskExecutions        = 500
@@ -319,9 +321,6 @@ func (g WorkflowGraph) analyze() (workflowGraphAnalysis, error) {
 	}
 	if g.MaxTaskExecutions > MaxWorkflowTaskExecutions {
 		return workflowGraphAnalysis{}, invalid("workflow.max_task_executions", "must not exceed %d", MaxWorkflowTaskExecutions)
-	}
-	if g.MaxTaskExecutions > 0 && g.MaxTaskExecutions < len(g.StartTaskIDs) {
-		return workflowGraphAnalysis{}, invalid("workflow.max_task_executions", "must cover all start tasks")
 	}
 
 	tasks := make(map[WorkflowTaskID]WorkflowTaskDefinition, len(g.Tasks))

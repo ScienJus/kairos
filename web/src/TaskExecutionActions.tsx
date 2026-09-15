@@ -62,7 +62,7 @@ export function TaskExecutionActions({
   const [failureReason, setFailureReason] = useState("");
   const [retryPrompt, setRetryPrompt] = useState("");
   const [failureAction, setFailureAction] = useState<
-    "reopen" | "fail_work_item"
+    "reopen" | "fail_task" | "fail_work_item"
   >("reopen");
 
   const refresh = () =>
@@ -414,6 +414,7 @@ export function TaskExecutionActions({
                 <small>{t("makeAvailableAgainBody")}</small>
               </span>
             </label>
+            {task.workflow_task_id && <label><input type="radio" name="failure-action" checked={failureAction === "fail_task"} onChange={() => setFailureAction("fail_task")} /><span><strong>{t('stopTask')}</strong><small>{t('stopTaskBody')}</small></span></label>}
             <label>
               <input
                 type="radio"
@@ -446,7 +447,7 @@ export function TaskExecutionActions({
             {t(
               failureAction === "reopen"
                 ? "recordAndReopen"
-                : "confirmFailWorkItem",
+                : failureAction === "fail_task" ? "stopTask" : "confirmFailWorkItem",
             )}
           </button>
         </div>

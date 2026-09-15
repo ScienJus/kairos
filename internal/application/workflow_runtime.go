@@ -16,6 +16,14 @@ func (s *Service) applyWorkflowDecision(
 	sourceTask domain.Task,
 	decision domain.TransitionDecision,
 ) error {
+	activations, err := store.ListWorkflowTaskActivations(workItem.ID)
+	if err != nil {
+		return err
+	}
+	return s.propagateWorkflowDecision(store, workItem, sourceTask, decision, deliveredWorkflowInputs(activations)[decision.ID], true)
+}
+
+func (s *Service) propagateWorkflowDecision(store WriteStore, workItem *domain.WorkItem, sourceTask domain.Task, decision domain.TransitionDecision, delivered map[domain.WorkflowRelationID]bool, recordEvent bool) error {
 	if decision.AppliedAt == nil {
 		return conflict("transition decision %q is not applied", decision.ID)
 	}
@@ -42,6 +50,11 @@ func (s *Service) applyWorkflowDecision(
 		relations[relation.ID] = relation
 	}
 	for _, relationID := range group.RelationIDs {
+		// An applied decision can be resumed after a limit failure. Inputs, including
+		// waiting joins, are the durable receipt; never deliver the same edge twice.
+		if delivered[relationID] {
+			continue
+		}
 		relation := relations[relationID]
 		outcome := domain.WorkflowActivationInputTriggered
 		if slices.Contains(decision.SkippedRelationIDs, relationID) {
@@ -71,9 +84,12 @@ func (s *Service) applyWorkflowDecision(
 		if err != nil {
 			return err
 		}
-		if stopped {
+		if stopped || workItem.Status == domain.WorkItemStatusFailed {
 			break
 		}
+	}
+	if !recordEvent {
+		return nil
 	}
 	actor := decision.DecidedBy
 	return s.appendEvent(
@@ -166,11 +182,7 @@ func (s *Service) resolveWorkflowActivationInput(
 	decision domain.TransitionDecision,
 	outcome domain.WorkflowActivationInputOutcome,
 ) (bool, error) {
-	activations, err := store.ListWorkflowTaskActivations(workItem.ID)
-	if err != nil {
-		return false, fmt.Errorf("list workflow activations: %w", err)
-	}
-	activation, exists, err := findWaitingActivation(activations, relation.ToTaskID, correlationID)
+	activation, exists, err := store.FindWaitingWorkflowTaskActivation(workItem.ID, relation.ToTaskID, correlationID)
 	if err != nil {
 		return false, err
 	}
@@ -230,16 +242,15 @@ func (s *Service) resolveWorkflowActivationInput(
 		return false, nil
 	}
 
-	tasks, err := store.ListTasks(workItem.ID)
+	limit := effectiveWorkflowExecutionLimit(*workItem, definition)
+	// Count the target node using indexed columns, without decoding history.
+	// Resolved activations include start, skipped and replacement instances.
+	executions, err := store.CountResolvedWorkflowTaskActivations(workItem.ID, relation.ToTaskID)
 	if err != nil {
-		return false, fmt.Errorf("list workflow tasks: %w", err)
+		return false, fmt.Errorf("count workflow node executions: %w", err)
 	}
-	limit := definition.Graph.MaxTaskExecutions
-	if limit == 0 {
-		limit = defaultMaxWorkflowTaskExecutions
-	}
-	if len(tasks) >= limit {
-		if err := s.failWorkflowExecutionLimit(store, workItem, sourceTask, limit, now); err != nil {
+	if executions >= limit {
+		if err := s.failWorkflowExecutionLimit(store, workItem, sourceTask, relation.ToTaskID, executions, limit, now); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -249,7 +260,11 @@ func (s *Service) resolveWorkflowActivationInput(
 	if !ok {
 		return false, invalidCommand("workflow task definition %q does not exist", relation.ToTaskID)
 	}
-	task, err := s.newWorkflowTask(workItem.ID, taskDefinition, activation.ID, nextTaskPosition(tasks), now)
+	position, err := store.NextTaskPosition(workItem.ID)
+	if err != nil {
+		return false, fmt.Errorf("get next task position: %w", err)
+	}
+	task, err := s.newWorkflowTask(workItem.ID, taskDefinition, activation.ID, position, now)
 	if err != nil {
 		return false, err
 	}
@@ -481,32 +496,6 @@ func skipRequiresReview(policy domain.ReviewPolicy, inputs []domain.WorkflowActi
 	return false
 }
 
-func findWaitingActivation(
-	activations []domain.WorkflowTaskActivation,
-	taskID domain.WorkflowTaskID,
-	correlationID domain.WorkflowCorrelationID,
-) (domain.WorkflowTaskActivation, bool, error) {
-	var found *domain.WorkflowTaskActivation
-	for _, activation := range activations {
-		if activation.WorkflowTaskID != taskID || activation.CorrelationID != correlationID || activation.Status != domain.WorkflowActivationWaiting {
-			continue
-		}
-		if found != nil {
-			return domain.WorkflowTaskActivation{}, false, conflict(
-				"multiple waiting activations exist for workflow task %q and correlation %q",
-				taskID,
-				correlationID,
-			)
-		}
-		candidate := activation
-		found = &candidate
-	}
-	if found == nil {
-		return domain.WorkflowTaskActivation{}, false, nil
-	}
-	return *found, true, nil
-}
-
 func expectedActivationInputs(
 	definition domain.WorkflowDefinition,
 	groupKind domain.WorkflowChoiceGroupKind,
@@ -563,12 +552,24 @@ func (s *Service) failWorkflowExecutionLimit(
 	store WriteStore,
 	workItem *domain.WorkItem,
 	sourceTask domain.Task,
-	limit int,
+	targetTaskID domain.WorkflowTaskID,
+	executions, limit int,
 	now time.Time,
 ) error {
 	actor := domain.ActorRef{Kind: domain.ActorAgent, ID: "kairos"}
-	message := fmt.Sprintf("workflow exceeded MaxTaskExecutions (%d) after task %s", limit, sourceTask.ID)
+	message := workflowExecutionLimitMessage(targetTaskID, sourceTask.ID, limit)
+	workItem.Failure = &domain.WorkItemFailure{Kind: domain.FailureWorkflowExecutionLimit, Message: message, WorkflowTaskID: targetTaskID, Executions: executions, Limit: limit}
 	return s.failWorkItem(store, workItem, &sourceTask.ID, &actor, message, now)
+}
+
+func workflowExecutionLimitMessage(nodeID domain.WorkflowTaskID, sourceID domain.TaskID, limit int) string {
+	message := fmt.Sprintf("workflow node %q reached max_task_executions (%d); cannot create execution %d after task %s", nodeID, limit, limit+1, sourceID)
+	if len(message) > domain.MaxHistoryTextBytes {
+		// Keep the cause readable even when the quoted ID exceeds the message
+		// budget. The structured failure retains the complete node identity.
+		return fmt.Sprintf("workflow node reached max_task_executions (%d); cannot create execution %d; see failure.workflow_task_id for the full node ID", limit, limit+1)
+	}
+	return message
 }
 
 func hasAppliedDecision(task domain.Task) bool {
@@ -578,4 +579,33 @@ func hasAppliedDecision(task domain.Task) bool {
 		}
 	}
 	return false
+}
+
+func effectiveWorkflowExecutionLimit(workItem domain.WorkItem, definition domain.WorkflowDefinition) int {
+	if workItem.WorkflowMaxTaskExecutions > 0 {
+		return workItem.WorkflowMaxTaskExecutions
+	}
+	if definition.Graph.MaxTaskExecutions > 0 {
+		return definition.Graph.MaxTaskExecutions
+	}
+	return defaultMaxWorkflowTaskExecutions
+}
+
+// deliveredWorkflowInputs indexes persisted receipts once per propagation or
+// recovery. Decisions have unique IDs, so their delivered edges can be reused
+// while other decisions add inputs in the same transaction.
+func deliveredWorkflowInputs(activations []domain.WorkflowTaskActivation) map[domain.TransitionDecisionID]map[domain.WorkflowRelationID]bool {
+	delivered := make(map[domain.TransitionDecisionID]map[domain.WorkflowRelationID]bool)
+	for _, activation := range activations {
+		for _, input := range activation.Inputs {
+			if input.DecisionID == nil || !input.Resolved() {
+				continue
+			}
+			if delivered[*input.DecisionID] == nil {
+				delivered[*input.DecisionID] = make(map[domain.WorkflowRelationID]bool)
+			}
+			delivered[*input.DecisionID][input.RelationID] = true
+		}
+	}
+	return delivered
 }

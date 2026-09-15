@@ -2440,6 +2440,53 @@ func TestWorkflowActivationJoinsParallelTasks(t *testing.T) {
 	}
 }
 
+func TestWorkflowZeroExecutionLimitUsesPerNodeDefault(t *testing.T) {
+	repository := newTestRepository()
+	definition := parallelLimitWorkflowDefinition()
+	definition.Graph.MaxTaskExecutions = 0
+	repository.workflows[definitionKey(definition.ID, definition.Version)] = definition
+	service := newTestService(t, repository)
+	actor := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "limit-agent"}, Role: "backend"}
+	work, err := service.CreateWorkItem(context.Background(), CreateWorkItemCommand{Definition: definition.Binding(), Identity: actor, Title: "Default per-node count", Goal: "Allow exactly the default number of instances"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for execution := 1; execution <= domain.DefaultWorkflowMaxTaskExecutions; execution++ {
+		var current domain.Task
+		count := 0
+		for _, task := range repository.tasksFor(work.ID) {
+			if task.WorkflowTaskID != nil && *task.WorkflowTaskID == "first" {
+				count++
+				if task.Status == domain.TaskStatusPending {
+					current = task
+				}
+			}
+		}
+		if count != execution || current.ID == "" || repository.workItems[work.ID].Status != domain.WorkItemStatusOpen {
+			t.Fatalf("execution %d: count=%d current=%s status=%s", execution, count, current.ID, repository.workItems[work.ID].Status)
+		}
+		claim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: current.ID, Identity: actor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{TaskID: current.ID, ClaimID: claim.ID, Identity: actor, Result: "Next iteration", Transition: &WorkflowTransitionCommand{ChoiceGroupID: "continue:first-first"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if repository.workItems[work.ID].Status != domain.WorkItemStatusFailed || len(repository.tasksFor(work.ID)) != domain.DefaultWorkflowMaxTaskExecutions+1 {
+		t.Fatal("default node limit must stop the next instance, independent of the parallel Task")
+	}
+	found := false
+	for _, event := range repository.events {
+		if event.Type == domain.WorkItemEventWorkItemFailed && strings.Contains(event.Message, `workflow node "first" reached max_task_executions (100); cannot create execution 101`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("missing default-limit failure reason")
+	}
+}
+
 func TestWorkflowExecutionLimitRevokesParallelClaims(t *testing.T) {
 	t.Parallel()
 
@@ -2465,12 +2512,21 @@ func TestWorkflowExecutionLimitRevokesParallelClaims(t *testing.T) {
 	}
 	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
 		TaskID: byDefinition["first"].ID, ClaimID: firstClaim.ID, Identity: identity, Result: "first complete",
-		Transition: &WorkflowTransitionCommand{ChoiceGroupID: "exit:first"},
+		Transition: &WorkflowTransitionCommand{ChoiceGroupID: "continue:first-first"},
 	}); err != nil {
 		t.Fatalf("execution limit submission: %v", err)
 	}
 	if repository.workItems[workItem.ID].Status != domain.WorkItemStatusFailed {
 		t.Fatalf("work item status = %s, want failed", repository.workItems[workItem.ID].Status)
+	}
+	foundReason := false
+	for _, event := range repository.events {
+		if event.Type == domain.WorkItemEventWorkItemFailed && strings.Contains(event.Message, `workflow node "first" reached max_task_executions (1); cannot create execution 2`) {
+			foundReason = true
+		}
+	}
+	if !foundReason {
+		t.Fatalf("missing node-specific limit event: %#v", repository.events)
 	}
 	revoked := repository.claims[secondClaim.ID]
 	if revoked.Active() || revoked.EndReason != domain.ClaimEndRevoked {
@@ -3065,9 +3121,10 @@ func parallelLimitWorkflowDefinition() domain.WorkflowDefinition {
 				{ID: "next", Title: "Next", Executor: domain.ExecutorAgent, AllowedRoles: []string{"backend"}, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone},
 			},
 			Relations: []domain.WorkflowRelationDefinition{
+				{ID: "first-first", FromTaskID: "first", ToTaskID: "first"},
 				{ID: "first-next", FromTaskID: "first", ToTaskID: "next"},
 			},
-			MaxTaskExecutions: 2,
+			MaxTaskExecutions: 1,
 		},
 	}
 }
@@ -3383,10 +3440,12 @@ func (r *testRepository) ListHumanAttention(actor domain.ActorRef, page PageRequ
 		if workItem.Status != domain.WorkItemStatusOpen {
 			continue
 		}
-		for _, task := range r.tasksFor(workItem.ID) {
+		for _, task := range currentWorkflowAttempts(r.tasksFor(workItem.ID)) {
 			kind := HumanAttentionKind("")
 			if task.Status == domain.TaskStatusInReview {
 				kind = HumanAttentionReview
+			} else if task.Status == domain.TaskStatusFailed && workItem.CoordinationMode() == domain.CoordinationModeWorkflow && actor.Kind == domain.ActorHuman {
+				kind = HumanAttentionTask
 			} else if task.Status == domain.TaskStatusPending && task.ActiveClaimID == nil && task.Executor == domain.ExecutorHuman {
 				kind = HumanAttentionTask
 			} else if task.Status == domain.TaskStatusWorking && task.ActiveClaimID != nil && actor.Kind == domain.ActorHuman {
@@ -3572,6 +3631,43 @@ func (r *testRepository) GetWorkflowTaskActivation(id domain.WorkflowTaskActivat
 		return domain.WorkflowTaskActivation{}, ErrNotFound
 	}
 	return value, nil
+}
+
+func (r *testRepository) FindWaitingWorkflowTaskActivation(workItemID domain.WorkItemID, nodeID domain.WorkflowTaskID, correlationID domain.WorkflowCorrelationID) (domain.WorkflowTaskActivation, bool, error) {
+	activations, err := r.ListWorkflowTaskActivations(workItemID)
+	if err != nil {
+		return domain.WorkflowTaskActivation{}, false, err
+	}
+	var result domain.WorkflowTaskActivation
+	found := false
+	for _, activation := range activations {
+		if activation.WorkflowTaskID != nodeID || activation.CorrelationID != correlationID || activation.Status != domain.WorkflowActivationWaiting {
+			continue
+		}
+		if found {
+			return domain.WorkflowTaskActivation{}, false, conflict("multiple waiting activations exist for workflow task %q and correlation %q", nodeID, correlationID)
+		}
+		result, found = activation, true
+	}
+	return result, found, nil
+}
+
+func (r *testRepository) CountResolvedWorkflowTaskActivations(workItemID domain.WorkItemID, nodeID domain.WorkflowTaskID) (int, error) {
+	activations, err := r.ListWorkflowTaskActivations(workItemID)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, activation := range activations {
+		if activation.WorkflowTaskID == nodeID && activation.Status == domain.WorkflowActivationResolved {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (r *testRepository) NextTaskPosition(workItemID domain.WorkItemID) (int64, error) {
+	return nextTaskPosition(r.tasksFor(workItemID)), nil
 }
 
 func (r *testRepository) ListWorkflowTaskActivations(workItemID domain.WorkItemID) ([]domain.WorkflowTaskActivation, error) {

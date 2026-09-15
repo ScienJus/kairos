@@ -63,14 +63,23 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 	contextData := workItemEnvelope["data"].(map[string]any)
 	workItemData := contextData["work_item"].(map[string]any)
 	assertJSONKeys(t, workItemData,
-		[]string{"cancelled_at", "cancelled_by", "cancellation_reason"},
+		[]string{"cancelled_at", "cancelled_by", "cancellation_reason", "failure", "workflow_max_task_executions", "restart_of_work_item_id", "restart_context", "recovery_instructions"},
 		[]string{"cancelledat", "cancelledby", "cancellationreason"},
 	)
 	if workItemData["cancelled_at"] != nil || workItemData["cancelled_by"] != nil || workItemData["cancellation_reason"] != "" {
 		t.Fatalf("open WorkItem cancellation metadata = %#v, want null/null/empty", workItemData)
 	}
+	if workItemData["failure"] != nil || workItemData["workflow_max_task_executions"] != float64(0) {
+		t.Fatalf("empty failure/override representation: %#v", workItemData)
+	}
+	if workItemData["restart_of_work_item_id"] != nil || workItemData["restart_context"] != "" || workItemData["recovery_instructions"] != "" {
+		t.Fatalf("empty recovery fields: %#v", workItemData)
+	}
 	if claims, ok := contextData["coordination_claims"].([]any); !ok || len(claims) != 0 {
 		t.Fatalf("empty coordination_claims = %#v, want []", contextData["coordination_claims"])
+	}
+	if values, ok := contextData["recovery_task_ids"].([]any); !ok || len(values) != 0 {
+		t.Fatalf("recovery_task_ids = %#v, want []", contextData["recovery_task_ids"])
 	}
 	if contextData["active_coordination_claim"] != nil {
 		t.Fatalf("active_coordination_claim = %#v, want null", contextData["active_coordination_claim"])
@@ -106,6 +115,11 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 		[]string{"can_claim"},
 		[]string{"canclaim"},
 	)
+	assertJSONKeys(t, taskData, []string{"retry_of_task_id", "retry_context", "retry_instructions"}, nil)
+	if taskData["retry_of_task_id"] != nil || taskData["retry_context"] != "" || taskData["retry_instructions"] != "" {
+		t.Fatalf("empty retry fields: %#v", taskData)
+	}
+
 	for _, field := range []string{"reviews", "submissions", "failures", "transition_decisions"} {
 		if values, ok := taskData[field].([]any); !ok || len(values) != 0 {
 			t.Fatalf("task.%s = %#v, want []", field, taskData[field])

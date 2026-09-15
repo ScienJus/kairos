@@ -102,52 +102,8 @@ func (s *Service) CreateWorkItem(ctx context.Context, command CreateWorkItemComm
 		}
 
 		if workflow != nil {
-			definitions := make(map[domain.WorkflowTaskID]domain.WorkflowTaskDefinition, len(workflow.Graph.Tasks))
-			for _, definition := range workflow.Graph.Tasks {
-				definitions[definition.ID] = definition
-			}
-			correlationID, err := s.newID("workflow correlation id")
-			if err != nil {
+			if err := s.createWorkflowStartTasks(store, workItem, *workflow, actor); err != nil {
 				return err
-			}
-			for position, taskID := range workflow.Graph.StartTaskIDs {
-				activationID, err := s.newID("workflow activation id")
-				if err != nil {
-					return err
-				}
-				task, err := s.newWorkflowTask(
-					workItem.ID,
-					definitions[taskID],
-					domain.WorkflowTaskActivationID(activationID),
-					int64(position),
-					now,
-				)
-				if err != nil {
-					return err
-				}
-				activation := domain.WorkflowTaskActivation{
-					ID:             domain.WorkflowTaskActivationID(activationID),
-					WorkItemID:     workItem.ID,
-					WorkflowTaskID: taskID,
-					CorrelationID:  domain.WorkflowCorrelationID(correlationID),
-					Status:         domain.WorkflowActivationResolved,
-					Outcome:        domain.WorkflowActivationCreated,
-					CreatedAt:      now,
-					UpdatedAt:      now,
-					ResolvedAt:     &now,
-				}
-				if err := activation.Validate(); err != nil {
-					return err
-				}
-				if err := store.CreateTask(task); err != nil {
-					return fmt.Errorf("create workflow start task: %w", err)
-				}
-				if err := store.CreateWorkflowTaskActivation(activation); err != nil {
-					return fmt.Errorf("create workflow start activation: %w", err)
-				}
-				if err := s.appendEvent(store, workItem.ID, &task.ID, domain.WorkItemEventTaskCreated, string(task.ID), &actor, ""); err != nil {
-					return err
-				}
 			}
 		}
 
@@ -218,6 +174,7 @@ func (s *Service) completeWorkItemIfDone(
 	if len(tasks) == 0 {
 		return nil
 	}
+	tasks = currentWorkflowAttempts(tasks)
 	for _, task := range tasks {
 		if task.Status != domain.TaskStatusCompleted && task.Status != domain.TaskStatusSkipped {
 			return nil
@@ -433,4 +390,57 @@ func (s *Service) AcceptBlackboardCompletion(ctx context.Context, command Accept
 		return domain.WorkItem{}, err
 	}
 	return normalizeWorkItemCollections(accepted), nil
+}
+
+func (s *Service) createWorkflowStartTasks(store WriteStore, workItem domain.WorkItem, workflow domain.WorkflowDefinition, actor domain.ActorRef) error {
+	now := s.clock.Now()
+
+	definitions := make(map[domain.WorkflowTaskID]domain.WorkflowTaskDefinition, len(workflow.Graph.Tasks))
+	for _, definition := range workflow.Graph.Tasks {
+		definitions[definition.ID] = definition
+	}
+	correlationID, err := s.newID("workflow correlation id")
+	if err != nil {
+		return err
+	}
+	for position, taskID := range workflow.Graph.StartTaskIDs {
+		activationID, err := s.newID("workflow activation id")
+		if err != nil {
+			return err
+		}
+		task, err := s.newWorkflowTask(
+			workItem.ID,
+			definitions[taskID],
+			domain.WorkflowTaskActivationID(activationID),
+			int64(position),
+			now,
+		)
+		if err != nil {
+			return err
+		}
+		activation := domain.WorkflowTaskActivation{
+			ID:             domain.WorkflowTaskActivationID(activationID),
+			WorkItemID:     workItem.ID,
+			WorkflowTaskID: taskID,
+			CorrelationID:  domain.WorkflowCorrelationID(correlationID),
+			Status:         domain.WorkflowActivationResolved,
+			Outcome:        domain.WorkflowActivationCreated,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			ResolvedAt:     &now,
+		}
+		if err := activation.Validate(); err != nil {
+			return err
+		}
+		if err := store.CreateTask(task); err != nil {
+			return fmt.Errorf("create workflow start task: %w", err)
+		}
+		if err := store.CreateWorkflowTaskActivation(activation); err != nil {
+			return fmt.Errorf("create workflow start activation: %w", err)
+		}
+		if err := s.appendEvent(store, workItem.ID, &task.ID, domain.WorkItemEventTaskCreated, string(task.ID), &actor, ""); err != nil {
+			return err
+		}
+	}
+	return nil
 }

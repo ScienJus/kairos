@@ -111,3 +111,5 @@ Task 详情       = 一个执行单元的责任、历史与操作
 ```
 
 > Workspace 回答“哪里需要我”；WorkItem 详情解释整体进度；Task 详情提供可以立即执行的操作。
+
+开放 Workflow 中尚未被替代的 Failed Task 也进入“需要人处理”，不限原 executor。在 WorkItem 上继续执行会为所有当前失败 Task 创建新实例，旧 Task 保留为历史并退出待办。Failed WorkItem 提供“继续执行”和“从头执行（新 WorkItem）”，不提供任意阶段选择。从头执行仅携带本次失败原因与当前 Human 说明；控制台提示填写需复用的外部成果，因为受限执行者无法读取来源历史。

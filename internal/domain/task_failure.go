@@ -9,13 +9,14 @@ import (
 type TaskFailureAction string
 
 const (
+	TaskFailureStop         TaskFailureAction = "fail_task"
 	TaskFailureReopen       TaskFailureAction = "reopen"
 	TaskFailureFailWorkItem TaskFailureAction = "fail_work_item"
 )
 
 // Valid reports whether the failure action is recognized.
 func (a TaskFailureAction) Valid() bool {
-	return a == TaskFailureReopen || a == TaskFailureFailWorkItem
+	return a == TaskFailureStop || a == TaskFailureReopen || a == TaskFailureFailWorkItem
 }
 
 // TaskFailure records one immutable failure reported from a Claim.

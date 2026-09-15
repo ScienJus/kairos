@@ -629,3 +629,74 @@ func (mcpClock) Now() time.Time { return time.Date(2026, 8, 16, 12, 0, 0, 0, tim
 type mcpIDs struct{ next atomic.Uint64 }
 
 func (g *mcpIDs) NewID() string { return fmt.Sprintf("mcp-%d", g.next.Add(1)) }
+
+func TestMCPWorkItemFailureView(t *testing.T) {
+	for _, failure := range []*domain.WorkItemFailure{nil, {Kind: domain.FailureWorkflowExecutionLimit, Message: "节点达到上限", WorkflowTaskID: "dev", Executions: 10, Limit: 10}} {
+		view := workItemLifecycleViewFrom(domain.WorkItem{Failure: failure, WorkflowMaxTaskExecutions: 20})
+		data, err := json.Marshal(view)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := fields["failure"]; !ok {
+			t.Fatal("MCP omits failure field")
+		}
+		if failure == nil && string(fields["failure"]) != "null" {
+			t.Fatalf("empty failure: %s", fields["failure"])
+		}
+		if failure != nil {
+			var got domain.WorkItemFailure
+			if err := json.Unmarshal(fields["failure"], &got); err != nil || got != *failure {
+				t.Fatalf("failure projection: %+v / %v", got, err)
+			}
+		}
+		if string(fields["workflow_max_task_executions"]) != "20" {
+			t.Fatal("MCP omits effective override")
+		}
+	}
+}
+
+func TestMCPRecoveryContextPreservesOperatorInstructions(t *testing.T) {
+	source := domain.WorkItemID("failed-source")
+	notes := strings.Repeat("界", domain.MaxHistoryTextBytes/3) + "xx"
+	work := domain.WorkItem{Context: "Original context", RestartOfWorkItemID: &source, RestartContext: "Failure and external references", RecoveryInstructions: notes}
+	previous := domain.TaskID("old-attempt")
+	task := domain.Task{Description: "Original task", RetryOfTaskID: &previous, RetryContext: "Previous attempt failure", RetryInstructions: notes}
+	taskContext := taskContextView(application.TaskExecutionContext{WorkItem: work, Task: task})
+	workContext := workItemContextView(application.WorkItemExecutionContext{WorkItem: work, Tasks: []domain.Task{task}})
+	for _, context := range []string{taskContext.WorkItem.Context, workContext.WorkItem.Context} {
+		for _, fragment := range []string{work.Context, work.RestartContext, notes} {
+			if !strings.Contains(context, fragment) {
+				t.Fatal("MCP context tool lost WorkItem recovery context")
+			}
+		}
+	}
+	for _, description := range []string{taskContext.Task.Description, workContext.Tasks[0].Description} {
+		for _, fragment := range []string{task.Description, task.RetryContext, notes} {
+			if !strings.Contains(description, fragment) {
+				t.Fatal("MCP lost Task retry context")
+			}
+		}
+	}
+	discovery := findWorkView([]application.WorkCandidate{
+		{Kind: application.WorkCandidateTask, WorkItem: work, Task: &task},
+		{Kind: application.WorkCandidateTask, WorkItem: work, Task: &task},
+	})
+	for _, candidate := range discovery.Candidates {
+		if candidate.WorkItem.Context != work.Context || candidate.Task.Description != task.Description {
+			t.Fatal("discovery must retain original context without recovery expansion")
+		}
+	}
+	payload, err := json.Marshal(discovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{work.RestartContext, task.RetryContext, notes} {
+		if strings.Contains(string(payload), fragment) {
+			t.Fatal("find_work leaked generated recovery context into candidate batch")
+		}
+	}
+}

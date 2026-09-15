@@ -12,6 +12,8 @@ const (
 	WorkItemEventWorkItemCreated     WorkItemEventType = "work_item.created"
 	WorkItemEventWorkItemCompleted   WorkItemEventType = "work_item.completed"
 	WorkItemEventWorkItemCancelled   WorkItemEventType = "work_item.cancelled"
+	WorkItemEventWorkItemRestarted   WorkItemEventType = "work_item.restarted"
+	WorkItemEventWorkItemResumed     WorkItemEventType = "work_item.resumed"
 	WorkItemEventWorkItemFailed      WorkItemEventType = "work_item.failed"
 	WorkItemEventCompletionSubmitted WorkItemEventType = "work_item.completion_submitted"
 	WorkItemEventAcceptanceRequested WorkItemEventType = "work_item.acceptance_requested"
@@ -45,7 +47,7 @@ func (t WorkItemEventType) Valid() bool {
 
 func (t WorkItemEventType) workItemScoped() (bool, bool) {
 	switch t {
-	case WorkItemEventWorkItemCreated,
+	case WorkItemEventWorkItemRestarted, WorkItemEventWorkItemResumed, WorkItemEventWorkItemCreated,
 		WorkItemEventWorkItemCompleted,
 		WorkItemEventWorkItemCancelled,
 		WorkItemEventWorkItemFailed,

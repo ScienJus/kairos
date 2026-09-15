@@ -20,7 +20,7 @@ const claim: Claim = {
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: 'task-1', work_item_id: 'work-1', status: 'working', active_claim_id: claim.id, parent_task_id: null,
-    workflow_task_id: null, workflow_activation_id: null, decomposed_at: null,
+    workflow_task_id: null, workflow_activation_id: null, retry_of_task_id: null, retry_context: '', retry_instructions: '', decomposed_at: null,
     title: 'Prepare release', description: 'Prepare the release notes.', acceptance_criteria: 'Notes are ready.',
     executor: 'human', allowed_roles: [], tags: [], reviews: [], submissions: [], failures: [],
     transition_decisions: [], position: 0, created_at: '2026-08-17T08:00:00Z',
@@ -35,7 +35,7 @@ function makeWorkItem(): WorkItem {
     id: 'work-1', definition: { id: 'definition-1', version: 1, mode: 'blackboard' }, status: 'open', acceptance_mode: 'none',
     title: 'Release', goal: 'Ship safely', context: '', constraints: '', acceptance_criteria: '', tags: [], result: '',
     version: 1, created_at: '2026-08-17T08:00:00Z', updated_at: '2026-08-17T08:00:00Z', completed_at: null,
-    cancelled_at: null, cancelled_by: null, cancellation_reason: '',
+    cancelled_at: null, cancelled_by: null, cancellation_reason: '', restart_of_work_item_id: null, restart_context: '', recovery_instructions: '', failure: null, workflow_max_task_executions: 0,
   }
 }
 

@@ -116,7 +116,6 @@ Authenticated 启动时，migration 005 与事务创建或读取唯一的 `crede
 
 工作台将任一有效凭据保存在当前标签页 sessionStorage；刷新恢复会话，退出或当前凭据收到 401 时清除凭据及业务缓存。登录提交时清空密码输入，失败时也不残留。迟到会话响应不能恢复已失效会话；存储不可用时明确报错。不要把凭据放入 URL、WorkItem、日志或截图。
 
-
 Agent 创建 Task Claim 或 Coordination Claim 时，可以附带一个由客户端生成的 `executor_token`。Token 必须以 `krs_claim_` 开头，后接按无填充 base64url 编码的 256 位随机值；Core 只保存其 SHA-256 hash。在 Authenticated Mode 中，该 Token 可在对应 Claim 保持 Active 期间作为 Bearer 凭据使用。它可以读取绑定 WorkItem 内的 Task、WorkItem context 和已提交 Artifact；Task Executor 还可以为其精确绑定的 Task Claim 创建或上传 Artifact，并扩展 Blackboard 计划，Coordination Executor 只读。其他操作一律拒绝。Claim 结束或被 reaper 回收后 Token 失效；Agent identity token 的轮换或撤销不影响已经 Active 的 Executor Token。
 
 只有完整且规范的 Executor Token 格式进入 Claim 认证，其他格式仍走 Identity 认证；Claim 认证失败不回退。内置生成器的旧 43 字符 Identity Token 因而保持兼容，包括前缀碰撞的情况。自定义旧 Token 若完整匹配新 Executor 格式，需要在升级前轮换。
@@ -134,7 +133,7 @@ Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式�
 | 认证与会话 | `GET /api/v1/auth/config`、`GET /api/v1/session` |
 | Workflow Definitions | 目录 `GET /api/v1/definitions/workflows`；最新版本 `GET /{id}`；历史与追加 `GET/POST /{id}/versions`；精确版本 `GET /{id}/versions/{version}` |
 | Blackboard Definitions | 目录 `GET /api/v1/definitions/blackboards`；最新版本 `GET /{id}`；历史与追加 `GET/POST /{id}/versions`；精确版本 `GET /{id}/versions/{version}` |
-| WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance`、`POST /cancellation`；Coordination Claim 使用 `POST /{id}/coordination-claims`、`POST /{id}/coordination-claims/{claim_id}/heartbeat` 和 `DELETE /{id}/coordination-claims/{claim_id}` |
+| WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance`、`POST /cancellation`、`POST /resume`、`POST /restart`；Coordination Claim 使用 `POST /{id}/coordination-claims`、`POST /{id}/coordination-claims/{claim_id}/heartbeat` 和 `DELETE /{id}/coordination-claims/{claim_id}` |
 | Artifacts | `GET /api/v1/work-items/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifact-uploads`、`GET /api/v1/artifacts/{id}/content` |
 | 工作发现 | `GET /api/v1/work` |
 | Task 详情与执行 | `GET /api/v1/tasks/{id}`、`/context`、`/claims`、`/submissions`、`/failures`、`/reviews` |
@@ -142,7 +141,7 @@ Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式�
 | 人工关注 | `GET /api/v1/human-attention` |
 | Identities | `GET/POST /api/v1/identities` 及 Token 轮换、撤销路由 |
 
-`GET /api/v1/human-attention` 包含待处理 Review、未认领的 Pending Human Task、当前 Human 持有有效 Claim 的 Working Task（包括 `executor=either`），以及等待人工验收的 WorkItem。不包含其他执行者正在处理的 Task 或未认领的 `either` Task。沿用 `human_task` kind，通过 `task.status` 区分待认领和进行中任务。所有者过滤在游标分页之前完成，终态 WorkItem 不再提供 Task 条目。
+`GET /api/v1/human-attention` 包含待处理 Review、未认领的 Pending Human Task、当前 Human 持有有效 Claim 的 Working Task（包括 `executor=either`），以及等待人工验收的 WorkItem。Human 调用时，还包含 Open Workflow 中尚无替代实例的 Failed Task；创建重试替代实例后，旧失败 Task 从该列表移出。不包含其他执行者正在处理的 Task 或未认领的 `either` Task。沿用 `human_task` kind，通过 `task.status` 区分待认领、当前用户执行中和上述失败任务。所有者和替代关系过滤均在游标分页之前完成，终态 WorkItem 不再提供 Task 条目。
 
 WorkItem、Human Attention、Definition 目录、Definition 版本历史和已提交 Artifact 的列表路由使用 cursor 分页。`limit` 默认为 50，允许范围为 1-200。每页返回 `{ "data": [...], "next_cursor": string | null }`；当该值非空时，将其作为 `cursor` 传回同一集合路由，并保留原有过滤参数。Cursor 是不透明且与集合绑定的；无效 cursor 或 limit 返回 `400 invalid_request`。WorkItem 按 `updated_at DESC, id ASC` 排序，Human Attention 优先返回 Review，其余按条目更新时间排序；Definition 目录按 `id ASC` 排序，版本历史按 `version DESC` 排序，Artifact 按 `created_at ASC, id ASC` 排序。
 
@@ -160,7 +159,21 @@ Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；�
 
 Operations console 只向 Human identity 提供这些 WorkItem 生命周期决策控件。Agent 通过 MCP 的发现与 Coordination Claim 循环执行这些决策，在加载完整上下文并开始分析前先建立 Claim。
 
-Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation Definition。起始 Task ID 必须唯一、存在于图中且对应 required Task，因此其数量由 Task Definition 上限自然约束。`max_task_executions` 传 0 时使用 100 的服务端默认值，显式值不能超过 500；它限制一个 WorkItem 的运行时 Task 实例总数。这些限制用于保护图规模和循环执行，不增加重复的运行时图校验。
+Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation Definition。起始 Task ID 必须唯一、存在于图中且对应 required Task，因此其数量由 Task Definition 上限自然约束。`max_task_executions` 统一配置、在同一 WorkItem 内按每个 Task Definition 节点分别计数。传 0 时使用 100 的默认值，显式值不能超过 500。每次新建 Task 实例计一次，包括起始和跳过的实例；释放或重新认领同一 Task 不增加次数；Workflow 重试创建新 Task，因此增加次数。其他节点和其他 WorkItem 互不占用额度，不再限制流程 Task 实例总数。这些限制用于保护图规模和循环执行，不增加重复的运行时图校验。尝试创建已耗尽额度节点的下一次实例时，WorkItem 进入 Failed 并结束活跃 Claim；来源提交和决策仍提交成功，失败事件包含目标节点及上限。 同一 WorkItem 内的重试保留先前 Human Review 驳回意见；从头执行不复制评审历史。Workflow 重试将完整指引单独保存到 `retry_instructions`，不受错误摘要截断影响。依次采用首个非空值：本次 Human 输入、来源尝试最新 `reopen` 失败的 `retry_prompt`、来源尝试已继承的 `retry_instructions`。自动 reopen 被执行上限阻止后，人类提高上限并继续执行，也会保留该指引。重试摘要优先为最新失败及中断原因保留空间，再携带较早历史，不重复拼接完整重试指引。 节点上限失败消息超过 32 KiB 时使用简短说明，完整节点 ID 仍保存在 `failure.workflow_task_id`；失败状态和 Claim 结束操作正常提交。
+
+这是正式发布前的语义修正：保留现有 `max_task_executions` 数值和不可变 Definition 版本，升级后按节点解释。尚未发布的增量迁移 `006_workflow_recovery` 增加带范围约束的 WorkItem `workflow_max_task_executions` 列；失败详情只作为快照保存在聚合中，不重复建列。已部署的 001–005 迁移保持不变。迁移将既有失败事件统一补齐为 `execution_failure`，保留包括旧总次数上限错误在内的原始消息；不引入旧版专用失败类型，也不会自动重开任何 WorkItem。没有历史失败事件的记录保留 `failure: null`。
+
+WorkItem 失败或仍有当前失败 Task 的 Workflow 提供两个 Human 操作：**继续执行**保留当前 WorkItem、成功分支、等待汇合和待人工评审，为失败或中断的执行创建新 Task，并仅补发已提交决策中尚未送达的输入；**从头执行**创建新的 WorkItem，从起点执行，复制原始目标和绑定的 Workflow 版本，并携带有长度限制的失败摘要及操作人补充说明。原 WorkItem 以 Failed 状态结束并保留执行历史，剩余 Claim 在同一事务中结束。A 的重试与同一轮成功的 B 汇合；A、B 都失败时，必须等二者的新尝试都成功才触发 C。不提供任意阶段重跑。继续执行保留各节点计数，重试的新 Task 也计数，必要时提高上限（最高 500）；从头执行的新 WorkItem 独立计数。已结束 Claim 不复活，恢复后重新发现并认领。从头执行保留来源 WorkItem 引用和当前失败摘要，不扫描或复制旧 URL、Artifact、Review、Submission 或恢复摘要。受限执行者不能读取其他 WorkItem，人类应在当前补充说明中列出需复用的外部成果；已有外部操作不会撤销。迁移仅补齐失败原因，不自动恢复。API 详见 `/resume` 和 `/restart`。
+
+WorkItem 响应包含 `failure`（失败前及继续执行后为 null）、`workflow_max_task_executions`（0 继承绑定版本，Blackboard 恒为 0）、`restart_of_work_item_id`（未复制时为 null）、`restart_context` 和 `recovery_instructions`（默认为空字符串）。失败快照包含 `kind`、`message`、`workflow_task_id`、`executions`、`limit`。Task 增加 `retry_of_task_id`（非重试实例为 null）、`retry_context`、`retry_instructions`（默认为空字符串）。恢复统一为 WorkItem 操作，不提供独立 Task 重试能力或接口。增量迁移 `007_workflow_attempts` 以独立列保存重试/来源关系，唯一索引保证每个 Task 至多一个直接替代实例；既有记录和旧 reopen 历史仍可读取。 HTTP WorkItem 上下文增加 `recovery_task_ids`（没有待重建任务或 Blackboard 时为 `[]`），与继续执行共用任务选择逻辑。控制台据此计算包含中断任务在内的单节点建议上限，超过 500 时仅提供从头执行；服务端提交时仍重新校验。该投影不持久化，也不进入 Agent MCP 视图。
+
+Human 管理接口：
+- `POST /api/v1/work-items/{id}/resume`：`{ "version": <当前 WorkItem version>, "max_task_executions": 0, "instructions": "..." }`。有未完成工作的 Failed Workflow 或含尚未替代失败 Task 的 Open Workflow 均可继续执行。一次事务替换所有当前失败实例，保留仍在执行的分支；Pending 实例仅在 Claim 被整个流程失败撤销时视为中断，正常释放、租约过期和评审驳回保持原实例（已耗尽 Claim 历史容量的实例除外）。上限省略或 0 保留当前值；显式值不可降低、最高 500，且必须容纳所有待重试和被阻止节点。旧总次数失败可沿用原上限按单节点恢复。成功返回 200，记录 `work_item.resumed`，清除当前失败快照，保留历史失败事件。
+- `POST /api/v1/work-items/{id}/restart`：`{ "version": <当前 WorkItem version>, "instructions": "..." }`，必须提供 `Idempotency-Key`。返回 201 和新 WorkItem，相同 key 和请求重放返回同一资源。含当前失败 Task 的 Open 来源会在同一事务中标记为 Failed 并撤销其他 Claim，已有 Failed 来源保持失败；来源版本递增以阻止并发继续/重启，记录 `work_item.restarted`；新对象复制原不可变 Definition 版本与当前上限覆盖值，不复制执行状态。
+
+补充说明可省略，上限为 32 KiB UTF-8 字节，与自动摘要分开保存。自动恢复摘要按相同字节上限安全截断并标记省略，来源历史完整保留。从头执行摘要仅包含来源 WorkItem ID、当前 WorkItem 失败原因以及当前失败 Task 尝试的最新原因，统一按 32 KiB UTF-8 字节上限安全截断。新 WorkItem 单独保存本次提交的 Human 说明；旧执行历史及旧人工说明留在来源中，不扫描或复制。当前失败原因中的 URL 作为原因正文保留，不提取为引用列表。管理接口不增加 Agent MCP 工具；MCP 上下文工具将 WorkItem 恢复信息放进 `work_item.context`，将 Task 重试信息放进 description，使受限执行者无需读取另一个 WorkItem 就能获得指引。`find_work` 仅保留原始 context/description，不附加自动恢复摘要。参数无效返回 400，Agent 返回 403，版本过期、状态不符或重试额度不足返回 409；继续执行在冲突时整体回滚（包括上限修改），旧 Claim 始终失效。
+
+Claim 失败接口/MCP `fail_task` 接受 `reopen`、`fail_task`、`fail_work_item`。Workflow 的 `reopen` 将旧 Task 结束为 Failed 并立即创建替代实例；若达到单节点上限，则提交失败记录并将 WorkItem 标记为上限失败。`fail_task` 仅支持 Workflow，将当前 Task 留在 Failed 等待 Human 继续执行，其他分支继续。`fail_work_item` 使整个 WorkItem 失败并撤销其他 Claim。Blackboard 的 `reopen` 仍将同一 Task 置回 Pending。对 Blackboard 的 `fail_task` 动作在历史容量处理前返回无效参数错误；即使失败记录已满，也不改变 WorkItem、Task、Claim 或事件。接口返回失败记录，新实例通过重新发现获取。
 
 `find_work` 按 `work_item_acceptance`、`blackboard_completion`、`task`、`empty_blackboard` 分组顺序返回未领取候选。`limit` 独立作用于每个组；省略或传 0 时默认为 5，最大允许 50。因此 Agent 最多收到四倍于 limit 的候选；Human 不会收到 Agent 验收候选。每个组都在数据库查询阶段限制结果，不会先加载完整候选集合再截断。
 

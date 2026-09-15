@@ -80,6 +80,7 @@ func boundedPage[T any](items []T, limit int) Page[T] {
 // WorkItemExecutionContext contains a durable WorkItem view that remains
 // addressable after it leaves the open candidate set.
 type WorkItemExecutionContext struct {
+	RecoveryTaskIDs         []domain.TaskID            `json:"recovery_task_ids"`
 	WorkItem                domain.WorkItem            `json:"work_item"`
 	Definition              DefinitionExecutionContext `json:"definition"`
 	Tasks                   []domain.Task              `json:"tasks"`
@@ -179,8 +180,12 @@ func (s *Service) GetWorkItemExecutionContext(
 				}
 			}
 		}
+		recoveryTaskIDs := make([]domain.TaskID, 0)
+		for _, task := range workflowRecoveryTasks(workItem, tasks, claims) {
+			recoveryTaskIDs = append(recoveryTaskIDs, task.ID)
+		}
 		result = WorkItemExecutionContext{
-			WorkItem: normalizeWorkItemCollections(workItem), Definition: normalizeDefinitionContext(definition),
+			RecoveryTaskIDs: recoveryTaskIDs, WorkItem: normalizeWorkItemCollections(workItem), Definition: normalizeDefinitionContext(definition),
 			Tasks: normalizeTasks(tasks), Relations: relations, Claims: claims, ActiveClaims: activeClaims,
 			CoordinationClaims: coordinationClaims, ActiveCoordinationClaim: activeCoordination, Artifacts: committedArtifacts,
 		}
