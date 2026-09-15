@@ -28,6 +28,8 @@ func outcomeSchema(candidate daemon.Candidate) ([]byte, error) {
 		kinds := []string{"completed", "retryable_failure", "terminal_failure", "abandoned"}
 		if candidate.Mode == domain.CoordinationModeBlackboard {
 			kinds = append(kinds, "decomposed")
+		} else if candidate.Mode == domain.CoordinationModeWorkflow {
+			kinds = append(kinds, "human_intervention_required")
 		}
 		transition := object(map[string]any{"choice_group_id": str, "skip_optional_task_ids": array(str), "review_skipped_task_ids": array(str), "reason": str})
 		var transitionSchema any = nullable(transition)

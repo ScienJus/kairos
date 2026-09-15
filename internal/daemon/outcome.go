@@ -14,14 +14,15 @@ import (
 type OutcomeKind string
 
 const (
-	Completed        OutcomeKind = "completed"
-	Decomposed       OutcomeKind = "decomposed"
-	RetryableFailure OutcomeKind = "retryable_failure"
-	TerminalFailure  OutcomeKind = "terminal_failure"
-	Abandoned        OutcomeKind = "abandoned"
-	CreateTask       OutcomeKind = "create_task"
-	SubmitCompletion OutcomeKind = "submit_completion"
-	AcceptCompletion OutcomeKind = "accept_completion"
+	Completed                 OutcomeKind = "completed"
+	Decomposed                OutcomeKind = "decomposed"
+	RetryableFailure          OutcomeKind = "retryable_failure"
+	TerminalFailure           OutcomeKind = "terminal_failure"
+	HumanInterventionRequired OutcomeKind = "human_intervention_required"
+	Abandoned                 OutcomeKind = "abandoned"
+	CreateTask                OutcomeKind = "create_task"
+	SubmitCompletion          OutcomeKind = "submit_completion"
+	AcceptCompletion          OutcomeKind = "accept_completion"
 )
 
 type TaskSpec struct {
@@ -130,7 +131,10 @@ func (o HarnessOutcome) Validate(c Candidate) error {
 					return err
 				}
 			}
-		case RetryableFailure, TerminalFailure, Abandoned:
+		case RetryableFailure, HumanInterventionRequired, TerminalFailure, Abandoned:
+			if t.Kind == HumanInterventionRequired && c.Mode != domain.CoordinationModeWorkflow {
+				return errors.New("human_intervention_required requires a Workflow Task")
+			}
 			if t.Result != "" || len(t.ArtifactIDs) != 0 || t.RequestReview || t.Transition != nil || len(t.Children) != 0 {
 				return errors.New("invalid failure or abandoned fields")
 			}

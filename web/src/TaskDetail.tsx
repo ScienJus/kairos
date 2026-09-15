@@ -213,9 +213,9 @@ export function TaskDetail({
               <div>
                 <strong>
                   {t(
-                    item.action === "reopen"
-                      ? "actionReopen"
-                      : item.action === "fail_task" ? "stopTask" : "actionFailWorkItem",
+                    item.action === "retry"
+                      ? "actionRetryRequested"
+                      : item.action === "await_human" ? "awaitHuman" : "actionFailWorkItem",
                   )}
                 </strong>
                 <p>{item.reason}</p>

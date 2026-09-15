@@ -78,12 +78,13 @@ func helperCLI() {
 		return
 	}
 	report := map[string]bool{
-		"identity_seen":     os.Getenv("KAIROS_DAEMON_TOKEN") != "",
-		"other_secret_seen": os.Getenv("UNRELATED_SECRET") != "" || os.Getenv("OPENAI_API_KEY") != "",
-		"executor_seen":     os.Getenv(executorEnv) != "",
-		"secret_in_args":    strings.Contains(strings.Join(os.Args, " "), os.Getenv(executorEnv)),
-		"secret_in_prompt":  strings.Contains(string(prompt), os.Getenv(executorEnv)),
-		"execution_prompt":  strings.Contains(string(prompt), "outcome.schema.json") && strings.Contains(string(prompt), "MCP server's credential-specific instructions"),
+		"human_intervention_prompt": strings.Contains(string(prompt), "return human_intervention_required") && strings.Contains(string(prompt), "empty retry_prompt"),
+		"identity_seen":             os.Getenv("KAIROS_DAEMON_TOKEN") != "",
+		"other_secret_seen":         os.Getenv("UNRELATED_SECRET") != "" || os.Getenv("OPENAI_API_KEY") != "",
+		"executor_seen":             os.Getenv(executorEnv) != "",
+		"secret_in_args":            strings.Contains(strings.Join(os.Args, " "), os.Getenv(executorEnv)),
+		"secret_in_prompt":          strings.Contains(string(prompt), os.Getenv(executorEnv)),
+		"execution_prompt":          strings.Contains(string(prompt), "outcome.schema.json") && strings.Contains(string(prompt), "MCP server's credential-specific instructions"),
 	}
 	data, _ := json.Marshal(report)
 	_ = os.WriteFile("report.json", data, 0600)
@@ -413,6 +414,40 @@ func TestRuntimeFailureReason(t *testing.T) {
 				}
 			} else if !errors.As(err, &failure) || !failure.System || failure.Reason != tc.reason || err.Error() != "Harness reported runtime failure" {
 				t.Fatalf("reason not retained privately: %v", err)
+			}
+		})
+	}
+}
+
+func TestHumanInterventionAdapterOutcome(t *testing.T) {
+	for _, mode := range []domain.CoordinationMode{domain.CoordinationModeWorkflow, domain.CoordinationModeBlackboard} {
+		t.Run(string(mode), func(t *testing.T) {
+			a, request := fixture(t, "success")
+			request.Candidate.Mode = mode
+			a.environment = append(a.environment, `KAIROS_FAKE_OUTCOME={"task":{"kind":"human_intervention_required","reason":"Human decision needed"},"runtime_failure":null}`)
+			ref, err := a.Start(context.Background(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer a.Forget(ref)
+			observation := observeEnd(t, a, ref)
+			if mode == domain.CoordinationModeWorkflow {
+				if observation.State != daemon.OutcomeReady || observation.Outcome == nil || observation.Outcome.Kind() != daemon.HumanInterventionRequired {
+					t.Fatalf("Workflow result: %+v", observation)
+				}
+			} else if observation.State != daemon.RuntimeFailed {
+				t.Fatalf("Blackboard result: %+v", observation)
+			}
+			data, err := os.ReadFile(filepath.Join(ref.ID, "report.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var report map[string]bool
+			if err := json.Unmarshal(data, &report); err != nil {
+				t.Fatal(err)
+			}
+			if report["human_intervention_prompt"] != (mode == domain.CoordinationModeWorkflow) {
+				t.Fatalf("mode %s prompt report: %s", mode, data)
 			}
 		})
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/ScienJus/kairos/internal/application"
 	"github.com/ScienJus/kairos/internal/domain"
 	"github.com/ScienJus/kairos/internal/identity"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -287,8 +288,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "fail_task",
+		InputSchema: failTaskSchema,
 		Title:       "Report task failure",
-		Description: "End Claim: reopen retries (new Workflow Task); fail_task stops one Workflow Task; fail_work_item stops all.",
+		Description: "End Claim: retry tries again; await_human waits (Workflow only); fail_work_item fails all.",
 		Annotations: mutationAnnotations(true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input failTaskInput) (*mcp.CallToolResult, failureOutput, error) {
 		failure, err := service.FailTask(ctx, application.FailTaskCommand{
@@ -479,10 +481,19 @@ type uploadArtifactInput struct {
 	ContentBase64 string `json:"content_base64" jsonschema:"Standard Base64 file bytes without a data URI prefix."`
 }
 
+var failTaskSchema = func() *jsonschema.Schema {
+	schema, err := jsonschema.For[failTaskInput](nil)
+	if err != nil {
+		panic(err) // Static Go input type must always produce a valid schema.
+	}
+	schema.Properties["action"].Enum = []any{string(domain.TaskFailureRetry), string(domain.TaskFailureAwaitHuman), string(domain.TaskFailureFailWorkItem)}
+	return schema
+}()
+
 type failTaskInput struct {
 	TaskID      string `json:"task_id"`
 	ClaimID     string `json:"claim_id"`
-	Action      string `json:"action" jsonschema:"reopen, fail_task (Workflow only), or fail_work_item."`
+	Action      string `json:"action" jsonschema:"await_human is Workflow only."`
 	Reason      string `json:"reason"`
 	RetryPrompt string `json:"retry_prompt,omitempty"`
 }

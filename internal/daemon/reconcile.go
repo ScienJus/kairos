@@ -78,7 +78,7 @@ func outcomeMatches(candidate Candidate, status ClaimStatus, intent HarnessOutco
 			}
 		}
 		return true
-	case RetryableFailure, TerminalFailure:
+	case RetryableFailure, HumanInterventionRequired, TerminalFailure:
 		if reason != "task_failed" {
 			return false
 		}

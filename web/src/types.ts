@@ -26,7 +26,8 @@ export interface Artifact {
   id: string; work_item_id: string; task_id: string; claim_id: string; submission_id: string | null
   name: string; uri: string; created_at: string
 }
-export interface Failure { id: string; task_id: string; claim_id: string; action: string; reason: string; retry_prompt: string; failed_at: string }
+export type TaskFailureAction = 'retry' | 'await_human' | 'fail_work_item'
+export interface Failure { id: string; task_id: string; claim_id: string; action: TaskFailureAction; reason: string; retry_prompt: string; failed_at: string }
 export interface Task {
  retry_of_task_id: string | null; retry_context: string; retry_instructions: string
   id: string; work_item_id: string; status: TaskStatus; active_claim_id: string | null; parent_task_id: string | null
@@ -103,7 +104,7 @@ export interface SubmitTaskInput {
   claim_id: string; result: string; artifact_ids: string[]; request_review: boolean
   transition: { choice_group_id: string; skip_optional_task_ids: string[]; review_skipped_task_ids: string[]; reason: string } | null
 }
-export interface FailTaskInput { claim_id: string; action: 'reopen' | 'fail_task' | 'fail_work_item'; reason: string; retry_prompt: string }
+export interface FailTaskInput { claim_id: string; action: TaskFailureAction; reason: string; retry_prompt: string }
 export interface DecomposeTaskInput { claim_id: string; children: TaskDraftInput[] }
 export interface ReviewDecisionInput { decision: 'approved' | 'rejected'; feedback: string }
 export interface CreateDefinitionInput {

@@ -263,7 +263,7 @@ func (c *HTTPClient) Apply(ctx context.Context, candidate Candidate, id, operati
 				children[i] = taskSpecRequest(child)
 			}
 			body["children"] = children
-		case RetryableFailure, TerminalFailure:
+		case RetryableFailure, HumanInterventionRequired, TerminalFailure:
 			path = taskPath(candidate) + "/failures"
 			body["action"] = failureAction(t.Kind)
 			body["reason"], body["retry_prompt"] = t.Reason, t.RetryPrompt
@@ -314,8 +314,12 @@ func transitionRequest(transition *Transition) *Transition {
 }
 
 func failureAction(kind OutcomeKind) domain.TaskFailureAction {
-	if kind == RetryableFailure {
-		return domain.TaskFailureReopen
+	switch kind {
+	case RetryableFailure:
+		return domain.TaskFailureRetry
+	case HumanInterventionRequired:
+		return domain.TaskFailureAwaitHuman
+	default:
+		return domain.TaskFailureFailWorkItem
 	}
-	return domain.TaskFailureFailWorkItem
 }

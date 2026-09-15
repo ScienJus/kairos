@@ -3,6 +3,9 @@ package daemon
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -128,4 +131,60 @@ func TestHeartbeatTimeoutCannotOverrunSafetyDeadline(t *testing.T) {
 			t.Fatalf("Stop after safety deadline: %s", stoppedAt.Sub(start))
 		}
 	})
+}
+
+func TestHumanInterventionOutcomeValidation(t *testing.T) {
+	candidate := taskCandidate()
+	candidate.Mode = domain.CoordinationModeWorkflow
+	valid := HarnessOutcome{Task: &TaskOutcome{Kind: HumanInterventionRequired, Reason: "Human decision needed"}}
+	if err := valid.Validate(candidate); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*TaskOutcome)
+		want   string
+	}{
+		{"missing reason", func(o *TaskOutcome) { o.Reason = " " }, "business failure requires a reason"},
+		{"retry prompt", func(o *TaskOutcome) { o.RetryPrompt = "retry" }, "retry prompt requires retryable_failure"},
+		{"whitespace prompt", func(o *TaskOutcome) { o.RetryPrompt = " " }, "retry prompt requires retryable_failure"},
+		{"result", func(o *TaskOutcome) { o.Result = "done" }, "invalid failure or abandoned fields"},
+		{"artifacts", func(o *TaskOutcome) { o.ArtifactIDs = []domain.ArtifactID{"artifact"} }, "invalid failure or abandoned fields"},
+		{"review", func(o *TaskOutcome) { o.RequestReview = true }, "invalid failure or abandoned fields"},
+		{"transition", func(o *TaskOutcome) { o.Transition = &Transition{} }, "invalid failure or abandoned fields"},
+		{"children", func(o *TaskOutcome) { o.Children = []TaskSpec{{Title: "child"}} }, "invalid failure or abandoned fields"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := *valid.Task
+			tc.mutate(&task)
+			if err := (HarnessOutcome{Task: &task}).Validate(candidate); err == nil || err.Error() != tc.want {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+	for _, reason := range []string{strings.Repeat("a", domain.MaxHistoryTextBytes), strings.Repeat("界", domain.MaxHistoryTextBytes/3) + strings.Repeat("a", domain.MaxHistoryTextBytes%3)} {
+		task := *valid.Task
+		task.Reason = reason
+		if err := (HarnessOutcome{Task: &task}).Validate(candidate); err != nil {
+			t.Fatal(err)
+		}
+		task.Reason += "a"
+		if err := (HarnessOutcome{Task: &task}).Validate(candidate); err == nil || err.Error() != "outcome history text exceeds the Core byte limit" {
+			t.Fatalf("byte limit: %v", err)
+		}
+	}
+	candidate.Mode = domain.CoordinationModeBlackboard
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusNoContent) }))
+	defer server.Close()
+	client, err := NewHTTPClient(server.URL, NewSecret("test-token"), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Apply(context.Background(), candidate, "claim", "operation", valid); err == nil || !strings.Contains(err.Error(), "human_intervention_required requires a Workflow Task") {
+		t.Fatalf("Blackboard rejection: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("invalid outcome sent %d Core requests", calls)
+	}
 }

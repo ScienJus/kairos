@@ -13,7 +13,7 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-func TestBlackboardStopValidationPrecedesFailureLimit(t *testing.T) {
+func TestBlackboardAwaitHumanValidationPrecedesFailureLimit(t *testing.T) {
 	for _, count := range []int{0, application.MaxFailuresPerTask - 1, application.MaxFailuresPerTask} {
 		t.Run(fmt.Sprintf("failures-%d", count), func(t *testing.T) {
 			forEachSQLRepository(t, func(t *testing.T, repo *SQLRepository, openPeer func(*testing.T) *SQLRepository) {
@@ -43,7 +43,7 @@ func TestBlackboardStopValidationPrecedesFailureLimit(t *testing.T) {
 						t.Fatal(err)
 					}
 					if i < count {
-						if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureReopen, Reason: "retry"}); err != nil {
+						if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureRetry, Reason: "retry"}); err != nil {
 							t.Fatal(err)
 						}
 					}
@@ -75,8 +75,8 @@ func TestBlackboardStopValidationPrecedesFailureLimit(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				command := application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureStop, Reason: "pause"}
-				if _, err := peer.FailTask(ctx, command); !errors.Is(err, application.ErrInvalidCommand) || !strings.Contains(err.Error(), "fail_task is only supported for Workflow") {
+				command := application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureAwaitHuman, Reason: "pause"}
+				if _, err := peer.FailTask(ctx, command); !errors.Is(err, application.ErrInvalidCommand) || !strings.Contains(err.Error(), "await_human is only supported for Workflow") {
 					t.Fatalf("want mode validation error, got %v", err)
 				}
 				after, afterSequence := read()
@@ -84,9 +84,9 @@ func TestBlackboardStopValidationPrecedesFailureLimit(t *testing.T) {
 					t.Fatal("invalid action changed persisted WorkItem, Task, Claims, or events")
 				}
 				if count == application.MaxFailuresPerTask {
-					command.Action = domain.TaskFailureReopen
+					command.Action = domain.TaskFailureRetry
 					if _, err := peer.FailTask(ctx, command); !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), "failure records") {
-						t.Fatalf("valid reopen must still enforce failure capacity, got %v", err)
+						t.Fatalf("valid retry must still enforce failure capacity, got %v", err)
 					}
 					terminal, _ := read()
 					if terminal.WorkItem.Status != domain.WorkItemStatusFailed || terminal.WorkItem.Failure == nil || !strings.Contains(terminal.WorkItem.Failure.Message, "failure records") || len(terminal.ActiveClaims) != 0 {

@@ -73,12 +73,12 @@ Claim 只覆盖执行者正在处理 Task 的阶段。执行者提交 Task 进�
 执行者无法完成 Task 时也会结束当前 Claim，并创建不可变的 Task Failure：
 
 ```text
-reopen         → Workflow：旧 Task Failed，新 Task Pending；Blackboard：原 Task Pending
-fail_task      → Workflow 当前 Task Failed，其他分支继续
+retry          → Workflow：旧 Task Failed，新 Task Pending；Blackboard：原 Task Pending
+await_human    → Workflow 当前 Task Failed，其他分支继续
 fail_work_item → Task 与 WorkItem 进入 Failed
 ```
 
-`reopen` 可以携带 Retry Prompt。失败历史保留在旧 Task；Workflow 新实例通过摘要和来源引用获取上下文，Human 继续执行为当前失败 Task 创建新实例，保留原激活关联以复用成功的并行输入。`fail_work_item` 停止产生和领取新 Task，其他 Active Claim 随 WorkItem 失败而结束。
+`retry` 可以携带 Retry Prompt。失败历史保留在旧 Task；Workflow 新实例通过摘要和来源引用获取上下文，Human 继续执行为当前失败 Task 创建新实例，保留原激活关联以复用成功的并行输入。`fail_work_item` 停止产生和领取新 Task，其他 Active Claim 随 WorkItem 失败而结束。
 
 ## 3. 责任建立方式
 

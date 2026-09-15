@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -108,9 +109,17 @@ func TestHTTPWorkflowTaskRetryAndRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		before := requestDataAs[application.WorkItemExecutionContext](t, server.Client(), http.MethodGet, url+"/context", nil, "", 200, human)
+		for _, removed := range []string{"reopen", "fail_task"} {
+			requestErrorAs(t, server.Client(), http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/failures", map[string]any{"claim_id": claim.ID, "action": removed, "reason": "invalid action"}, "", 400, "invalid_request", human)
+		}
+		after := requestDataAs[application.WorkItemExecutionContext](t, server.Client(), http.MethodGet, url+"/context", nil, "", 200, human)
+		if !reflect.DeepEqual(before, after) {
+			t.Fatal("removed failure action changed persisted state")
+		}
 		requestDataAs[domain.TaskFailure](t, server.Client(), http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/failures", map[string]any{"claim_id": claim.ID, "action": action, "reason": "需要修正配置"}, "", 201, human)
 	}
-	fail(task, domain.TaskFailureStop)
+	fail(task, domain.TaskFailureAwaitHuman)
 	current = requestDataAs[application.WorkItemExecutionContext](t, server.Client(), http.MethodGet, url+"/context", nil, "", 200, human)
 	notes := strings.Repeat("界", domain.MaxHistoryTextBytes/3) + "xx"
 	body := map[string]any{"version": current.WorkItem.Version, "instructions": notes}

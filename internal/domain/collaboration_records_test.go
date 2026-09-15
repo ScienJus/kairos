@@ -2,11 +2,12 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestTaskFailureReopensWithRetryPrompt(t *testing.T) {
+func TestTaskFailureRetriesWithRetryPrompt(t *testing.T) {
 	t.Parallel()
 
 	failedAt := testTime.Add(time.Minute)
@@ -21,7 +22,7 @@ func TestTaskFailureReopensWithRetryPrompt(t *testing.T) {
 				ID:          "failure-1",
 				TaskID:      "task-1",
 				ClaimID:     "claim-1",
-				Action:      TaskFailureReopen,
+				Action:      TaskFailureRetry,
 				Reason:      "The migration failed",
 				RetryPrompt: "Inspect the existing schema before retrying.",
 				FailedAt:    failedAt,
@@ -42,7 +43,7 @@ func TestTaskFailureReopensWithRetryPrompt(t *testing.T) {
 	}
 
 	if err := ValidateTaskContext(CoordinationModeBlackboard, task, claims); err != nil {
-		t.Fatalf("reopened task failure: %v", err)
+		t.Fatalf("retried task failure: %v", err)
 	}
 }
 
@@ -284,5 +285,35 @@ func workflowDecision(
 		},
 		DecidedBy: ActorRef{Kind: ActorAgent, ID: "agent-1"},
 		DecidedAt: testTime,
+	}
+}
+
+func TestTaskFailureActionNames(t *testing.T) {
+	for _, action := range []TaskFailureAction{"retry", "await_human", "fail_work_item"} {
+		failure := TaskFailure{ID: "failure", TaskID: "task", ClaimID: "claim", Action: action, Reason: "blocked", FailedAt: testTime}
+		if err := failure.Validate(); err != nil {
+			t.Fatalf("action %q: %v", action, err)
+		}
+		failure.RetryPrompt = "next attempt guidance"
+		if err := failure.Validate(); (err == nil) != (action == "retry") {
+			t.Fatalf("retry_prompt for %q: %v", action, err)
+		}
+	}
+	for _, action := range []TaskFailureAction{"reopen", "fail_task"} {
+		failure := TaskFailure{ID: "failure", TaskID: "task", ClaimID: "claim", Action: action, Reason: "blocked", FailedAt: testTime}
+		if err := failure.Validate(); !errors.Is(err, ErrInvalidModel) || !strings.Contains(err.Error(), "failure.action") {
+			t.Fatalf("removed action %q must be rejected: %v", action, err)
+		}
+	}
+	if !WorkItemEventType("task.retry_requested").Valid() || WorkItemEventType("task.reopened").Valid() {
+		t.Fatal("retry event names retain an alias or omit the current name")
+	}
+}
+
+func TestBlackboardTaskRejectsAwaitHumanFailure(t *testing.T) {
+	task := Task{ID: "task", WorkItemID: "work", Status: TaskStatusFailed, Title: "Task", Executor: ExecutorHuman, CreatedAt: testTime, UpdatedAt: testTime,
+		Failures: []TaskFailure{{ID: "failure", TaskID: "task", ClaimID: "claim", Action: TaskFailureAwaitHuman, Reason: "blocked", FailedAt: testTime}}}
+	if err := task.Validate(CoordinationModeBlackboard); !errors.Is(err, ErrInvalidModel) || !strings.Contains(err.Error(), "await_human is only supported for Workflow") {
+		t.Fatalf("Blackboard must reject await_human: %v", err)
 	}
 }

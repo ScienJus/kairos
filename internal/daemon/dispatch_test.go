@@ -129,7 +129,7 @@ func (f *fakeCore) Apply(_ context.Context, c Candidate, id, op string, o Harnes
 				f.claim.EndReason = "submitted_for_review"
 			}
 			f.status.Task.Submissions = append(f.status.Task.Submissions, domain.TaskSubmission{ID: "submission", ClaimID: domain.ClaimID(id), Result: o.Task.Result})
-		case RetryableFailure, TerminalFailure:
+		case RetryableFailure, HumanInterventionRequired, TerminalFailure:
 			f.claim.EndReason = "task_failed"
 			f.status.Task.Failures = append(f.status.Task.Failures, domain.TaskFailure{ClaimID: domain.ClaimID(id), Action: failureAction(o.Kind()), Reason: o.Task.Reason, RetryPrompt: o.Task.RetryPrompt})
 		case Decomposed:
@@ -221,7 +221,7 @@ func TestOutcomeApplicability(t *testing.T) {
 			} else if mode == domain.CoordinationModeWorkflow {
 				continue
 			}
-			for _, outcome := range []OutcomeKind{Completed, Decomposed, RetryableFailure, TerminalFailure, Abandoned, CreateTask, SubmitCompletion, AcceptCompletion} {
+			for _, outcome := range []OutcomeKind{Completed, Decomposed, RetryableFailure, HumanInterventionRequired, TerminalFailure, Abandoned, CreateTask, SubmitCompletion, AcceptCompletion} {
 				t.Run(string(kind)+"/"+string(mode)+"/"+string(outcome), func(t *testing.T) {
 					spec := TaskSpec{Title: "child", Executor: domain.ExecutorAgent}
 					o := HarnessOutcome{}
@@ -232,7 +232,7 @@ func TestOutcomeApplicability(t *testing.T) {
 							o.Task.Result = "done"
 						case Decomposed:
 							o.Task.Children = []TaskSpec{spec}
-						case RetryableFailure, TerminalFailure:
+						case RetryableFailure, HumanInterventionRequired, TerminalFailure:
 							o.Task.Reason = "business failure"
 						}
 					} else {
@@ -246,7 +246,7 @@ func TestOutcomeApplicability(t *testing.T) {
 					}
 					allowed := outcome == Abandoned
 					if kind == TaskCandidate {
-						allowed = allowed || outcome == Completed || outcome == RetryableFailure || outcome == TerminalFailure || (outcome == Decomposed && mode == domain.CoordinationModeBlackboard)
+						allowed = allowed || outcome == Completed || outcome == RetryableFailure || outcome == TerminalFailure || (outcome == Decomposed && mode == domain.CoordinationModeBlackboard) || (outcome == HumanInterventionRequired && mode == domain.CoordinationModeWorkflow)
 					} else {
 						allowed = allowed || outcome == CreateTask || (outcome == SubmitCompletion && kind != WorkItemAcceptance) || (outcome == AcceptCompletion && kind == WorkItemAcceptance)
 					}

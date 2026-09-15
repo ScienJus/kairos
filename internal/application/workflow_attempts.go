@@ -96,7 +96,7 @@ func newWorkflowRetryState(store ReadStore, work domain.WorkItem, definition dom
 	return state, nil
 }
 
-// Automatic reopen prepares the same state as Human recovery, for one Task.
+// Automatic retry prepares the same state as Human recovery, for one Task.
 func loadWorkflowRetryState(store ReadStore, work domain.WorkItem) (*workflowRetryState, error) {
 	tasks, err := store.ListTasks(work.ID)
 	if err != nil {
@@ -158,10 +158,10 @@ func (s *Service) retryWorkflowTask(store WriteStore, state *workflowRetryState,
 	var context strings.Builder
 	fmt.Fprintf(&context, "Retry of Task %s. Inspect existing external actions before repeating them.\n", source.ID)
 	task.RetryInstructions = instructions
-	// A limit can block automatic reopen before its prompt reaches a replacement.
+	// A limit can block automatic retry before its prompt reaches a replacement.
 	if task.RetryInstructions == "" && len(source.Failures) > 0 {
 		failure := source.Failures[len(source.Failures)-1]
-		if failure.Action == domain.TaskFailureReopen {
+		if failure.Action == domain.TaskFailureRetry {
 			task.RetryInstructions = failure.RetryPrompt
 		}
 	}

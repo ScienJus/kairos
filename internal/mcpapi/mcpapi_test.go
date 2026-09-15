@@ -129,6 +129,23 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	gotTools := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
 		gotTools = append(gotTools, tool.Name)
+		if tool.Name == "fail_task" {
+			encoded, err := json.Marshal(tool.InputSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var schema struct {
+				Properties map[string]struct {
+					Enum []string `json:"enum"`
+				} `json:"properties"`
+			}
+			if err := json.Unmarshal(encoded, &schema); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(schema.Properties["action"].Enum, []string{"retry", "await_human", "fail_work_item"}) {
+				t.Fatalf("failure action schema: %s", encoded)
+			}
+		}
 	}
 	slices.Sort(gotTools)
 	if !slices.Equal(gotTools, wantTools) {
@@ -254,12 +271,20 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	retryClaim := callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{
 		TaskID: retryTask.Task.ID, OperationID: "claim-retry-task-1",
 	})
+	for _, action := range []string{"reopen", "fail_task", "await_human"} {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "fail_task", Arguments: failTaskInput{
+			TaskID: retryTask.Task.ID, ClaimID: retryClaim.Claim.ID, Action: action, Reason: "Must reject without ending Claim",
+		}})
+		if err == nil && !result.IsError {
+			t.Fatalf("invalid Blackboard failure action %q succeeded", action)
+		}
+	}
 	failure := callTool[failureOutput](t, ctx, session, "fail_task", failTaskInput{
 		TaskID: retryTask.Task.ID, ClaimID: retryClaim.Claim.ID,
-		Action: "reopen",
+		Action: "retry",
 		Reason: "First attempt found missing context.", RetryPrompt: "Use the complete Blackboard context on retry.",
 	})
-	if failure.Failure.Action != string(domain.TaskFailureReopen) {
+	if failure.Failure.Action != string(domain.TaskFailureRetry) {
 		t.Fatalf("failure = %+v", failure.Failure)
 	}
 	retryClaim = callTool[claimOutput](t, ctx, session, "claim_task", claimTaskInput{

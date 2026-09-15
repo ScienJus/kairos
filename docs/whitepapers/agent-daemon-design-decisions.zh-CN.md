@@ -160,7 +160,7 @@ Agent Daemon 继续独占：
 - 其他会结束当前 Claim 或改变其他 Task 生命周期的操作，例如
   `skip_blackboard_task`。
 
-Harness 通过类型化 `TaskOutcome` 向 Agent Daemon 返回完成、请求 Review、分解、可重试失败、
+Harness 通过类型化 `TaskOutcome` 向 Agent Daemon 返回完成、请求 Review、分解、可重试失败、等待人工介入、
 终止 WorkItem 或放弃当前执行等意图，并在完成结果中引用自己已经创建的 `artifact_ids`。
 WorkItem cancellation 是 Human-only 管理操作，不属于 Harness outcome；外部取消 WorkItem 是
 Agent Daemon 必须响应的 Core 状态。
@@ -337,6 +337,7 @@ HarnessOutcome
 │   ├── completed
 │   ├── decomposed
 │   ├── retryable_failure
+│   ├── human_intervention_required
 │   ├── terminal_failure
 │   └── abandoned
 └── CoordinationDecision
@@ -354,6 +355,7 @@ Task `completed` 携带 Result、Artifact IDs、是否请求 Review 和可选 Wo
 | `completed` | 允许 | 允许 |
 | `decomposed` | 禁止 | 允许 |
 | `retryable_failure` | 允许 | 允许 |
+| `human_intervention_required` | 允许 | 禁止 |
 | `terminal_failure` | 允许 | 允许 |
 | `abandoned` | 允许 | 允许 |
 
@@ -364,7 +366,8 @@ Task `completed` 携带 Result、Artifact IDs、是否请求 Review 和可选 Wo
 | --- | --- | --- |
 | `TaskOutcome.completed` | Result、Artifact IDs、是否请求 Review、可选 Workflow transition | `submit_task` |
 | `TaskOutcome.decomposed` | 子 Task specs | `decompose_blackboard_task` |
-| `TaskOutcome.retryable_failure` | failure reason、可选 retry prompt | `fail_task(action=reopen)` |
+| `TaskOutcome.retryable_failure` | failure reason、可选 retry prompt | `fail_task(action=retry)` |
+| `TaskOutcome.human_intervention_required` | failure reason；仅 Workflow，retry prompt 为空 | `fail_task(action=await_human)` |
 | `TaskOutcome.terminal_failure` | failure reason | `fail_task(action=fail_work_item)` |
 | `TaskOutcome.abandoned` | 可选 release reason | `release_claim` |
 | `CoordinationDecision.create_task` | Task spec | `create_blackboard_task` |
@@ -382,7 +385,9 @@ Task 或 Coordination release 操作。
 quarantine，其他 Agent Daemon 不受影响。
 `abandoned` 不是成功 Dispatch，也不能清除已有的基础设施失败抑制状态。
 
-Agent Daemon 负责校验结果并调用 Core。`retryable_failure` 和 `terminal_failure` 只表示 Harness
+Agent Daemon 负责校验结果并调用 Core。`human_intervention_required` 将当前 Workflow 尝试结束为 Failed，其他分支继续；Human 继续执行时创建替代实例。Blackboard 在调用 Core 前拒绝此 outcome。
+
+`retryable_failure`、`human_intervention_required` 和 `terminal_failure` 只表示 Harness
 明确报告的业务失败；Adapter 运行时错误、输出协议错误或 `lost` 不是业务 Task Failure，
 Adapter 不得自行把它们翻译为 submit、fail 或 release。
 

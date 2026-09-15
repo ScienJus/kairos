@@ -140,15 +140,18 @@ TaskOutcome or a CoordinationDecision.
 
 ### TaskOutcome
 
-All Task outcomes apply to both Workflow and Blackboard except `decomposed`, which is Blackboard-only.
+`decomposed` is Blackboard-only; `human_intervention_required` is Workflow-only. All other Task outcomes apply to both modes.
 
 | Outcome | Content | Daemon operation |
 | --- | --- | --- |
 | `completed` | Result, Artifact IDs, Review request, optional Workflow transition | `submit_task` |
 | `decomposed` | Child Task specs | `decompose_blackboard_task` |
-| `retryable_failure` | Business reason, optional retry prompt | `fail_task(action=reopen)` |
+| `retryable_failure` | Business reason, optional retry prompt | `fail_task(action=retry)` |
+| `human_intervention_required` | Business reason; Workflow only, empty retry prompt | `fail_task(action=await_human)` |
 | `terminal_failure` | Business reason | `fail_task(action=fail_work_item)` |
 | `abandoned` | Optional release reason | `release_claim` |
+
+`human_intervention_required` ends the current Workflow attempt as Failed and waits for Human Continue to create a replacement; other branches continue. Blackboard rejects this outcome before calling Core.
 
 Workflow `retryable_failure` creates a new Task attempt at the same node and consumes another per-node execution; Blackboard reuses the Task. The Daemon discovers and claims the replacement on a subsequent poll. A Failed Workflow requires Human continue/restart; old Claims stay invalid.
 
