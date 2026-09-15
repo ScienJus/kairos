@@ -42,3 +42,7 @@ Use $kairos-agent to find and complete one available Task.
 两个会话可以并行 Claim 两个初始 Task。第三次尝试在出现新候选项之前不会发现可执行 Task。两个初始结果都提交后，Kairos 会开放汇合 Task，并在它的执行上下文中提供两个上游结果。
 
 只使用一个会话也可以，它会按顺序完成这些 Task。
+
+`workflow.json` 的 `max_task_executions: 10` 表示每个定义节点各自最多产生 10 个 Task 实例，流程不再设置实例总数上限。
+
+体验恢复时，可让一个分支失败，再在控制台选择**继续执行**，新尝试会与已成功的分支汇合。恢复及从头执行的详细规则见 [API 参考](../../docs/api-reference.zh-CN.md)。

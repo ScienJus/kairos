@@ -261,6 +261,9 @@ func workflowTaskEligible(store ReadStore, workItem domain.WorkItem, task domain
 	}
 	byID := make(map[domain.TaskID]domain.Task, len(tasks))
 	for _, existing := range tasks {
+		if existing.RetryOfTaskID != nil && *existing.RetryOfTaskID == task.ID {
+			return false, nil
+		}
 		byID[existing.ID] = existing
 	}
 	for _, relation := range relations {

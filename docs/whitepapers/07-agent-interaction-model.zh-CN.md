@@ -106,9 +106,9 @@ Task
 
 提交还可以携带当前协调模式允许的推进决策。Kairos 根据这些决策和模式规则更新 Task Graph。
 
-Operation ID 只用于创建 WorkItem、Task Claim、Coordination Claim、Artifact 或 Blackboard Task 的 HTTP 或 MCP 调用。完全相同的重试会返回原资源，避免响应丢失后无法找回服务端生成的 ID；同一 Operation ID 被用于不同参数时返回冲突。Definition 追加使用 base version，生命周期变更不保存旧响应：重试会依据当前 Task 和 WorkItem 状态重新判断，因此首次成功后可能返回冲突。托管 Artifact 上传还会通过 Operation ID 跨数据库与文件 Store 写入恢复。
+Operation ID 只用于创建 WorkItem（含 Human 从头执行）、Task Claim、Coordination Claim、Artifact 或 Blackboard Task 的 HTTP 或 MCP 调用。完全相同的重试会返回原资源，避免响应丢失后无法找回服务端生成的 ID；同一 Operation ID 被用于不同参数时返回冲突。Definition 追加使用 base version，生命周期变更不保存旧响应：重试会依据当前 Task 和 WorkItem 状态重新判断，因此首次成功后可能返回冲突。托管 Artifact 上传还会通过 Operation ID 跨数据库与文件 Store 写入恢复。
 
-Agent 无法完成 Task 时，可以提交失败原因并选择重新打开 Task 或使整个 WorkItem 失败。重新打开时可以附加 Retry Prompt；失败记录和提示会进入后续执行者读取的完整 Task 上下文。
+Agent 无法完成 Task 时，可以提交失败原因并选择重试（`reopen`）、只停止当前 Workflow Task 等待 Human 继续执行（`fail_task`），或使整个 WorkItem 失败。Workflow 重试创建新 Task，旧失败历史保留，新描述携带有长度限制的摘要；Blackboard reopen 仍将原 Task 置回 Pending。Retry Prompt 提供指引，Agent 重新发现并认领替代实例。Failed Workflow 需要 Human 选择继续执行，或创建新 WorkItem 从头执行。 同一 WorkItem 内的重试保留先前 Human Review 驳回意见；从头执行不复制评审历史。Workflow 重试将完整指引单独保存到 `retry_instructions`，不受错误摘要截断影响。依次采用首个非空值：本次 Human 输入、来源尝试最新 `reopen` 失败的 `retry_prompt`、来源尝试已继承的 `retry_instructions`。自动 reopen 被执行上限阻止后，人类提高上限并继续执行，也会保留该指引。重试摘要优先为最新失败及中断原因保留空间，再携带较早历史，不重复拼接完整重试指引。
 
 Human 可以在 Task 执行之外独立取消所属 WorkItem；Kairos 不向 Agent 或 MCP 提供取消动作。如果 heartbeat、提交、创建 Artifact、报告失败、释放 Claim 或其他变更返回 `work_item_cancelled`，取消决定具有权威性：Agent 立即停止，不再尝试失败、释放或以其他方式更新 Task。
 

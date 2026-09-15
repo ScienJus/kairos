@@ -150,6 +150,8 @@ All Task outcomes apply to both Workflow and Blackboard except `decomposed`, whi
 | `terminal_failure` | Business reason | `fail_task(action=fail_work_item)` |
 | `abandoned` | Optional release reason | `release_claim` |
 
+Workflow `retryable_failure` creates a new Task attempt at the same node and consumes another per-node execution; Blackboard reuses the Task. The Daemon discovers and claims the replacement on a subsequent poll. A Failed Workflow requires Human continue/restart; old Claims stay invalid.
+
 `completed.transition` is allowed only for Workflow Tasks. Long logs, patches, and deliverable files
 belong in Artifacts; completion refers to existing Artifact IDs.
 

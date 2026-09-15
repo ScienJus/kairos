@@ -4,10 +4,16 @@ export type Mode = 'blackboard' | 'workflow'
 export type AuthenticationMode = 'trusted' | 'authenticated'
 
 export interface DefinitionBinding { id: string; version: number; mode: Mode }
+export interface WorkItemFailure {
+  kind: 'execution_failure' | 'workflow_execution_limit'
+  message: string; workflow_task_id: string; executions: number; limit: number
+}
 export interface WorkItem {
+ restart_of_work_item_id: string | null; restart_context: string; recovery_instructions: string
   id: string; definition: DefinitionBinding; status: WorkItemStatus; acceptance_mode: 'none' | 'agent' | 'human'; title: string; goal: string
   context: string; constraints: string; acceptance_criteria: string; tags: string[]; result: string
   version: number; created_at: string; updated_at: string; completed_at: string | null
+  failure: WorkItemFailure | null; workflow_max_task_executions: number
   cancelled_at: string | null; cancelled_by: ActorRef | null; cancellation_reason: string
 }
 export interface Review {
@@ -22,6 +28,7 @@ export interface Artifact {
 }
 export interface Failure { id: string; task_id: string; claim_id: string; action: string; reason: string; retry_prompt: string; failed_at: string }
 export interface Task {
+ retry_of_task_id: string | null; retry_context: string; retry_instructions: string
   id: string; work_item_id: string; status: TaskStatus; active_claim_id: string | null; parent_task_id: string | null
   workflow_task_id: string | null; workflow_activation_id: string | null; decomposed_at: string | null
   title: string; description: string; acceptance_criteria: string; executor: 'agent' | 'human' | 'either'
@@ -62,6 +69,7 @@ export interface TaskRelation { work_item_id: string; from_task_id: string; to_t
 export interface BlackboardTaskDecomposition { parent: Task; children: Task[] }
 export interface DefinitionContext { name: string; description: string; agent_instructions: string; suggested_tags: string[] }
 export interface WorkItemContext {
+  recovery_task_ids: string[]
   work_item: WorkItem; definition: DefinitionContext; tasks: Task[]; relations: TaskRelation[]
   claims: Claim[]; active_claims: Claim[]; coordination_claims: CoordinationClaim[]
   active_coordination_claim: CoordinationClaim | null; artifacts: Artifact[]
@@ -77,6 +85,7 @@ export interface WorkflowTaskDefinition {
 }
 export interface WorkflowRelationDefinition { id: string; from_task_id: string; to_task_id: string; label?: string; agent_guidance?: string }
 export interface WorkflowDefinition extends Definition {
+  // max_task_executions applies separately to each node in a WorkItem; 0 uses 100.
   graph: { start_task_ids: string[]; tasks: WorkflowTaskDefinition[]; relations: WorkflowRelationDefinition[]; max_task_executions: number }
 }
 export interface AuthenticationConfig { mode: AuthenticationMode }
@@ -94,7 +103,7 @@ export interface SubmitTaskInput {
   claim_id: string; result: string; artifact_ids: string[]; request_review: boolean
   transition: { choice_group_id: string; skip_optional_task_ids: string[]; review_skipped_task_ids: string[]; reason: string } | null
 }
-export interface FailTaskInput { claim_id: string; action: 'reopen' | 'fail_work_item'; reason: string; retry_prompt: string }
+export interface FailTaskInput { claim_id: string; action: 'reopen' | 'fail_task' | 'fail_work_item'; reason: string; retry_prompt: string }
 export interface DecomposeTaskInput { claim_id: string; children: TaskDraftInput[] }
 export interface ReviewDecisionInput { decision: 'approved' | 'rejected'; feedback: string }
 export interface CreateDefinitionInput {
@@ -111,6 +120,7 @@ export interface CreateWorkflowDefinitionInput extends CreateDefinitionInput {
       artifacts: Array<{ name: string; description: string }>
     }>
     relations: Array<{ id: string; from_task_id: string; to_task_id: string; label: string; agent_guidance: string }>
+    // Per-node Task instance limit (including skipped instances); 0 uses 100.
     max_task_executions: number
   }
 }

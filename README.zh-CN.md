@@ -66,8 +66,10 @@ Workflow 定义合法的选择空间，同时允许执行者在配置好的位�
 - **推进 Guidance**：Relation 可以提供可选标签和 Agent 判断提示，但不会改变图的既有推进语义。
 - **自主跳过**：前序执行者判断 Optional Task 是否需要，多前置场景会汇总所有判断。
 - **自主 Review**：Task 可以配置为无需 Review、由执行者判断或必须 Review。
-- **循环**：执行者可以选择继续某条循环路径或退出，并由最大执行次数提供兜底保护。
+- **循环**：执行者可以选择继续某条循环路径或退出，并由单节点最大执行次数提供兜底保护。
 - **自动完成**：所有选中路径闭合后，WorkItem 自动完成。
+
+`max_task_executions` 统一配置，各 Workflow 节点和 WorkItem 分别计数，不限制流程的 Task 实例总数。
 
 ### Blackboard
 
@@ -97,7 +99,7 @@ Working
   │                        ├── 通过 → Completed
   │                        └── 驳回 → Pending → 重新 Claim
   └── 失败
-       ├── 重新打开 Task
+       ├── 重试 Task（Workflow 创建新实例）
        └── 结束 WorkItem
 ```
 
@@ -115,6 +117,8 @@ Working
 - Blackboard 显示为分层 Task 工作区。WorkItem 生命周期决策控件只向 Human 提供，Agent 使用 MCP Coordination Claim 循环。Relation 已通过 HTTP 和 MCP 接口提供，但控制台尚不能展示或创建 Relation。
 
 Task 生命周期变化、执行责任、Submission、Review、Failure 和 Artifact 共同展示所属 WorkItem 如何推进。完整的 WorkItem 事件时间线仍在规划中，底层 Event 已经持久化。
+
+Workflow 或当前 Task 失败后，人类可以**继续执行**：重试失败或中断的尝试，保留成功分支；也可以**从头执行**：携带原始目标和失败摘要创建新 WorkItem。旧历史留在来源 WorkItem，受限执行者无法跨 WorkItem 读取；请在补充说明中列出需复用的外部成果。详细规则见 [API 参考](docs/api-reference.zh-CN.md)。
 
 ## 项目状态
 

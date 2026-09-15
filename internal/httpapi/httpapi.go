@@ -159,6 +159,8 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/completion", h.submitBlackboardCompletion)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/acceptance", h.acceptBlackboardCompletion)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/cancellation", h.cancelWorkItem)
+	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/resume", h.resumeWorkflow)
+	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/restart", h.restartWorkflow)
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}/context", h.getTaskContext)
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}", h.getTaskDetail)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/claims", h.claimTask)
@@ -1310,4 +1312,53 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(status)
 	_ = json.NewEncoder(writer).Encode(value)
+}
+
+func (h *Handler) resumeWorkflow(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	var body struct {
+		Version           *int64 `json:"version"`
+		MaxTaskExecutions int    `json:"max_task_executions"`
+		Instructions      string `json:"instructions"`
+	}
+	if !decodeRequest(writer, request, &body) {
+		return
+	}
+	if body.Version == nil {
+		writeError(writer, fmt.Errorf("%w: version is required", application.ErrInvalidCommand))
+		return
+	}
+	work, err := h.service.ResumeWorkflow(request.Context(), application.ResumeWorkflowCommand{WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor, Version: *body.Version, MaxTaskExecutions: body.MaxTaskExecutions, Instructions: body.Instructions})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, dataResponse{Data: work})
+}
+
+func (h *Handler) restartWorkflow(writer http.ResponseWriter, request *http.Request) {
+	actor, ok := h.resolveIdentity(writer, request)
+	if !ok {
+		return
+	}
+	var body struct {
+		Version      *int64 `json:"version"`
+		Instructions string `json:"instructions"`
+	}
+	if !decodeRequest(writer, request, &body) {
+		return
+	}
+	if body.Version == nil {
+		writeError(writer, fmt.Errorf("%w: version is required", application.ErrInvalidCommand))
+		return
+	}
+	work, err := h.service.RestartWorkflow(request.Context(), application.RestartWorkflowCommand{WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor, Version: *body.Version, OperationID: operationID(request), Instructions: body.Instructions})
+	if err != nil {
+		writeError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusCreated, dataResponse{Data: work})
 }

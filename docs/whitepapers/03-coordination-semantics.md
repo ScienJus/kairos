@@ -96,7 +96,7 @@ A typical Workflow proceeds as:
 Bind Workflow Version → create Tasks on demand → execute → advance → complete
 ```
 
-A Workflow Definition can contain cycles. Every revisit to a definition node creates a new Task instance, so the runtime Task Graph remains an actual execution history. A progression choice continues or exits a cycle. A maximum Task instance count is only a runaway safeguard; exceeding it fails the WorkItem.
+A Workflow Definition can contain cycles. Every revisit to a definition node creates a new Task instance, so the runtime Task Graph remains an actual execution history. A progression choice continues or exits a cycle. One shared maximum applies independently to the Task instance count of each Definition node within a WorkItem. Attempting the next instance beyond that node’s limit fails the WorkItem; there is no total-instance limit across nodes.
 
 Blackboard forms a continuous feedback loop:
 
@@ -150,3 +150,5 @@ The Kairos coordination semantics can be summarized as:
 5. Every Task Relation in one WorkItem follows the semantics of that WorkItem’s mode.
 
 > Workflow uses the graph to enforce the path. Blackboard uses it to share the team's current best plan.
+
+Workflow recovery preserves successful branch outcomes and retries failed/interrupted attempts; Start over creates an independent WorkItem. See [Workflow](04-workflow.md) and the [API reference](../api-reference.md) for routing and recovery contracts.

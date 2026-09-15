@@ -11,7 +11,7 @@ import { WorkflowInstancePager } from './WorkItemPage'
 function task(id: string, position: number): Task {
   return {
     id: id, work_item_id: 'work-1', workflow_task_id: 'write', status: 'completed', active_claim_id: null, parent_task_id: null,
-    workflow_activation_id: 'activation-1', decomposed_at: null,
+    workflow_activation_id: 'activation-1', retry_of_task_id: null, retry_context: '', retry_instructions: '', decomposed_at: null,
     title: 'Write', description: '', acceptance_criteria: '', executor: 'agent', allowed_roles: ['writer'], tags: [],
     reviews: [], submissions: [], failures: [], transition_decisions: [], position: position,
     created_at: '2026-08-20T00:00:00Z', updated_at: '2026-08-20T00:00:00Z', completed_at: '2026-08-20T00:00:00Z',

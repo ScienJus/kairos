@@ -138,6 +138,8 @@ Adapter 将 Harness 专用输出转换成 HarnessOutcome，分为 TaskOutcome �
 | `terminal_failure` | 业务原因 | `fail_task(action=fail_work_item)` |
 | `abandoned` | 可选 release reason | `release_claim` |
 
+Workflow 的 `retryable_failure` 在同一节点创建新 Task 并增加该节点执行次数；Blackboard 复用原 Task。Daemon 在后续发现中认领替代实例。Failed Workflow 需 Human 继续执行或从头执行，旧 Claim 保持失效。
+
 `completed.transition` 只允许用于 Workflow Task。长日志、补丁和交付文件存入 Artifact，
 完成结果引用已有 Artifact IDs。
 

@@ -31,6 +31,17 @@ beforeEach(() => localStorage.setItem('kairos-console-locale', 'en'))
 afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear() })
 
 describe('Workflow definition routes', () => {
+  it('labels the per-node limit and displays the effective default for zero', async () => {
+    const value = definition('delivery', 2)
+    value.graph.max_task_executions = 0
+    vi.spyOn(api, 'listWorkflowDefinitions').mockResolvedValue({ data: [value], next_cursor: null })
+    vi.spyOn(api, 'listWorkflowDefinitionVersions').mockResolvedValue({ data: [value], next_cursor: null })
+    vi.spyOn(api, 'getWorkflowDefinition').mockResolvedValue(value)
+    renderPage()
+    const label = await screen.findByText('Max executions per node')
+    expect(label.parentElement).toHaveTextContent('100')
+  })
+
   it('resolves a directly addressed version without consuming shelf pages', async () => {
 		const list = vi.spyOn(api, 'listWorkflowDefinitions').mockResolvedValue({ data: [definition('operations', 1)], next_cursor: 'delivery-page' })
 		const versions = vi.spyOn(api, 'listWorkflowDefinitionVersions').mockResolvedValue({ data: [definition('delivery', 2), definition('delivery', 1)], next_cursor: null })

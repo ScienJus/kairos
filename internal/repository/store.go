@@ -136,7 +136,8 @@ func (s *sqlStore) ListHumanAttention(actor domain.ActorRef, page application.Pa
 				w.id AS work_item_id, t.id AS task_id, w.payload AS work_item_payload, t.payload AS task_payload
 			FROM tasks t
 			JOIN work_items w ON w.id = t.work_item_id
-			WHERE w.status = ? AND (
+			WHERE w.status = ? AND NOT EXISTS (SELECT 1 FROM tasks retry WHERE retry.retry_of_task_id = t.id) AND (
+                (t.status = 'failed' AND w.mode = 'workflow' AND ? = 'human') OR
 				(t.status = ? AND t.executor = ? AND t.active_claim_id IS NULL)
 				OR (t.status = ? AND ? = 'human' AND EXISTS (
 					SELECT 1 FROM claims c
@@ -152,7 +153,7 @@ func (s *sqlStore) ListHumanAttention(actor domain.ActorRef, page application.Pa
 		) attention`
 	args := []any{
 		domain.WorkItemStatusOpen, domain.TaskStatusInReview,
-		domain.WorkItemStatusOpen, domain.TaskStatusPending, domain.ExecutorHuman,
+		domain.WorkItemStatusOpen, actor.Kind, domain.TaskStatusPending, domain.ExecutorHuman,
 		domain.TaskStatusWorking, actor.Kind, true, actor.Kind, actor.ID,
 		domain.WorkItemStatusAwaitingHumanAcceptance,
 	}
@@ -551,8 +552,50 @@ func (s *sqlStore) ListWorkflowTaskActivations(
 	return result, normalizeError(rows.Err())
 }
 
+// Existing lookup/position indexes keep expansion scoped to a node or its
+// waiting correlation. These queries share the caller's WorkItem write lock.
+func (s *sqlStore) FindWaitingWorkflowTaskActivation(workItemID domain.WorkItemID, nodeID domain.WorkflowTaskID, correlationID domain.WorkflowCorrelationID) (domain.WorkflowTaskActivation, bool, error) {
+	rows, err := s.query(`SELECT payload FROM workflow_activations
+		WHERE work_item_id = ? AND workflow_task_id = ? AND correlation_id = ? AND status = ?
+		ORDER BY created_at, id LIMIT 2`, workItemID, nodeID, correlationID, domain.WorkflowActivationWaiting)
+	if err != nil {
+		return domain.WorkflowTaskActivation{}, false, err
+	}
+	defer rows.Close()
+	var result domain.WorkflowTaskActivation
+	found := false
+	for rows.Next() {
+		if found {
+			return domain.WorkflowTaskActivation{}, false, fmt.Errorf("%w: multiple waiting activations exist for workflow task %q and correlation %q", application.ErrConflict, nodeID, correlationID)
+		}
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return domain.WorkflowTaskActivation{}, false, normalizeError(err)
+		}
+		result, err = decodeJSON[domain.WorkflowTaskActivation](payload)
+		if err != nil {
+			return domain.WorkflowTaskActivation{}, false, err
+		}
+		found = true
+	}
+	return result, found, normalizeError(rows.Err())
+}
+
+func (s *sqlStore) CountResolvedWorkflowTaskActivations(workItemID domain.WorkItemID, nodeID domain.WorkflowTaskID) (int, error) {
+	var count int
+	err := s.queryRow(`SELECT COUNT(*) FROM workflow_activations
+		WHERE work_item_id = ? AND workflow_task_id = ? AND status = ?`, workItemID, nodeID, domain.WorkflowActivationResolved).Scan(&count)
+	return count, normalizeError(err)
+}
+
+func (s *sqlStore) NextTaskPosition(workItemID domain.WorkItemID) (int64, error) {
+	var position int64
+	err := s.queryRow("SELECT COALESCE(MAX(position), -1) + 1 FROM tasks WHERE work_item_id = ?", workItemID).Scan(&position)
+	return position, normalizeError(err)
+}
+
 func (s *sqlStore) ListOpenTasks(filter application.OpenTaskFilter) ([]application.WorkCandidate, error) {
-	conditions := []string{"w.status = ?", "t.status = ?"}
+	conditions := []string{"w.status = ?", "t.status = ?", "NOT EXISTS (SELECT 1 FROM tasks retry WHERE retry.retry_of_task_id = t.id)"}
 	args := []any{domain.WorkItemStatusOpen, domain.TaskStatusPending}
 	switch filter.ActorKind {
 	case domain.ActorHuman:
@@ -1074,8 +1117,8 @@ func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
 	}
 	_, err = s.exec(`
 		INSERT INTO work_items
-			(id, definition_id, definition_version, mode, status, acceptance_mode, tags, version, created_at, updated_at, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, definition_id, definition_version, mode, status, acceptance_mode, tags, version, created_at, updated_at, payload, workflow_max_task_executions, restart_of_work_item_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID,
 		value.Definition.ID,
 		value.Definition.Version,
@@ -1086,7 +1129,7 @@ func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
 		value.Version,
 		databaseTime(value.CreatedAt),
 		databaseTime(value.UpdatedAt),
-		payload,
+		payload, value.WorkflowMaxTaskExecutions, nullString(value.RestartOfWorkItemID),
 	)
 	return err
 }
@@ -1112,9 +1155,9 @@ func (s *sqlStore) SaveWorkItem(value domain.WorkItem) error {
 	}
 	result, err := s.exec(`
 		UPDATE work_items
-		SET status = ?, acceptance_mode = ?, tags = ?, version = ?, updated_at = ?, payload = ?
+		SET status = ?, acceptance_mode = ?, tags = ?, version = ?, updated_at = ?, payload = ?, workflow_max_task_executions = ?
 		WHERE id = ? AND version = ?`,
-		value.Status, value.AcceptanceMode, tags, value.Version, databaseTime(value.UpdatedAt), payload, value.ID, value.Version-1,
+		value.Status, value.AcceptanceMode, tags, value.Version, databaseTime(value.UpdatedAt), payload, value.WorkflowMaxTaskExecutions, value.ID, value.Version-1,
 	)
 	if err != nil {
 		return err
@@ -1130,6 +1173,15 @@ func (s *sqlStore) CreateTask(value domain.Task) error {
 	}
 	if err := value.Validate(mode); err != nil {
 		return err
+	}
+	if value.RetryOfTaskID != nil {
+		source, err := s.GetTask(*value.RetryOfTaskID)
+		if err != nil {
+			return err
+		}
+		if source.WorkItemID != value.WorkItemID || source.WorkflowTaskID == nil || value.WorkflowTaskID == nil || *source.WorkflowTaskID != *value.WorkflowTaskID {
+			return fmt.Errorf("%w: retry must use the same WorkItem and node", application.ErrConflict)
+		}
 	}
 	if value.ParentTaskID != nil {
 		var parentWorkItemID domain.WorkItemID
@@ -1154,8 +1206,8 @@ func (s *sqlStore) CreateTask(value domain.Task) error {
 	}
 	_, err = s.exec(`
 		INSERT INTO tasks
-			(id, work_item_id, parent_task_id, status, executor, allowed_roles, tags, active_claim_id, position, version, created_at, updated_at, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, work_item_id, parent_task_id, status, executor, allowed_roles, tags, active_claim_id, position, version, created_at, updated_at, payload, retry_of_task_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID,
 		value.WorkItemID,
 		nullString(value.ParentTaskID),
@@ -1168,7 +1220,7 @@ func (s *sqlStore) CreateTask(value domain.Task) error {
 		value.Version,
 		databaseTime(value.CreatedAt),
 		databaseTime(value.UpdatedAt),
-		payload,
+		payload, nullString(value.RetryOfTaskID),
 	)
 	return err
 }
@@ -1185,9 +1237,12 @@ func (s *sqlStore) SaveTask(value domain.Task) error {
 	if value.Version <= 0 {
 		return fmt.Errorf("%w: task %q has no previous version", application.ErrConflict, value.ID)
 	}
-	var storedParent sql.NullString
-	if err := s.queryRow("SELECT parent_task_id FROM tasks WHERE id = ?", value.ID).Scan(&storedParent); err != nil {
+	var storedParent, storedRetry sql.NullString
+	if err := s.queryRow("SELECT parent_task_id, retry_of_task_id FROM tasks WHERE id = ?", value.ID).Scan(&storedParent, &storedRetry); err != nil {
 		return normalizeError(err)
+	}
+	if storedRetry.Valid != (value.RetryOfTaskID != nil) || (storedRetry.Valid && storedRetry.String != string(*value.RetryOfTaskID)) {
+		return fmt.Errorf("%w: task retry source is immutable", application.ErrConflict)
 	}
 	if storedParent.Valid != (value.ParentTaskID != nil) ||
 		(storedParent.Valid && storedParent.String != string(*value.ParentTaskID)) {

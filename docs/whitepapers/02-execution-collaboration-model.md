@@ -73,11 +73,12 @@ A Claim covers only the period during which the executor is working on the Task.
 When an executor cannot complete a Task, Kairos also ends the Claim and creates an immutable Task Failure:
 
 ```text
-reopen         → Task returns to Pending
+reopen         → Workflow: old Task Failed, new Task Pending; Blackboard: same Task Pending
+fail_task      → Workflow Task Failed; other branches continue
 fail_work_item → Task and WorkItem become Failed
 ```
 
-`reopen` can include a Retry Prompt. Every failure reason and Retry Prompt remains in Task context for the next executor. `fail_work_item` stops new Tasks from being created or claimed and ends other Active Claims as the WorkItem fails.
+`reopen` can include a Retry Prompt. Failure history remains on the old Task; Workflow replacements receive a bounded summary and the prior attempt reference. Human Continue execution creates replacement Tasks with the same activation correlation, reusing successful parallel inputs. `fail_work_item` stops new Tasks from being created or claimed and ends other Active Claims as the WorkItem fails.
 
 ## 3. Ways to Establish Responsibility
 
