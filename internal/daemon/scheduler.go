@@ -221,7 +221,7 @@ func (s *Scheduler) finish(run *scheduledRun) {
 			record = suppression{generation: run.work.Generation}
 		}
 		switch {
-		case result.Outcome == Abandoned:
+		case result.Outcome == CandidateDeclined:
 			record.quarantined = true
 			s.records[run.work.Candidate] = record
 		case result.OutcomeApplied:

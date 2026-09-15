@@ -159,8 +159,8 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/completion", h.submitBlackboardCompletion)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/acceptance", h.acceptBlackboardCompletion)
 	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/cancellation", h.cancelWorkItem)
-	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/resume", h.resumeWorkflow)
-	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/restart", h.restartWorkflow)
+	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/continue", h.continueWorkflow)
+	h.mux.HandleFunc("POST /api/v1/work-items/{work_item_id}/start-over", h.startOverWorkflow)
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}/context", h.getTaskContext)
 	h.mux.HandleFunc("GET /api/v1/tasks/{task_id}", h.getTaskDetail)
 	h.mux.HandleFunc("POST /api/v1/tasks/{task_id}/claims", h.claimTask)
@@ -308,10 +308,10 @@ type workflowDefinitionRequest struct {
 }
 
 type workflowGraphRequest struct {
-	StartTaskIDs      []domain.WorkflowTaskID         `json:"start_task_ids"`
-	Tasks             []workflowTaskDefinitionRequest `json:"tasks"`
-	Relations         []workflowRelationRequest       `json:"relations"`
-	MaxTaskExecutions int                             `json:"max_task_executions"`
+	StartTaskIDs            []domain.WorkflowTaskID         `json:"start_task_ids"`
+	Tasks                   []workflowTaskDefinitionRequest `json:"tasks"`
+	Relations               []workflowRelationRequest       `json:"relations"`
+	MaxTaskInstancesPerNode int                             `json:"max_task_instances_per_node"`
 }
 
 type workflowTaskDefinitionRequest struct {
@@ -363,7 +363,7 @@ func (r workflowGraphRequest) domainGraph() domain.WorkflowGraph {
 	}
 	return domain.WorkflowGraph{
 		StartTaskIDs: r.StartTaskIDs, Tasks: tasks, Relations: relations,
-		MaxTaskExecutions: r.MaxTaskExecutions,
+		MaxTaskInstancesPerNode: r.MaxTaskInstancesPerNode,
 	}
 }
 
@@ -1314,15 +1314,15 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(writer).Encode(value)
 }
 
-func (h *Handler) resumeWorkflow(writer http.ResponseWriter, request *http.Request) {
+func (h *Handler) continueWorkflow(writer http.ResponseWriter, request *http.Request) {
 	actor, ok := h.resolveIdentity(writer, request)
 	if !ok {
 		return
 	}
 	var body struct {
-		Version           *int64 `json:"version"`
-		MaxTaskExecutions int    `json:"max_task_executions"`
-		Instructions      string `json:"instructions"`
+		Version                 *int64 `json:"version"`
+		MaxTaskInstancesPerNode int    `json:"max_task_instances_per_node"`
+		Instructions            string `json:"instructions"`
 	}
 	if !decodeRequest(writer, request, &body) {
 		return
@@ -1331,7 +1331,7 @@ func (h *Handler) resumeWorkflow(writer http.ResponseWriter, request *http.Reque
 		writeError(writer, fmt.Errorf("%w: version is required", application.ErrInvalidCommand))
 		return
 	}
-	work, err := h.service.ResumeWorkflow(request.Context(), application.ResumeWorkflowCommand{WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor, Version: *body.Version, MaxTaskExecutions: body.MaxTaskExecutions, Instructions: body.Instructions})
+	work, err := h.service.ContinueWorkflow(request.Context(), application.ContinueWorkflowCommand{WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor, Version: *body.Version, MaxTaskInstancesPerNode: body.MaxTaskInstancesPerNode, Instructions: body.Instructions})
 	if err != nil {
 		writeError(writer, err)
 		return
@@ -1339,7 +1339,7 @@ func (h *Handler) resumeWorkflow(writer http.ResponseWriter, request *http.Reque
 	writeJSON(writer, http.StatusOK, dataResponse{Data: work})
 }
 
-func (h *Handler) restartWorkflow(writer http.ResponseWriter, request *http.Request) {
+func (h *Handler) startOverWorkflow(writer http.ResponseWriter, request *http.Request) {
 	actor, ok := h.resolveIdentity(writer, request)
 	if !ok {
 		return
@@ -1355,7 +1355,7 @@ func (h *Handler) restartWorkflow(writer http.ResponseWriter, request *http.Requ
 		writeError(writer, fmt.Errorf("%w: version is required", application.ErrInvalidCommand))
 		return
 	}
-	work, err := h.service.RestartWorkflow(request.Context(), application.RestartWorkflowCommand{WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor, Version: *body.Version, OperationID: operationID(request), Instructions: body.Instructions})
+	work, err := h.service.StartOverWorkflow(request.Context(), application.StartOverWorkflowCommand{WorkItemID: domain.WorkItemID(request.PathValue("work_item_id")), Identity: actor, Version: *body.Version, OperationID: operationID(request), Instructions: body.Instructions})
 	if err != nil {
 		writeError(writer, err)
 		return

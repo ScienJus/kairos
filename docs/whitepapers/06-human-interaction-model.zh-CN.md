@@ -28,7 +28,7 @@ Workspace 概括完整的 WorkItem。协调和执行仍位于每个 WorkItem 内
 
 ## 2. Workspace
 
-Workspace 区分仍在推进的工作与已经进入终态的工作，并通过 WorkItem 的标题、目标和状态直接进入其协调详情。
+Workspace 将仍在推进的工作与已完成、已取消、失败的 WorkItem 分组展示，并通过标题、目标和状态直接进入协调详情。Failed Workflow 可以恢复：满足恢复条件时，人类“继续执行”将当前 WorkItem 置回 Open；“从头执行”创建新的 WorkItem，来源仍为 Failed。界面分组不代表 Failed 是不可恢复的生命周期终态。
 
 当前“需要人工关注”投影聚合：
 
@@ -112,4 +112,4 @@ Task 详情       = 一个执行单元的责任、历史与操作
 
 > Workspace 回答“哪里需要我”；WorkItem 详情解释整体进度；Task 详情提供可以立即执行的操作。
 
-开放 Workflow 中尚未被替代的 Failed Task 也进入“需要人处理”，不限原 executor。在 WorkItem 上继续执行会为所有当前失败 Task 创建新实例，旧 Task 保留为历史并退出待办。Failed WorkItem 提供“继续执行”和“从头执行（新 WorkItem）”，不提供任意阶段选择。从头执行仅携带本次失败原因与当前 Human 说明；控制台提示填写需复用的外部成果，因为受限执行者无法读取来源历史。
+开放 Workflow 中尚未被替代的 Failed Task 也进入“需要人处理”，不限原 executor。在 WorkItem 上继续执行会为所有当前失败 Task 创建新实例，旧 Task 保留为历史并退出待办。Failed Workflow WorkItem 提供“继续执行”和“从头执行（新 WorkItem）”，不提供任意阶段选择。从头执行仅携带本次失败原因与当前 Human 说明；控制台提示填写需复用的外部成果，因为受限执行者无法读取来源历史。

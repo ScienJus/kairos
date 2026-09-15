@@ -47,19 +47,19 @@ type workflowRetryLimitError struct {
 }
 
 func (e *workflowRetryLimitError) Error() string {
-	return fmt.Sprintf("workflow node %q has %d executions at limit %d; increase max_task_executions to retry", e.Node, e.Count, e.Limit)
+	return fmt.Sprintf("workflow node %q has %d task instances at limit %d; increase max_task_instances_per_node to retry", e.Node, e.Count, e.Limit)
 }
 
 // workflowRetryState belongs to one transaction's replacement batch. Historical
 // snapshots are indexed once; successful replacements advance counts and position.
 type workflowRetryState struct {
-	definitions map[domain.WorkflowTaskID]domain.WorkflowTaskDefinition
-	activations map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation
-	executions  map[domain.WorkflowTaskID]int
-	replaced    map[domain.TaskID]bool
-	incoming    map[domain.TaskID][]domain.TaskRelation
-	position    int64
-	limit       int
+	definitions   map[domain.WorkflowTaskID]domain.WorkflowTaskDefinition
+	activations   map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation
+	taskInstances map[domain.WorkflowTaskID]int
+	replaced      map[domain.TaskID]bool
+	incoming      map[domain.TaskID][]domain.TaskRelation
+	position      int64
+	limit         int
 }
 
 func newWorkflowRetryState(store ReadStore, work domain.WorkItem, definition domain.WorkflowDefinition, tasks []domain.Task, activations []domain.WorkflowTaskActivation) (*workflowRetryState, error) {
@@ -68,13 +68,13 @@ func newWorkflowRetryState(store ReadStore, work domain.WorkItem, definition dom
 		return nil, err
 	}
 	state := &workflowRetryState{
-		definitions: make(map[domain.WorkflowTaskID]domain.WorkflowTaskDefinition, len(definition.Graph.Tasks)),
-		activations: make(map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation, len(activations)),
-		executions:  make(map[domain.WorkflowTaskID]int),
-		replaced:    make(map[domain.TaskID]bool),
-		incoming:    make(map[domain.TaskID][]domain.TaskRelation),
-		position:    nextTaskPosition(tasks),
-		limit:       effectiveWorkflowExecutionLimit(work, definition),
+		definitions:   make(map[domain.WorkflowTaskID]domain.WorkflowTaskDefinition, len(definition.Graph.Tasks)),
+		activations:   make(map[domain.WorkflowTaskActivationID]domain.WorkflowTaskActivation, len(activations)),
+		taskInstances: make(map[domain.WorkflowTaskID]int),
+		replaced:      make(map[domain.TaskID]bool),
+		incoming:      make(map[domain.TaskID][]domain.TaskRelation),
+		position:      nextTaskPosition(tasks),
+		limit:         effectiveWorkflowTaskInstanceLimit(work, definition),
 	}
 	for _, node := range definition.Graph.Tasks {
 		state.definitions[node.ID] = node
@@ -82,7 +82,7 @@ func newWorkflowRetryState(store ReadStore, work domain.WorkItem, definition dom
 	for _, activation := range activations {
 		state.activations[activation.ID] = activation
 		if activation.Status == domain.WorkflowActivationResolved {
-			state.executions[activation.WorkflowTaskID]++
+			state.taskInstances[activation.WorkflowTaskID]++
 		}
 	}
 	for _, task := range tasks {
@@ -125,7 +125,7 @@ func (s *Service) retryWorkflowTask(store WriteStore, state *workflowRetryState,
 	if state.replaced[source.ID] {
 		return domain.Task{}, conflict("task already has a replacement attempt")
 	}
-	count := state.executions[*source.WorkflowTaskID]
+	count := state.taskInstances[*source.WorkflowTaskID]
 	if count >= state.limit {
 		return domain.Task{}, &workflowRetryLimitError{Node: *source.WorkflowTaskID, Count: count, Limit: state.limit}
 	}
@@ -217,7 +217,7 @@ func (s *Service) retryWorkflowTask(store WriteStore, state *workflowRetryState,
 	if err := s.appendEvent(store, work.ID, &task.ID, domain.WorkItemEventTaskCreated, string(task.ID), &actor, "retry of task "+string(source.ID)); err != nil {
 		return domain.Task{}, err
 	}
-	state.executions[*source.WorkflowTaskID]++
+	state.taskInstances[*source.WorkflowTaskID]++
 	state.position++
 	state.replaced[source.ID] = true
 	return task, nil
@@ -245,7 +245,7 @@ func workflowRecoveryAvailable(work domain.WorkItem, tasks []domain.Task) bool {
 func interruptedWorkflowTask(claims []domain.Claim) bool {
 	// Task Claims are revoked only by failWorkItem. A continued revoked attempt
 	// is replaced, so a current (unreplaced) instance cannot contain an older
-	// revocation followed by resumed execution. Released/expired Claims are normal.
+	// revocation followed by continued execution. Released/expired Claims are normal.
 	for _, claim := range claims {
 		if claim.EndReason == domain.ClaimEndRevoked && !claim.Active() {
 			return true

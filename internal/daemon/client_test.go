@@ -189,17 +189,17 @@ func TestHTTPDispatchOutcomesAndLostResponses(t *testing.T) {
 		{TaskCandidate, domain.CoordinationModeBlackboard, HarnessOutcome{Task: &TaskOutcome{Kind: Completed, Result: "review", RequestReview: true}}},
 		{TaskCandidate, domain.CoordinationModeBlackboard, HarnessOutcome{Task: &TaskOutcome{Kind: Decomposed, Children: []TaskSpec{spec}}}},
 		{TaskCandidate, domain.CoordinationModeBlackboard, HarnessOutcome{Task: &TaskOutcome{Kind: RetryableFailure, Reason: "business blocker", RetryPrompt: "try this"}}},
-		{TaskCandidate, domain.CoordinationModeBlackboard, HarnessOutcome{Task: &TaskOutcome{Kind: TerminalFailure, Reason: "business impossible"}}},
-		{TaskCandidate, domain.CoordinationModeBlackboard, HarnessOutcome{Task: &TaskOutcome{Kind: Abandoned, Reason: "not suitable"}}},
+		{TaskCandidate, domain.CoordinationModeBlackboard, HarnessOutcome{Task: &TaskOutcome{Kind: WorkItemFailure, Reason: "business impossible"}}},
+		{TaskCandidate, domain.CoordinationModeBlackboard, HarnessOutcome{Task: &TaskOutcome{Kind: CandidateDeclined, Reason: "not suitable"}}},
 		{TaskCandidate, domain.CoordinationModeWorkflow, completedOutcome()},
 		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: Completed, Result: "review", RequestReview: true}}},
 		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: RetryableFailure, Reason: "business blocker", RetryPrompt: "try this"}}},
 		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: HumanInterventionRequired, Reason: "human decision needed"}}},
-		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: TerminalFailure, Reason: "business impossible"}}},
-		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: Abandoned}}},
+		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: WorkItemFailure, Reason: "business impossible"}}},
+		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: CandidateDeclined}}},
 	}
 	for _, kind := range []CandidateKind{EmptyBlackboard, BlackboardCompletion, WorkItemAcceptance} {
-		for _, outcome := range []OutcomeKind{CreateTask, Abandoned, SubmitCompletion, AcceptCompletion} {
+		for _, outcome := range []OutcomeKind{CreateTask, CandidateDeclined, SubmitCompletion, AcceptCompletion} {
 			o := HarnessOutcome{Coordination: &CoordinationDecision{Kind: outcome}}
 			if outcome == CreateTask {
 				o.Coordination.Task = &spec
@@ -260,9 +260,9 @@ func TestHTTPDispatchOutcomesAndLostResponses(t *testing.T) {
 			if claimCount != 1 {
 				t.Fatalf("created %d Executor Claims", claimCount)
 			}
-			if tc.outcome.Kind() == RetryableFailure || tc.outcome.Kind() == TerminalFailure || tc.outcome.Kind() == HumanInterventionRequired {
+			if tc.outcome.Kind() == RetryableFailure || tc.outcome.Kind() == WorkItemFailure || tc.outcome.Kind() == HumanInterventionRequired {
 				wantAction := "retry"
-				if tc.outcome.Kind() == TerminalFailure {
+				if tc.outcome.Kind() == WorkItemFailure {
 					wantAction = "fail_work_item"
 				} else if tc.outcome.Kind() == HumanInterventionRequired {
 					wantAction = "await_human"

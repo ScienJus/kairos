@@ -5,15 +5,15 @@ export type AuthenticationMode = 'trusted' | 'authenticated'
 
 export interface DefinitionBinding { id: string; version: number; mode: Mode }
 export interface WorkItemFailure {
-  kind: 'execution_failure' | 'workflow_execution_limit'
-  message: string; workflow_task_id: string; executions: number; limit: number
+  kind: 'execution_failure' | 'workflow_task_instance_limit'
+  message: string; workflow_task_id: string; task_instances: number; limit: number
 }
 export interface WorkItem {
- restart_of_work_item_id: string | null; restart_context: string; recovery_instructions: string
+ started_over_from_work_item_id: string | null; start_over_context: string; recovery_instructions: string
   id: string; definition: DefinitionBinding; status: WorkItemStatus; acceptance_mode: 'none' | 'agent' | 'human'; title: string; goal: string
   context: string; constraints: string; acceptance_criteria: string; tags: string[]; result: string
   version: number; created_at: string; updated_at: string; completed_at: string | null
-  failure: WorkItemFailure | null; workflow_max_task_executions: number
+  failure: WorkItemFailure | null; workflow_max_task_instances_per_node: number
   cancelled_at: string | null; cancelled_by: ActorRef | null; cancellation_reason: string
 }
 export interface Review {
@@ -86,8 +86,8 @@ export interface WorkflowTaskDefinition {
 }
 export interface WorkflowRelationDefinition { id: string; from_task_id: string; to_task_id: string; label?: string; agent_guidance?: string }
 export interface WorkflowDefinition extends Definition {
-  // max_task_executions applies separately to each node in a WorkItem; 0 uses 100.
-  graph: { start_task_ids: string[]; tasks: WorkflowTaskDefinition[]; relations: WorkflowRelationDefinition[]; max_task_executions: number }
+  // max_task_instances_per_node applies separately to each node in a WorkItem; 0 uses 100.
+  graph: { start_task_ids: string[]; tasks: WorkflowTaskDefinition[]; relations: WorkflowRelationDefinition[]; max_task_instances_per_node: number }
 }
 export interface AuthenticationConfig { mode: AuthenticationMode }
 export interface Identity { id: string; kind: 'human' | 'agent'; role: string; display_name?: string }
@@ -122,7 +122,7 @@ export interface CreateWorkflowDefinitionInput extends CreateDefinitionInput {
     }>
     relations: Array<{ id: string; from_task_id: string; to_task_id: string; label: string; agent_guidance: string }>
     // Per-node Task instance limit (including skipped instances); 0 uses 100.
-    max_task_executions: number
+    max_task_instances_per_node: number
   }
 }
 export interface CreateWorkItemInput {

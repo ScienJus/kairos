@@ -29,7 +29,7 @@ func TestWorkflowGraphCompileCycleChoices(t *testing.T) {
 			workflowRelation("implementation-documentation", "implementation", "documentation"),
 			workflowRelation("implementation-release", "implementation", "release"),
 		},
-		MaxTaskExecutions: 20,
+		MaxTaskInstancesPerNode: 20,
 	}
 
 	compiled, err := graph.Compile()
@@ -93,7 +93,7 @@ func TestWorkflowGraphSupportsMultipleRequiredStarts(t *testing.T) {
 			workflowTask("frontend", ExecutionRequired),
 			workflowTask("backend", ExecutionRequired),
 		},
-		MaxTaskExecutions: 1,
+		MaxTaskInstancesPerNode: 1,
 	}
 
 	if err := graph.Validate(); err != nil {
@@ -124,7 +124,7 @@ func TestWorkflowGraphAcceptsAllDefinitionTasksAsStarts(t *testing.T) {
 		tasks[index] = workflowTask(id, ExecutionRequired)
 		starts[index] = id
 	}
-	graph := WorkflowGraph{StartTaskIDs: starts, Tasks: tasks, MaxTaskExecutions: 1}
+	graph := WorkflowGraph{StartTaskIDs: starts, Tasks: tasks, MaxTaskInstancesPerNode: 1}
 	if err := graph.Validate(); err != nil {
 		t.Fatalf("validate all definition tasks as starts: %v", err)
 	}
@@ -167,28 +167,28 @@ func TestWorkflowGraphRejectsTooManyRelations(t *testing.T) {
 	}
 }
 
-func TestWorkflowGraphRejectsTaskExecutionLimitAboveMaximum(t *testing.T) {
+func TestWorkflowGraphRejectsTaskTaskInstanceLimitAboveMaximum(t *testing.T) {
 	t.Parallel()
 
 	graph := WorkflowGraph{
-		StartTaskIDs:      []WorkflowTaskID{"start"},
-		Tasks:             []WorkflowTaskDefinition{workflowTask("start", ExecutionRequired)},
-		MaxTaskExecutions: MaxWorkflowTaskExecutions + 1,
+		StartTaskIDs:            []WorkflowTaskID{"start"},
+		Tasks:                   []WorkflowTaskDefinition{workflowTask("start", ExecutionRequired)},
+		MaxTaskInstancesPerNode: MaxWorkflowTaskInstancesPerNode + 1,
 	}
-	if err := graph.Validate(); !errors.Is(err, ErrInvalidModel) || !strings.Contains(err.Error(), "workflow.max_task_executions: must not exceed") {
-		t.Fatalf("execution limit above maximum: got %v", err)
+	if err := graph.Validate(); !errors.Is(err, ErrInvalidModel) || !strings.Contains(err.Error(), "workflow.max_task_instances_per_node: must not exceed") {
+		t.Fatalf("task instance limit above maximum: got %v", err)
 	}
 }
 
-func TestWorkflowGraphPerNodeExecutionLimitBoundaries(t *testing.T) {
-	for _, limit := range []int{0, 1, MaxWorkflowTaskExecutions} {
-		graph := WorkflowGraph{StartTaskIDs: []WorkflowTaskID{"start"}, Tasks: []WorkflowTaskDefinition{workflowTask("start", ExecutionRequired)}, MaxTaskExecutions: limit}
+func TestWorkflowGraphPerNodeTaskInstanceLimitBoundaries(t *testing.T) {
+	for _, limit := range []int{0, 1, MaxWorkflowTaskInstancesPerNode} {
+		graph := WorkflowGraph{StartTaskIDs: []WorkflowTaskID{"start"}, Tasks: []WorkflowTaskDefinition{workflowTask("start", ExecutionRequired)}, MaxTaskInstancesPerNode: limit}
 		if err := graph.Validate(); err != nil {
 			t.Fatalf("limit %d: %v", limit, err)
 		}
 	}
-	graph := WorkflowGraph{StartTaskIDs: []WorkflowTaskID{"start"}, Tasks: []WorkflowTaskDefinition{workflowTask("start", ExecutionRequired)}, MaxTaskExecutions: -1}
-	if err := graph.Validate(); err == nil || !strings.Contains(err.Error(), "workflow.max_task_executions: must not be negative") {
+	graph := WorkflowGraph{StartTaskIDs: []WorkflowTaskID{"start"}, Tasks: []WorkflowTaskDefinition{workflowTask("start", ExecutionRequired)}, MaxTaskInstancesPerNode: -1}
+	if err := graph.Validate(); err == nil || !strings.Contains(err.Error(), "workflow.max_task_instances_per_node: must not be negative") {
 		t.Fatalf("negative limit: %v", err)
 	}
 }

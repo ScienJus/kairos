@@ -118,7 +118,7 @@ func TestWorkflowRuntimeQueriesScopeAndWaitingConflict(t *testing.T) {
 					return err
 				}
 				if count != scenario.want {
-					t.Fatalf("execution count %d, want %d", count, scenario.want)
+					t.Fatalf("task instance count %d, want %d", count, scenario.want)
 				}
 			}
 			for _, scenario := range []struct {

@@ -2443,10 +2443,10 @@ func TestWorkflowActivationJoinsParallelTasks(t *testing.T) {
 	}
 }
 
-func TestWorkflowZeroExecutionLimitUsesPerNodeDefault(t *testing.T) {
+func TestWorkflowZeroTaskInstanceLimitUsesPerNodeDefault(t *testing.T) {
 	repository := newTestRepository()
 	definition := parallelLimitWorkflowDefinition()
-	definition.Graph.MaxTaskExecutions = 0
+	definition.Graph.MaxTaskInstancesPerNode = 0
 	repository.workflows[definitionKey(definition.ID, definition.Version)] = definition
 	service := newTestService(t, repository)
 	actor := Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "limit-agent"}, Role: "backend"}
@@ -2454,7 +2454,7 @@ func TestWorkflowZeroExecutionLimitUsesPerNodeDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for execution := 1; execution <= domain.DefaultWorkflowMaxTaskExecutions; execution++ {
+	for execution := 1; execution <= domain.DefaultWorkflowMaxTaskInstancesPerNode; execution++ {
 		var current domain.Task
 		count := 0
 		for _, task := range repository.tasksFor(work.ID) {
@@ -2476,12 +2476,12 @@ func TestWorkflowZeroExecutionLimitUsesPerNodeDefault(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if repository.workItems[work.ID].Status != domain.WorkItemStatusFailed || len(repository.tasksFor(work.ID)) != domain.DefaultWorkflowMaxTaskExecutions+1 {
+	if repository.workItems[work.ID].Status != domain.WorkItemStatusFailed || len(repository.tasksFor(work.ID)) != domain.DefaultWorkflowMaxTaskInstancesPerNode+1 {
 		t.Fatal("default node limit must stop the next instance, independent of the parallel Task")
 	}
 	found := false
 	for _, event := range repository.events {
-		if event.Type == domain.WorkItemEventWorkItemFailed && strings.Contains(event.Message, `workflow node "first" reached max_task_executions (100); cannot create execution 101`) {
+		if event.Type == domain.WorkItemEventWorkItemFailed && strings.Contains(event.Message, `workflow node "first" reached max_task_instances_per_node (100); cannot create task instance 101`) {
 			found = true
 		}
 	}
@@ -2490,7 +2490,7 @@ func TestWorkflowZeroExecutionLimitUsesPerNodeDefault(t *testing.T) {
 	}
 }
 
-func TestWorkflowExecutionLimitRevokesParallelClaims(t *testing.T) {
+func TestWorkflowTaskInstanceLimitRevokesParallelClaims(t *testing.T) {
 	t.Parallel()
 
 	repository := newTestRepository()
@@ -2517,14 +2517,14 @@ func TestWorkflowExecutionLimitRevokesParallelClaims(t *testing.T) {
 		TaskID: byDefinition["first"].ID, ClaimID: firstClaim.ID, Identity: identity, Result: "first complete",
 		Transition: &WorkflowTransitionCommand{ChoiceGroupID: "continue:first-first"},
 	}); err != nil {
-		t.Fatalf("execution limit submission: %v", err)
+		t.Fatalf("task instance limit submission: %v", err)
 	}
 	if repository.workItems[workItem.ID].Status != domain.WorkItemStatusFailed {
 		t.Fatalf("work item status = %s, want failed", repository.workItems[workItem.ID].Status)
 	}
 	foundReason := false
 	for _, event := range repository.events {
-		if event.Type == domain.WorkItemEventWorkItemFailed && strings.Contains(event.Message, `workflow node "first" reached max_task_executions (1); cannot create execution 2`) {
+		if event.Type == domain.WorkItemEventWorkItemFailed && strings.Contains(event.Message, `workflow node "first" reached max_task_instances_per_node (1); cannot create task instance 2`) {
 			foundReason = true
 		}
 	}
@@ -3127,7 +3127,7 @@ func parallelLimitWorkflowDefinition() domain.WorkflowDefinition {
 				{ID: "first-first", FromTaskID: "first", ToTaskID: "first"},
 				{ID: "first-next", FromTaskID: "first", ToTaskID: "next"},
 			},
-			MaxTaskExecutions: 1,
+			MaxTaskInstancesPerNode: 1,
 		},
 	}
 }

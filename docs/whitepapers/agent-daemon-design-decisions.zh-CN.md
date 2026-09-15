@@ -58,7 +58,7 @@ release 和 claim-ending action 始终属于 Agent Daemon。
 `CoordinationDecision` 是 Harness 到 Agent Daemon 的类型化结果，不新增同名 Core API。
 不同 Coordination Candidate 允许返回的意图为：
 
-| Candidate | `create_task` | `submit_completion` | `accept_completion` | `abandoned` |
+| Candidate | `create_task` | `submit_completion` | `accept_completion` | `candidate_declined` |
 | --- | --- | --- | --- | --- |
 | `empty_blackboard` | 允许 | 允许 | 禁止 | 允许 |
 | `blackboard_completion` | 允许 | 允许 | 禁止 | 允许 |
@@ -97,7 +97,7 @@ find_work
 | `CoordinationDecision.create_task` | `create_blackboard_task` |
 | `CoordinationDecision.submit_completion` | `submit_blackboard_completion` |
 | `CoordinationDecision.accept_completion` | `accept_blackboard_completion` |
-| `CoordinationDecision.abandoned` | `release_coordination_claim` |
+| `CoordinationDecision.candidate_declined` | `release_coordination_claim` |
 
 创建 Task、提交完成和 Agent 验收分别在各自业务事务内结束 Coordination Claim。
 
@@ -338,13 +338,13 @@ HarnessOutcome
 │   ├── decomposed
 │   ├── retryable_failure
 │   ├── human_intervention_required
-│   ├── terminal_failure
-│   └── abandoned
+│   ├── work_item_failure
+│   └── candidate_declined
 └── CoordinationDecision
     ├── create_task
     ├── submit_completion
     ├── accept_completion
-    └── abandoned
+    └── candidate_declined
 ```
 
 Task `completed` 携带 Result、Artifact IDs、是否请求 Review 和可选 Workflow transition；
@@ -356,8 +356,8 @@ Task `completed` 携带 Result、Artifact IDs、是否请求 Review 和可选 Wo
 | `decomposed` | 禁止 | 允许 |
 | `retryable_failure` | 允许 | 允许 |
 | `human_intervention_required` | 允许 | 禁止 |
-| `terminal_failure` | 允许 | 允许 |
-| `abandoned` | 允许 | 允许 |
+| `work_item_failure` | 允许 | 允许 |
+| `candidate_declined` | 允许 | 允许 |
 
 `TaskOutcome.completed.transition` 只允许用于 Workflow Task；Blackboard Task 的完成结果不得
 携带该字段。CoordinationDecision 的合法范围遵循 D4 的 Candidate 矩阵。
@@ -368,26 +368,26 @@ Task `completed` 携带 Result、Artifact IDs、是否请求 Review 和可选 Wo
 | `TaskOutcome.decomposed` | 子 Task specs | `decompose_blackboard_task` |
 | `TaskOutcome.retryable_failure` | failure reason、可选 retry prompt | `fail_task(action=retry)` |
 | `TaskOutcome.human_intervention_required` | failure reason；仅 Workflow，retry prompt 为空 | `fail_task(action=await_human)` |
-| `TaskOutcome.terminal_failure` | failure reason | `fail_task(action=fail_work_item)` |
-| `TaskOutcome.abandoned` | 可选 release reason | `release_claim` |
+| `TaskOutcome.work_item_failure` | failure reason | `fail_task(action=fail_work_item)` |
+| `TaskOutcome.candidate_declined` | 可选 release reason | `release_claim` |
 | `CoordinationDecision.create_task` | Task spec | `create_blackboard_task` |
 | `CoordinationDecision.submit_completion` | completion result | `submit_blackboard_completion` |
 | `CoordinationDecision.accept_completion` | 无额外字段 | `accept_blackboard_completion` |
-| `CoordinationDecision.abandoned` | 无额外字段 | `release_coordination_claim` |
+| `CoordinationDecision.candidate_declined` | 无额外字段 | `release_coordination_claim` |
 
-两个 `abandoned` 由外层结果类型和当前 Dispatch 绑定的 Claim 类型区分，Harness 不传入或选择
+两个 `candidate_declined` 由外层结果类型和当前 Dispatch 绑定的 Claim 类型区分，Harness 不传入或选择
 Claim 类型。Agent Daemon 内部可以统一处理“释放当前 Claim”，但调用 Core 时必须选择对应的
 Task 或 Coordination release 操作。
 
-`abandoned` 表示当前 Agent Daemon 拒绝处理当前 Candidate 代次。Agent Daemon 释放对应 Claim
+`candidate_declined` 表示当前 Agent Daemon 拒绝处理当前 Candidate 代次。Agent Daemon 释放对应 Claim
 后，直接在本地 quarantine 该代次，不再重新领取。按 2026-09-06 收窄后的 MVP 契约，Candidate
 形成新业务代次或新建 Scheduler（通常为重启）后，旧 quarantine 失效；健康恢复不解除
 quarantine，其他 Agent Daemon 不受影响。
-`abandoned` 不是成功 Dispatch，也不能清除已有的基础设施失败抑制状态。
+`candidate_declined` 不是成功 Dispatch，也不能清除已有的基础设施失败抑制状态。
 
 Agent Daemon 负责校验结果并调用 Core。`human_intervention_required` 将当前 Workflow 尝试结束为 Failed，其他分支继续；Human 继续执行时创建替代实例。Blackboard 在调用 Core 前拒绝此 outcome。
 
-`retryable_failure`、`human_intervention_required` 和 `terminal_failure` 只表示 Harness
+`retryable_failure`、`human_intervention_required` 和 `work_item_failure` 只表示 Harness
 明确报告的业务失败；Adapter 运行时错误、输出协议错误或 `lost` 不是业务 Task Failure，
 Adapter 不得自行把它们翻译为 submit、fail 或 release。
 
@@ -415,11 +415,11 @@ CoordinationDecision。Agent Daemon 可以在确认旧 Harness 已停止后，�
 绑定 Task 或 WorkItem 候选标识及其当前候选代次；cooldown 期间调度器跳过该代次，cooldown
 结束、`Probe` 成功且跨 Claim 重试预算仍有剩余时才允许重新领取。预算耗尽后该代次在当前
 Agent Daemon 内保持 quarantined，直到业务代次变化或新建 Scheduler。健康恢复只解除全局
-暂停，不清空 cooldown 或失败预算；非 abandoned 业务 outcome 成功写入后清除该候选记录。
+暂停，不清空 cooldown 或失败预算；非 candidate_declined 业务 outcome 成功写入后清除该候选记录。
 
 Task 或 WorkItem 的业务状态、执行上下文、计划或结果发生足以形成新候选的变化时，旧
 cooldown、预算和 quarantine 自动失效。Claim 创建、heartbeat、release 或 reaper 回收本身不
-构成新候选代次，不能因此重置失败预算。只有非 `abandoned` 的业务 outcome 成功写入 Core，
+构成新候选代次，不能因此重置失败预算。只有非 `candidate_declined` 的业务 outcome 成功写入 Core，
 才清除当前代次的抑制记录。具体代次 fingerprint 留给实现确定。
 
 该机制不持久化、不写入 Core，也不阻止其他 Agent Daemon 领取同一 Candidate。Agent Daemon

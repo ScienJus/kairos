@@ -164,7 +164,7 @@ Probe 串行执行，但排队等待响应取消和截止时间，不阻塞停�
 或新建 Scheduler（通常为重启）解除，部分候选可能需要人工重启。每个 Scheduler 只接受一次
 Run，并发或再次调用均报错；取消表示停机。单次 Dispatch 的状态保留与核对能力不变。
 配置通过重新创建 Scheduler/重启生效；状态不持久化。诊断 Adapter 默认不可用，
-需显式选择 `fake-abandon` 才会领取并放弃候选，不调用真实模型。
+需显式选择 `fake-decline` 才会领取并放弃候选，不调用真实模型。
 未取得 Claim 且未启动 Harness 的 Dispatch 结束后统一清理空 workspace，包括延迟拒绝和
 领取前取消；非空目录、已领取工作和结果仍未知的目录保留供检查。
 
@@ -179,8 +179,8 @@ Run，并发或再次调用均报错；取消表示停机。单次 Dispatch 的�
   Candidate-specific 故障只抑制对应代次；Probe 不创建 Claim 或 Harness 运行。
 - 将 cooldown、跨 Claim 预算和 quarantine 绑定 Candidate 代次。确定具体 fingerprint：
   业务上下文、Retry Prompt、Review、计划或结果变化能形成新代次，纯 Claim churn 不能。
-- abandoned 在 release 后直接 quarantine；它不能作为成功结果清除失败状态。
-- 成功写入非 abandoned 业务 outcome 后清除当前代次记录；业务代次变化或新建 Scheduler
+- candidate_declined 在 release 后直接 quarantine；它不能作为成功结果清除失败状态。
+- 成功写入非 candidate_declined 业务 outcome 后清除当前代次记录；业务代次变化或新建 Scheduler
   使适用的旧记录失效。健康恢复只解除全局暂停，保留所有候选抑制状态。
 - Scheduler 的 Run 为一次性调用，拒绝并发调用、停机后的再次调用；运行期间保留未知
   Claim 核对和 slot，有界停机结束时不把未解决的 Dispatch 标记成已完成。
@@ -192,7 +192,7 @@ Run，并发或再次调用均报错；取消表示停机。单次 Dispatch 的�
 - slot 满时不再 Claim；stopping 且 Claim 仍未知的 Dispatch 不释放 slot。
 - Probe 持续失败不会增加 Claim；健康恢复后仅按原有预算与 cooldown 重试，quarantine 不解除。
 - 验证 Run 并发调用、正常停机或未解决 Claim 停机后的再次调用，以及初次 context 已取消的情况。
-- 对稳定 malformed output/context overflow/abandoned 的 fake Harness，长时间调度测试证明
+- 对稳定 malformed output/context overflow/candidate_declined 的 fake Harness，长时间调度测试证明
   同一候选代次不会无限消耗 Claim。
 - release、heartbeat、reaper 不清零预算；其他执行者带来的实质业务变化解除旧 quarantine。
 - 多类候选、空类、冲突、受限候选快照和多个 Daemon 并存时不重复领取；不把测试结论扩张为

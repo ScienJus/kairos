@@ -144,11 +144,11 @@ func TestOutcomeHistoryTextByteLimits(t *testing.T) {
 				case "result":
 					o.Task.Result = text
 				case "failure_reason":
-					o.Task = &TaskOutcome{Kind: TerminalFailure, Reason: text}
+					o.Task = &TaskOutcome{Kind: WorkItemFailure, Reason: text}
 				case "retry_prompt":
 					o.Task = &TaskOutcome{Kind: RetryableFailure, Reason: "failed", RetryPrompt: text}
 				case "release_reason":
-					o.Task = &TaskOutcome{Kind: Abandoned, Reason: text}
+					o.Task = &TaskOutcome{Kind: CandidateDeclined, Reason: text}
 				case "completion":
 					c.Kind = EmptyBlackboard
 					c.TaskID = ""

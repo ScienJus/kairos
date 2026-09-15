@@ -25,7 +25,7 @@ func outcomeSchema(candidate daemon.Candidate) ([]byte, error) {
 	spec := object(map[string]any{"title": str, "description": str, "acceptance_criteria": str, "executor": map[string]any{"type": "string", "enum": []string{"agent", "human", "either"}}, "allowed_roles": array(str), "tags": array(str)})
 	var root map[string]any
 	if candidate.Kind == daemon.TaskCandidate {
-		kinds := []string{"completed", "retryable_failure", "terminal_failure", "abandoned"}
+		kinds := []string{"completed", "retryable_failure", "work_item_failure", "candidate_declined"}
 		if candidate.Mode == domain.CoordinationModeBlackboard {
 			kinds = append(kinds, "decomposed")
 		} else if candidate.Mode == domain.CoordinationModeWorkflow {
@@ -38,7 +38,7 @@ func outcomeSchema(candidate daemon.Candidate) ([]byte, error) {
 		}
 		root = object(map[string]any{"task": object(map[string]any{"kind": map[string]any{"type": "string", "enum": kinds}, "result": str, "artifact_ids": array(str), "request_review": map[string]any{"type": "boolean"}, "transition": transitionSchema, "children": array(spec), "reason": str, "retry_prompt": str})})
 	} else {
-		kinds := []string{"create_task", "abandoned"}
+		kinds := []string{"create_task", "candidate_declined"}
 		if candidate.Kind == daemon.WorkItemAcceptance {
 			kinds = append(kinds, "accept_completion")
 		} else {

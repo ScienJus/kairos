@@ -30,12 +30,12 @@ func TestDispatchSnapshotDerivesClaimAndFrozenIntent(t *testing.T) {
 	}
 	snapshot.Candidate.TaskID = "unrelated"
 	snapshot.ClaimID = "unrelated"
-	snapshot.Outcome = Abandoned
+	snapshot.Outcome = CandidateDeclined
 	if s := d.Snapshot(); s.Candidate != taskCandidate() || s.ClaimID != core.claim.ID || s.Outcome != "" {
 		t.Fatalf("snapshot mutation escaped: %+v", s)
 	}
 	steps(t, d, 2)
-	outcome.Task.Kind = Abandoned
+	outcome.Task.Kind = CandidateDeclined
 	if s := d.Snapshot(); s.State != Finalizing || s.Outcome != Completed || s.OutcomeApplied {
 		t.Fatalf("intent was not frozen: %+v", s)
 	}

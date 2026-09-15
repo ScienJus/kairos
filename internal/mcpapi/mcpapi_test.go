@@ -656,8 +656,8 @@ type mcpIDs struct{ next atomic.Uint64 }
 func (g *mcpIDs) NewID() string { return fmt.Sprintf("mcp-%d", g.next.Add(1)) }
 
 func TestMCPWorkItemFailureView(t *testing.T) {
-	for _, failure := range []*domain.WorkItemFailure{nil, {Kind: domain.FailureWorkflowExecutionLimit, Message: "节点达到上限", WorkflowTaskID: "dev", Executions: 10, Limit: 10}} {
-		view := workItemLifecycleViewFrom(domain.WorkItem{Failure: failure, WorkflowMaxTaskExecutions: 20})
+	for _, failure := range []*domain.WorkItemFailure{nil, {Kind: domain.FailureWorkflowTaskInstanceLimit, Message: "节点达到上限", WorkflowTaskID: "dev", TaskInstances: 10, Limit: 10}} {
+		view := workItemLifecycleViewFrom(domain.WorkItem{Failure: failure, WorkflowMaxTaskInstancesPerNode: 20})
 		data, err := json.Marshal(view)
 		if err != nil {
 			t.Fatal(err)
@@ -678,7 +678,7 @@ func TestMCPWorkItemFailureView(t *testing.T) {
 				t.Fatalf("failure projection: %+v / %v", got, err)
 			}
 		}
-		if string(fields["workflow_max_task_executions"]) != "20" {
+		if string(fields["workflow_max_task_instances_per_node"]) != "20" {
 			t.Fatal("MCP omits effective override")
 		}
 	}
@@ -687,13 +687,13 @@ func TestMCPWorkItemFailureView(t *testing.T) {
 func TestMCPRecoveryContextPreservesOperatorInstructions(t *testing.T) {
 	source := domain.WorkItemID("failed-source")
 	notes := strings.Repeat("界", domain.MaxHistoryTextBytes/3) + "xx"
-	work := domain.WorkItem{Context: "Original context", RestartOfWorkItemID: &source, RestartContext: "Failure and external references", RecoveryInstructions: notes}
+	work := domain.WorkItem{Context: "Original context", StartedOverFromWorkItemID: &source, StartOverContext: "Failure and external references", RecoveryInstructions: notes}
 	previous := domain.TaskID("old-attempt")
 	task := domain.Task{Description: "Original task", RetryOfTaskID: &previous, RetryContext: "Previous attempt failure", RetryInstructions: notes}
 	taskContext := taskContextView(application.TaskExecutionContext{WorkItem: work, Task: task})
 	workContext := workItemContextView(application.WorkItemExecutionContext{WorkItem: work, Tasks: []domain.Task{task}})
 	for _, context := range []string{taskContext.WorkItem.Context, workContext.WorkItem.Context} {
-		for _, fragment := range []string{work.Context, work.RestartContext, notes} {
+		for _, fragment := range []string{work.Context, work.StartOverContext, notes} {
 			if !strings.Contains(context, fragment) {
 				t.Fatal("MCP context tool lost WorkItem recovery context")
 			}
@@ -719,7 +719,7 @@ func TestMCPRecoveryContextPreservesOperatorInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{work.RestartContext, task.RetryContext, notes} {
+	for _, fragment := range []string{work.StartOverContext, task.RetryContext, notes} {
 		if strings.Contains(string(payload), fragment) {
 			t.Fatal("find_work leaked generated recovery context into candidate batch")
 		}

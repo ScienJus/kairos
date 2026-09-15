@@ -167,7 +167,7 @@ Review 的目标不是逐项修补，而是识别产生这类问题的共同结�
 
 Authenticated 登录框接受 Identity Token 或部署 Admin Token，完全使用 `/session` 返回的身份；Admin Token 返回普通 Human、空 role，前端不推导管理员权限。两者均使用当前标签页 sessionStorage。提交时清空密码输入；退出和当前凭据的 401 清除凭据与 Query 缓存，并使在途 session 请求失效。存储不可用时展示错误。覆盖恢复、失败、迟到响应、退出、中英文与键盘操作。 当前身份菜单优先展示服务端可选 `display_name`，Admin 为 `system admin`，缺省回落 actor ID；不根据 `admin-` 前缀推断身份，不用展示名称判断权限或 Claim 归属。Admin 配置仅接受至少 32 个可见 ASCII 字符（0x21–0x7E），确保可由浏览器 Authorization header 传输。
 
-Workflow 的执行限制应显示为“单节点最大执行次数”，说明统一配置、各节点分别计数。编辑器接受 0–500 的整数；0 使用默认值 100，详情页显示有效值 100。
+Workflow 的执行限制应显示为“单节点最大任务实例数”，说明统一配置、各节点分别计数。编辑器接受 0–500 的整数；0 使用默认值 100，详情页显示有效值 100。
 
 失败动作表单使用 `retry`（请求重试）、`await_human`（等待人工处理，仅 Workflow）和 `fail_work_item`（使整个 WorkItem 失败）；历史列表使用相同动作值和明确文案。`retry_prompt` 只随 `retry` 发送。
 

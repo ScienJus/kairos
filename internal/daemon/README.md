@@ -13,11 +13,11 @@ do not invoke a model provider. Real-provider smoke validation remains separate.
 ```sh
 make daemon-build
 # Set KAIROS_DAEMON_TOKEN securely in the environment first.
-./bin/kairos-daemon --core-url http://localhost:8080 --adapter fake-abandon --slots 1
+./bin/kairos-daemon --core-url http://localhost:8080 --adapter fake-decline --slots 1
 ```
 
-Use a disposable Core/workload for this smoke test: `fake-abandon` really claims
-work, returns `abandoned`, releases the Claim, and quarantines that generation.
+Use a disposable Core/workload for this smoke test: `fake-decline` really claims
+work, returns `candidate_declined`, releases the Claim, and quarantines that generation.
 The default `unavailable` Adapter always fails Probe and never claims work.
 The Identity Token is read only from `KAIROS_DAEMON_TOKEN`; it is not a CLI flag
 or passed to the Harness. `--help` lists all configuration.
@@ -83,8 +83,8 @@ and suppression unchanged. A Probe's own `RequestTimeout` expiry or an Adapter
 failure still triggers backoff and the normal unhealthy-to-healthy recovery rule.
 
 Unsuccessful claimed Dispatches consume the cross-Claim budget and enter cooldown;
-exhaustion quarantines the candidate. `abandoned` immediately quarantines, even
-though release succeeded. A non-abandoned applied business outcome clears the
+exhaustion quarantines the candidate. `candidate_declined` immediately quarantines, even
+though release succeeded. A non-candidate_declined applied business outcome clears the
 record. Health recovery only lifts the global pause; it never clears cooldown,
 failure budgets, or quarantine. A changed business generation or a new Scheduler
 instance (normally a process restart) clears the applicable suppression records.
@@ -210,7 +210,7 @@ response, the engine inspects the bound Claim and related business history befor
 another mutation. Ended Claims are never retried as new work. `OutcomeApplied`
 means the original intent was acknowledged or confirmed by history; false is not
 proof that no write happened (the Claim may have ended externally or evidence
-may no longer suffice). `Outcome` preserves `abandoned` for the scheduler
+may no longer suffice). `Outcome` preserves `candidate_declined` for the scheduler
 to quarantine rather than immediately reclaim.
 Completed-result reconciliation requires the exact effective Claim end reason:
 Blackboard uses `request_review`; Workflow also applies the Task's ReviewPolicy.

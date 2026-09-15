@@ -1117,7 +1117,7 @@ func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
 	}
 	_, err = s.exec(`
 		INSERT INTO work_items
-			(id, definition_id, definition_version, mode, status, acceptance_mode, tags, version, created_at, updated_at, payload, workflow_max_task_executions, restart_of_work_item_id)
+			(id, definition_id, definition_version, mode, status, acceptance_mode, tags, version, created_at, updated_at, payload, workflow_max_task_instances_per_node, started_over_from_work_item_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		value.ID,
 		value.Definition.ID,
@@ -1129,7 +1129,7 @@ func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
 		value.Version,
 		databaseTime(value.CreatedAt),
 		databaseTime(value.UpdatedAt),
-		payload, value.WorkflowMaxTaskExecutions, nullString(value.RestartOfWorkItemID),
+		payload, value.WorkflowMaxTaskInstancesPerNode, nullString(value.StartedOverFromWorkItemID),
 	)
 	return err
 }
@@ -1155,9 +1155,9 @@ func (s *sqlStore) SaveWorkItem(value domain.WorkItem) error {
 	}
 	result, err := s.exec(`
 		UPDATE work_items
-		SET status = ?, acceptance_mode = ?, tags = ?, version = ?, updated_at = ?, payload = ?, workflow_max_task_executions = ?
+		SET status = ?, acceptance_mode = ?, tags = ?, version = ?, updated_at = ?, payload = ?, workflow_max_task_instances_per_node = ?
 		WHERE id = ? AND version = ?`,
-		value.Status, value.AcceptanceMode, tags, value.Version, databaseTime(value.UpdatedAt), payload, value.WorkflowMaxTaskExecutions, value.ID, value.Version-1,
+		value.Status, value.AcceptanceMode, tags, value.Version, databaseTime(value.UpdatedAt), payload, value.WorkflowMaxTaskInstancesPerNode, value.ID, value.Version-1,
 	)
 	if err != nil {
 		return err

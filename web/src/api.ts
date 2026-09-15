@@ -177,10 +177,10 @@ export const api = {
     method: 'POST', body: JSON.stringify({ result }),
   }),
   acceptBlackboardCompletion: (identity: Identity, workItemID: string) => request<WorkItem>(`/api/v1/work-items/${workItemID}/acceptance`, identity, { method: 'POST' }),
-  resumeWorkflow: (identity: Identity, workItemID: string, version: number, maxTaskExecutions: number, instructions = '') => request<WorkItem>(`/api/v1/work-items/${workItemID}/resume`, identity, {
-    method: 'POST', body: JSON.stringify({ version, max_task_executions: maxTaskExecutions, instructions }),
+  continueWorkflow: (identity: Identity, workItemID: string, version: number, maxTaskInstancesPerNode: number, instructions = '') => request<WorkItem>(`/api/v1/work-items/${workItemID}/continue`, identity, {
+    method: 'POST', body: JSON.stringify({ version, max_task_instances_per_node: maxTaskInstancesPerNode, instructions }),
   }),
-  restartWorkflow: (identity: Identity, workItemID: string, version: number, instructions: string) => createResource<WorkItem>(`/api/v1/work-items/${workItemID}/restart`, identity, JSON.stringify({ version, instructions })),
+  startOverWorkflow: (identity: Identity, workItemID: string, version: number, instructions: string) => createResource<WorkItem>(`/api/v1/work-items/${workItemID}/start-over`, identity, JSON.stringify({ version, instructions })),
   cancelWorkItem: (identity: Identity, workItemID: string, reason: string) => request<WorkItem>(`/api/v1/work-items/${workItemID}/cancellation`, identity, {
     method: 'POST', body: JSON.stringify({ reason }),
   }),

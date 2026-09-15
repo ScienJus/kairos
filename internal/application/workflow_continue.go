@@ -8,32 +8,32 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-// ResumeWorkflowCommand is a Human management operation, never an Agent retry.
+// ContinueWorkflowCommand is a Human management operation, never an Agent retry.
 // Version protects against stale pages and duplicate recovery requests.
-type ResumeWorkflowCommand struct {
-	WorkItemID        domain.WorkItemID
-	Identity          Identity
-	Version           int64
-	MaxTaskExecutions int
-	Instructions      string
+type ContinueWorkflowCommand struct {
+	WorkItemID              domain.WorkItemID
+	Identity                Identity
+	Version                 int64
+	MaxTaskInstancesPerNode int
+	Instructions            string
 }
 
-// ResumeWorkflow creates replacement attempts for failed/interrupted Tasks and
+// ContinueWorkflow creates replacement attempts for failed/interrupted Tasks and
 // delivers missing inputs from committed decisions. Successful branches and
 // pending reviews remain valid. Counters and ended Claims are never reset; any
 // capacity conflict rolls back the entire recovery transaction.
-func (s *Service) ResumeWorkflow(ctx context.Context, command ResumeWorkflowCommand) (domain.WorkItem, error) {
+func (s *Service) ContinueWorkflow(ctx context.Context, command ContinueWorkflowCommand) (domain.WorkItem, error) {
 	if err := command.Identity.Validate(); err != nil {
 		return domain.WorkItem{}, err
 	}
 	if command.Identity.Actor.Kind != domain.ActorHuman {
-		return domain.WorkItem{}, forbidden("only a human can resume a workflow")
+		return domain.WorkItem{}, forbidden("only a human can continue a workflow")
 	}
 	if strings.TrimSpace(string(command.WorkItemID)) == "" || command.Version < 0 {
 		return domain.WorkItem{}, invalidCommand("work item id and a nonnegative version are required")
 	}
-	if command.MaxTaskExecutions < 0 || command.MaxTaskExecutions > domain.MaxWorkflowTaskExecutions {
-		return domain.WorkItem{}, invalidCommand("max_task_executions must be between 0 and %d", domain.MaxWorkflowTaskExecutions)
+	if command.MaxTaskInstancesPerNode < 0 || command.MaxTaskInstancesPerNode > domain.MaxWorkflowTaskInstancesPerNode {
+		return domain.WorkItem{}, invalidCommand("max_task_instances_per_node must be between 0 and %d", domain.MaxWorkflowTaskInstancesPerNode)
 	}
 	if len(command.Instructions) > domain.MaxHistoryTextBytes {
 		return domain.WorkItem{}, invalidCommand("instructions exceed %d UTF-8 bytes", domain.MaxHistoryTextBytes)
@@ -45,7 +45,7 @@ func (s *Service) ResumeWorkflow(ctx context.Context, command ResumeWorkflowComm
 			return err
 		}
 		if work.Version != command.Version {
-			return conflict("work item version changed; refresh before resuming")
+			return conflict("work item version changed; refresh before continuing")
 		}
 		tasks, err := store.ListTasks(work.ID)
 		if err != nil {
@@ -58,15 +58,15 @@ func (s *Service) ResumeWorkflow(ctx context.Context, command ResumeWorkflowComm
 		if err != nil {
 			return err
 		}
-		limit := command.MaxTaskExecutions
+		limit := command.MaxTaskInstancesPerNode
 		if limit == 0 {
-			limit = effectiveWorkflowExecutionLimit(work, definition)
+			limit = effectiveWorkflowTaskInstanceLimit(work, definition)
 		}
-		if limit < effectiveWorkflowExecutionLimit(work, definition) {
-			return invalidCommand("max_task_executions cannot decrease the current per-node limit")
+		if limit < effectiveWorkflowTaskInstanceLimit(work, definition) {
+			return invalidCommand("max_task_instances_per_node cannot decrease the current per-node limit")
 		}
-		if work.Failure != nil && work.Failure.Kind == domain.FailureWorkflowExecutionLimit && limit <= work.Failure.Executions {
-			return invalidCommand("max_task_executions must exceed the blocked node's execution count (%d)", work.Failure.Executions)
+		if work.Failure != nil && work.Failure.Kind == domain.FailureWorkflowTaskInstanceLimit && limit <= work.Failure.TaskInstances {
+			return invalidCommand("max_task_instances_per_node must exceed the blocked node's task instance count (%d)", work.Failure.TaskInstances)
 		}
 		claims, err := store.ListClaimsByWorkItem(work.ID)
 		if err != nil {
@@ -80,14 +80,14 @@ func (s *Service) ResumeWorkflow(ctx context.Context, command ResumeWorkflowComm
 		work.Status = domain.WorkItemStatusOpen
 		work.Failure = nil
 		work.RecoveryInstructions = command.Instructions
-		work.WorkflowMaxTaskExecutions = limit
+		work.WorkflowMaxTaskInstancesPerNode = limit
 		work.UpdatedAt = s.clock.Now()
 		work.Version++
 		if err := store.SaveWorkItem(work); err != nil {
 			return err
 		}
 		actor := command.Identity.Actor
-		if err := s.appendEvent(store, work.ID, nil, domain.WorkItemEventWorkItemResumed, string(work.ID), &actor, fmt.Sprintf("resumed with per-node max_task_executions %d", limit)); err != nil {
+		if err := s.appendEvent(store, work.ID, nil, domain.WorkItemEventWorkItemContinued, string(work.ID), &actor, fmt.Sprintf("continued with per-node max_task_instances_per_node %d", limit)); err != nil {
 			return err
 		}
 		before, err := store.ListWorkflowTaskActivations(work.ID)
@@ -148,7 +148,7 @@ func (s *Service) ResumeWorkflow(ctx context.Context, command ResumeWorkflowComm
 					return err
 				}
 				if work.Status == domain.WorkItemStatusFailed {
-					return conflict("recovery still reaches an execution limit; choose a higher per-node limit")
+					return conflict("recovery still reaches a task instance limit; choose a higher per-node limit")
 				}
 			}
 		}
@@ -156,7 +156,7 @@ func (s *Service) ResumeWorkflow(ctx context.Context, command ResumeWorkflowComm
 		if err != nil {
 			return err
 		}
-		// Avoid resuming a malformed/legacy record with no blocked work to resume.
+		// Avoid continuing a malformed record with no blocked work.
 		progressed := retried || len(after) > len(before)
 		for _, activation := range after {
 			if status, exists := previousStatus[activation.ID]; exists && status != activation.Status {
@@ -172,7 +172,7 @@ func (s *Service) ResumeWorkflow(ctx context.Context, command ResumeWorkflowComm
 			}
 		}
 		if !progressed {
-			return conflict("no unfinished workflow work could be continued; restart as a new WorkItem")
+			return conflict("no unfinished workflow work could be continued; start over as a new WorkItem")
 		}
 		if err := s.completeWorkItemIfDone(store, &work, &actor); err != nil {
 			return err

@@ -27,7 +27,7 @@ make daemon-build
 
 `--codex-executable` selects the binary. `--codex-home` and `--codex-model` are
 required for this Adapter. The default command remains `--adapter unavailable`;
-`fake-abandon` remains available for diagnostics. Starting the real Adapter can
+`fake-decline` remains available for diagnostics. Starting the real Adapter can
 incur model usage and change the configured Kairos workload.
 
 The Adapter uses saved Codex authentication, ignores user config and execpolicy

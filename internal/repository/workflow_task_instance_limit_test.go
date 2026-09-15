@@ -23,7 +23,7 @@ func TestWorkflowLongNodeLimitCommitsFailure(t *testing.T) {
 				longID := domain.WorkflowTaskID(strings.Repeat("界", domain.MaxHistoryTextBytes/3+1))
 				def := domain.WorkflowDefinition{
 					DefinitionMetadata: domain.DefinitionMetadata{ID: "long-node", Version: 1, Name: "Long node", CreatedAt: repositoryTestTime, UpdatedAt: repositoryTestTime},
-					Graph: domain.WorkflowGraph{StartTaskIDs: []domain.WorkflowTaskID{longID, "parallel"}, MaxTaskExecutions: 1,
+					Graph: domain.WorkflowGraph{StartTaskIDs: []domain.WorkflowTaskID{longID, "parallel"}, MaxTaskInstancesPerNode: 1,
 						Relations: []domain.WorkflowRelationDefinition{{ID: "again", FromTaskID: longID, ToTaskID: longID}, {ID: "finish", FromTaskID: longID, ToTaskID: "done"}}},
 				}
 				for _, id := range []domain.WorkflowTaskID{longID, "parallel", "done"} {
@@ -68,10 +68,10 @@ func TestWorkflowLongNodeLimitCommitsFailure(t *testing.T) {
 					t.Fatal(err)
 				}
 				failure := after.WorkItem.Failure
-				if after.WorkItem.Status != domain.WorkItemStatusFailed || failure == nil || failure.Kind != domain.FailureWorkflowExecutionLimit || failure.WorkflowTaskID != longID || failure.Executions != 1 || failure.Limit != 1 {
+				if after.WorkItem.Status != domain.WorkItemStatusFailed || failure == nil || failure.Kind != domain.FailureWorkflowTaskInstanceLimit || failure.WorkflowTaskID != longID || failure.TaskInstances != 1 || failure.Limit != 1 {
 					t.Fatal("missing persisted failure or complete node identity")
 				}
-				if len(failure.Message) > domain.MaxHistoryTextBytes || !utf8.ValidString(failure.Message) || !strings.Contains(failure.Message, "reached max_task_executions (1); cannot create execution 2") {
+				if len(failure.Message) > domain.MaxHistoryTextBytes || !utf8.ValidString(failure.Message) || !strings.Contains(failure.Message, "reached max_task_instances_per_node (1); cannot create task instance 2") {
 					t.Fatal("failure message lost its cause or exceeds the byte budget")
 				}
 				if len(after.Tasks) != 2 || len(after.ActiveClaims) != 0 {
@@ -118,7 +118,7 @@ func TestWorkflowLongNodeLimitCommitsFailure(t *testing.T) {
 				if _, err := peer.HeartbeatClaim(ctx, application.HeartbeatClaimCommand{TaskID: source.ID, ClaimID: held.ID, Identity: actor}); !errors.Is(err, application.ErrConflict) {
 					t.Fatalf("terminal Claim must remain fenced: %v", err)
 				}
-				if _, err := peer.ResumeWorkflow(ctx, application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: after.WorkItem.Version, MaxTaskExecutions: 2}); err != nil {
+				if _, err := peer.ContinueWorkflow(ctx, application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: after.WorkItem.Version, MaxTaskInstancesPerNode: 2}); err != nil {
 					t.Fatalf("long-node failure must remain recoverable: %v", err)
 				}
 			})
@@ -126,7 +126,7 @@ func TestWorkflowLongNodeLimitCommitsFailure(t *testing.T) {
 	}
 }
 
-func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
+func TestWorkflowPerNodeTaskInstanceLimitPersistsAcrossConnections(t *testing.T) {
 	for _, overflow := range []bool{false, true} {
 		name := "exit-at-boundary"
 		if overflow {
@@ -139,7 +139,7 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 				definition := domain.WorkflowDefinition{
 					DefinitionMetadata: domain.DefinitionMetadata{ID: "per-node", Version: 1, Name: "Per-node limit", CreatedAt: repositoryTestTime, UpdatedAt: repositoryTestTime},
 					Graph: domain.WorkflowGraph{
-						StartTaskIDs: []domain.WorkflowTaskID{"plan", "parallel"}, MaxTaskExecutions: 2,
+						StartTaskIDs: []domain.WorkflowTaskID{"plan", "parallel"}, MaxTaskInstancesPerNode: 2,
 						Relations: []domain.WorkflowRelationDefinition{
 							{ID: "plan-a", FromTaskID: "plan", ToTaskID: "a"},
 							{ID: "a-b", FromTaskID: "a", ToTaskID: "b"},
@@ -207,7 +207,7 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 						a := pending("a")
 						c := claim(a)
 						// Releasing/reclaiming the same Task must not consume another
-						// node execution, including at the exact boundary.
+						// node task instance, including at the exact boundary.
 						if err := service.ReleaseClaim(ctx, application.ReleaseClaimCommand{TaskID: a.ID, ClaimID: c.ID, Identity: actor}); err != nil {
 							t.Fatal(err)
 						}
@@ -244,7 +244,7 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 						}
 						for _, task := range tasks {
 							if task.ActiveClaimID != nil {
-								t.Fatal("terminal work retains active Claim")
+								t.Fatal("failed work retains active Claim")
 							}
 							if task.WorkflowTaskID != nil && *task.WorkflowTaskID == "b" && (task.Status != domain.TaskStatusCompleted || len(task.Submissions) != 1 || len(task.TransitionDecisions) != 1 || task.TransitionDecisions[0].AppliedAt == nil) {
 								t.Fatal("source submission and decision were not committed")
@@ -256,7 +256,7 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 						claims, err := store.ListClaimsByWorkItem(work.ID)
 						for _, claim := range claims {
 							if claim.Active() {
-								t.Fatal("terminal work retains an active persisted Claim")
+								t.Fatal("failed work retains an active persisted Claim")
 							}
 							if overflow && claim.ID == parallelClaim.ID && claim.EndReason != domain.ClaimEndRevoked {
 								t.Fatalf("parallel Claim end reason: %s", claim.EndReason)
@@ -281,7 +281,7 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 							if err := json.Unmarshal(data, &event); err != nil {
 								t.Fatal(err)
 							}
-							if event.Type == domain.WorkItemEventWorkItemFailed && strings.Contains(event.Message, `workflow node "a" reached max_task_executions (2); cannot create execution 3`) {
+							if event.Type == domain.WorkItemEventWorkItemFailed && strings.Contains(event.Message, `workflow node "a" reached max_task_instances_per_node (2); cannot create task instance 3`) {
 								found = true
 							}
 						}
@@ -300,20 +300,20 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 							t.Fatal(err)
 						}
 						failed := failedContext.WorkItem
-						if failed.Failure == nil || failed.Failure.Kind != domain.FailureWorkflowExecutionLimit || failed.Failure.WorkflowTaskID != "a" || failed.Failure.Executions != 2 || failed.Failure.Limit != 2 {
+						if failed.Failure == nil || failed.Failure.Kind != domain.FailureWorkflowTaskInstanceLimit || failed.Failure.WorkflowTaskID != "a" || failed.Failure.TaskInstances != 2 || failed.Failure.Limit != 2 {
 							t.Fatalf("missing structured failure: %+v", failed.Failure)
 						}
-						command := application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.Version, MaxTaskExecutions: 3}
+						command := application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.Version, MaxTaskInstancesPerNode: 3}
 						agentCommand := command
 						agentCommand.Identity = application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "agent"}, Role: "developer"}
-						if _, err := service.ResumeWorkflow(ctx, agentCommand); !errors.Is(err, application.ErrForbidden) {
-							t.Fatalf("agent resume: %v", err)
+						if _, err := service.ContinueWorkflow(ctx, agentCommand); !errors.Is(err, application.ErrForbidden) {
+							t.Fatalf("agent continue: %v", err)
 						}
 						for _, limit := range []int{0, 1, 2, 501} {
 							bad := command
-							bad.MaxTaskExecutions = limit
-							if _, err := service.ResumeWorkflow(ctx, bad); !errors.Is(err, application.ErrInvalidCommand) {
-								t.Fatalf("resume limit %d: %v", limit, err)
+							bad.MaxTaskInstancesPerNode = limit
+							if _, err := service.ContinueWorkflow(ctx, bad); !errors.Is(err, application.ErrInvalidCommand) {
+								t.Fatalf("continue limit %d: %v", limit, err)
 							}
 						}
 						// A stale failure snapshot must not bypass the actual runtime
@@ -323,7 +323,7 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 							if err != nil {
 								return err
 							}
-							w.Failure = &domain.WorkItemFailure{Kind: domain.FailureWorkflowExecutionLimit, Message: "older snapshot", WorkflowTaskID: "a", Executions: 1, Limit: 1}
+							w.Failure = &domain.WorkItemFailure{Kind: domain.FailureWorkflowTaskInstanceLimit, Message: "older snapshot", WorkflowTaskID: "a", TaskInstances: 1, Limit: 1}
 							w.Version++
 							command.Version = w.Version
 							return store.SaveWorkItem(w)
@@ -339,8 +339,8 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 							t.Fatal(err)
 						}
 						insufficient := command
-						insufficient.MaxTaskExecutions = 2
-						if _, err := service.ResumeWorkflow(ctx, insufficient); !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), "recovery still reaches an execution limit") {
+						insufficient.MaxTaskInstancesPerNode = 2
+						if _, err := service.ContinueWorkflow(ctx, insufficient); !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), "recovery still reaches a task instance limit") {
 							t.Fatalf("runtime recovery guard: %v", err)
 						}
 						if err := repo.View(ctx, func(store application.ReadStore) error {
@@ -353,21 +353,21 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 								return err
 							}
 							tasks, err := store.ListTasks(work.ID)
-							if w.Status != domain.WorkItemStatusFailed || w.Version != command.Version || w.WorkflowMaxTaskExecutions != 0 || len(tasks) != 6 || last != sequence {
+							if w.Status != domain.WorkItemStatusFailed || w.Version != command.Version || w.WorkflowMaxTaskInstancesPerNode != 0 || len(tasks) != 6 || last != sequence {
 								t.Fatal("rejected recovery committed partial state")
 							}
 							return err
 						}); err != nil {
 							t.Fatal(err)
 						}
-						resumed, err := repositoryTestService(t, openPeer(t)).ResumeWorkflow(ctx, command)
+						continued, err := repositoryTestService(t, openPeer(t)).ContinueWorkflow(ctx, command)
 						if err != nil {
 							t.Fatal(err)
 						}
-						if resumed.Status != domain.WorkItemStatusOpen || resumed.Failure != nil || resumed.WorkflowMaxTaskExecutions != 3 || resumed.Definition != work.Definition {
-							t.Fatalf("resumed work: %+v", resumed)
+						if continued.Status != domain.WorkItemStatusOpen || continued.Failure != nil || continued.WorkflowMaxTaskInstancesPerNode != 3 || continued.Definition != work.Definition {
+							t.Fatalf("continued work: %+v", continued)
 						}
-						if _, err := service.ResumeWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) {
+						if _, err := service.ContinueWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) {
 							t.Fatalf("duplicate recovery: %v", err)
 						}
 						// Only a3 is newly materialized; old source submissions,
@@ -413,14 +413,14 @@ func TestWorkflowPerNodeExecutionLimitPersistsAcrossConnections(t *testing.T) {
 	}
 }
 
-func TestWorkflowRecoveryResumesPartialFanout(t *testing.T) {
+func TestWorkflowRecoveryContinuesPartialFanout(t *testing.T) {
 	forEachSQLRepository(t, func(t *testing.T, repo *SQLRepository, openPeer func(*testing.T) *SQLRepository) {
 		ctx := context.Background()
 		service := repositoryTestService(t, repo)
 		actor := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
 		definition := domain.WorkflowDefinition{
 			DefinitionMetadata: domain.DefinitionMetadata{ID: "fanout", Version: 1, Name: "Fanout", CreatedAt: repositoryTestTime, UpdatedAt: repositoryTestTime},
-			Graph: domain.WorkflowGraph{StartTaskIDs: []domain.WorkflowTaskID{"a", "b"}, MaxTaskExecutions: 1,
+			Graph: domain.WorkflowGraph{StartTaskIDs: []domain.WorkflowTaskID{"a", "b"}, MaxTaskInstancesPerNode: 1,
 				Relations: []domain.WorkflowRelationDefinition{{ID: "ac", FromTaskID: "a", ToTaskID: "c"}, {ID: "ab", FromTaskID: "a", ToTaskID: "b"}, {ID: "ad", FromTaskID: "a", ToTaskID: "d"}}},
 		}
 		for _, id := range []domain.WorkflowTaskID{"a", "b", "c", "d"} {
@@ -432,7 +432,7 @@ func TestWorkflowRecoveryResumesPartialFanout(t *testing.T) {
 		if err := repo.CreateWorkflowDefinition(ctx, definition); err != nil {
 			t.Fatal(err)
 		}
-		work, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{Definition: definition.Binding(), Identity: actor, Title: "Partial fanout", Goal: "Resume every undelivered edge"})
+		work, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{Definition: definition.Binding(), Identity: actor, Title: "Partial fanout", Goal: "Continue every undelivered edge"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -460,19 +460,19 @@ func TestWorkflowRecoveryResumesPartialFanout(t *testing.T) {
 		if failed.WorkItem.Failure == nil || failed.WorkItem.Failure.WorkflowTaskID != "b" || len(failed.Tasks) != 3 {
 			t.Fatalf("expected partial fanout before b: %+v", failed.WorkItem)
 		}
-		_, err = repositoryTestService(t, openPeer(t)).ResumeWorkflow(ctx, application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version, MaxTaskExecutions: 2})
+		_, err = repositoryTestService(t, openPeer(t)).ContinueWorkflow(ctx, application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version, MaxTaskInstancesPerNode: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
-		resumed, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{WorkItemID: work.ID, Identity: actor})
+		continued, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{WorkItemID: work.ID, Identity: actor})
 		if err != nil {
 			t.Fatal(err)
 		}
 		counts := map[domain.WorkflowTaskID]int{}
-		for _, task := range resumed.Tasks {
+		for _, task := range continued.Tasks {
 			counts[*task.WorkflowTaskID]++
 		}
-		if !reflect.DeepEqual(counts, map[domain.WorkflowTaskID]int{"a": 1, "b": 2, "c": 1, "d": 1}) || len(resumed.Relations) != 3 {
+		if !reflect.DeepEqual(counts, map[domain.WorkflowTaskID]int{"a": 1, "b": 2, "c": 1, "d": 1}) || len(continued.Relations) != 3 {
 			t.Fatalf("recovery lost or duplicated a fanout edge: %v", counts)
 		}
 	})

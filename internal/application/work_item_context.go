@@ -18,7 +18,7 @@ type ListWorkItemsQuery struct {
 	Page     PageRequest[WorkItemCursor]
 }
 
-// ListWorkItems returns durable WorkItems, including terminal items, newest first.
+// ListWorkItems returns durable WorkItems across all lifecycle states, newest first.
 func (s *Service) ListWorkItems(ctx context.Context, query ListWorkItemsQuery) (Page[domain.WorkItem], error) {
 	if err := query.Identity.Validate(); err != nil {
 		return Page[domain.WorkItem]{}, err
@@ -99,7 +99,7 @@ type GetWorkItemExecutionContextQuery struct {
 }
 
 // GetWorkItemExecutionContext returns the shared coordination state for one
-// open or terminal WorkItem.
+// WorkItem in any lifecycle state, subject to the requesting identity’s access.
 func (s *Service) GetWorkItemExecutionContext(
 	ctx context.Context,
 	query GetWorkItemExecutionContextQuery,

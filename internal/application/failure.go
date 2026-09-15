@@ -148,7 +148,7 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 			}
 			if _, err := s.retryWorkflowTask(store, state, workItem, task, actor, failure.RetryPrompt, ""); err != nil {
 				if limit, ok := err.(*workflowRetryLimitError); ok {
-					if err := s.failWorkflowExecutionLimit(store, &workItem, task, limit.Node, limit.Count, limit.Limit, now); err != nil {
+					if err := s.failWorkflowTaskInstanceLimit(store, &workItem, task, limit.Node, limit.Count, limit.Limit, now); err != nil {
 						return err
 					}
 				} else {
