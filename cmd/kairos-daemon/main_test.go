@@ -21,6 +21,7 @@ func TestCommandConfiguration(t *testing.T) {
 		{"version", []string{"--version"}, "", ""},
 		{"missing token", nil, "", "Identity Token is required"},
 		{"unknown adapter", []string{"--adapter=real"}, "secret", "unsupported adapter"},
+		{"removed diagnostic name", []string{"--adapter=fake-abandon"}, "secret", "unsupported adapter"},
 		{"unconfigured codex", []string{"--adapter=codex", "--codex-executable=" + os.Args[0]}, "secret", "authentication home and model are required"},
 		{"invalid slots", []string{"--slots=0"}, "secret", "invalid scheduler"},
 		{"invalid tags", []string{"--tags= backend "}, "secret", "whitespace"},
@@ -64,7 +65,7 @@ func TestDiagnosticAdapterExplicitOptIn(t *testing.T) {
 			t.Fatal(err)
 		}
 		observation, err := a.Observe(context.Background(), ref)
-		if err != nil || observation.State != daemon.OutcomeReady || observation.Outcome.Kind() != daemon.Abandoned {
+		if err != nil || observation.State != daemon.OutcomeReady || observation.Outcome.Kind() != daemon.CandidateDeclined {
 			t.Fatalf("observation: %+v %v", observation, err)
 		}
 	}

@@ -8,7 +8,7 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-type RestartWorkflowCommand struct {
+type StartOverWorkflowCommand struct {
 	WorkItemID   domain.WorkItemID
 	Identity     Identity
 	Version      int64
@@ -16,14 +16,14 @@ type RestartWorkflowCommand struct {
 	Instructions string
 }
 
-// RestartWorkflow copies intent and a bounded failure summary, never execution
+// StartOverWorkflow copies intent and a bounded failure summary, never execution
 // state. The source binding is pinned even when a newer Definition is published.
-func (s *Service) RestartWorkflow(ctx context.Context, command RestartWorkflowCommand) (domain.WorkItem, error) {
+func (s *Service) StartOverWorkflow(ctx context.Context, command StartOverWorkflowCommand) (domain.WorkItem, error) {
 	if err := command.Identity.Validate(); err != nil {
 		return domain.WorkItem{}, err
 	}
 	if command.Identity.Actor.Kind != domain.ActorHuman {
-		return domain.WorkItem{}, forbidden("only a human can restart a workflow")
+		return domain.WorkItem{}, forbidden("only a human can start over from a workflow")
 	}
 	if command.WorkItemID == "" || command.Version < 0 || strings.TrimSpace(command.OperationID) == "" {
 		return domain.WorkItem{}, invalidCommand("work item id, version and Idempotency-Key are required")
@@ -32,7 +32,7 @@ func (s *Service) RestartWorkflow(ctx context.Context, command RestartWorkflowCo
 		return domain.WorkItem{}, invalidCommand("instructions exceed %d UTF-8 bytes", domain.MaxHistoryTextBytes)
 	}
 	var created domain.WorkItem
-	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "restart_workflow", command, &created, func(store WriteStore) error {
+	err := s.replayableCreate(ctx, command.Identity, command.OperationID, "start_over_workflow", command, &created, func(store WriteStore) error {
 		source, err := store.GetWorkItem(command.WorkItemID)
 		if err != nil {
 			return err
@@ -45,7 +45,7 @@ func (s *Service) RestartWorkflow(ctx context.Context, command RestartWorkflowCo
 			return conflict("only a Workflow with current failures can start over")
 		}
 		if source.Version != command.Version {
-			return conflict("source version changed; refresh before restarting")
+			return conflict("source version changed; refresh before starting over")
 		}
 		definition, err := store.GetWorkflowDefinition(source.Definition.ID, source.Definition.Version)
 		if err != nil {
@@ -56,7 +56,7 @@ func (s *Service) RestartWorkflow(ctx context.Context, command RestartWorkflowCo
 			return err
 		}
 		now := s.clock.Now()
-		work := domain.WorkItem{ID: domain.WorkItemID(id), Definition: source.Definition, Status: domain.WorkItemStatusOpen, AcceptanceMode: source.AcceptanceMode, Title: source.Title, Goal: source.Goal, Context: source.Context, Constraints: source.Constraints, AcceptanceCriteria: source.AcceptanceCriteria, Tags: append([]string{}, source.Tags...), CreatedAt: now, UpdatedAt: now, RestartOfWorkItemID: &source.ID, RestartContext: workflowRestartSummary(source, tasks), RecoveryInstructions: command.Instructions, WorkflowMaxTaskExecutions: source.WorkflowMaxTaskExecutions}
+		work := domain.WorkItem{ID: domain.WorkItemID(id), Definition: source.Definition, Status: domain.WorkItemStatusOpen, AcceptanceMode: source.AcceptanceMode, Title: source.Title, Goal: source.Goal, Context: source.Context, Constraints: source.Constraints, AcceptanceCriteria: source.AcceptanceCriteria, Tags: append([]string{}, source.Tags...), CreatedAt: now, UpdatedAt: now, StartedOverFromWorkItemID: &source.ID, StartOverContext: workflowStartOverSummary(source, tasks), RecoveryInstructions: command.Instructions, WorkflowMaxTaskInstancesPerNode: source.WorkflowMaxTaskInstancesPerNode}
 		if err := work.Validate(); err != nil {
 			return err
 		}
@@ -64,7 +64,7 @@ func (s *Service) RestartWorkflow(ctx context.Context, command RestartWorkflowCo
 			return err
 		}
 		actor := command.Identity.Actor
-		if err := s.appendEvent(store, work.ID, nil, domain.WorkItemEventWorkItemCreated, string(work.ID), &actor, "restart of work item "+string(source.ID)); err != nil {
+		if err := s.appendEvent(store, work.ID, nil, domain.WorkItemEventWorkItemCreated, string(work.ID), &actor, "started over from work item "+string(source.ID)); err != nil {
 			return err
 		}
 		if err := s.createWorkflowStartTasks(store, work, definition, actor); err != nil {
@@ -77,14 +77,14 @@ func (s *Service) RestartWorkflow(ctx context.Context, command RestartWorkflowCo
 				return err
 			}
 		}
-		// A source revision fences concurrent restart/continue requests. The source
+		// A source revision fences concurrent start-over/continue requests. The source
 		// stays Failed and retains its history, including Claims ended above.
 		source.Version++
 		source.UpdatedAt = now
 		if err := store.SaveWorkItem(source); err != nil {
 			return err
 		}
-		if err := s.appendEvent(store, source.ID, nil, domain.WorkItemEventWorkItemRestarted, string(source.ID), &actor, "restarted as work item "+string(work.ID)); err != nil {
+		if err := s.appendEvent(store, source.ID, nil, domain.WorkItemEventWorkItemStartedOver, string(source.ID), &actor, "started over as work item "+string(work.ID)); err != nil {
 			return err
 		}
 		created = work
@@ -93,10 +93,10 @@ func (s *Service) RestartWorkflow(ctx context.Context, command RestartWorkflowCo
 	return normalizeWorkItemCollections(created), err
 }
 
-// Restart summaries carry only this failure; execution history stays on source.
-func workflowRestartSummary(source domain.WorkItem, tasks []domain.Task) string {
+// Start-over summaries carry only this failure; execution history stays on source.
+func workflowStartOverSummary(source domain.WorkItem, tasks []domain.Task) string {
 	var summary strings.Builder
-	fmt.Fprintf(&summary, "WorkItem %s failed. Restart uses the same Workflow version and initial nodes.\n", source.ID)
+	fmt.Fprintf(&summary, "WorkItem %s failed. Start over uses the same Workflow version and initial nodes.\n", source.ID)
 	if source.Failure != nil {
 		fmt.Fprintf(&summary, "Workflow failure: %s\n", source.Failure.Message)
 	}

@@ -66,10 +66,10 @@ Supported collaboration capabilities:
 - **Progression guidance**: Relations may carry optional labels and agent guidance without changing the graph's existing progression semantics.
 - **Autonomous skipping**: upstream executors decide whether Optional Tasks are needed; decisions are combined at joins.
 - **Autonomous Review**: a Task can require no Review, let the executor decide, or require Review.
-- **Cycles**: executors can continue through a cycle path or exit it, with a maximum execution count per node.
+- **Cycles**: executors can continue through a cycle path or exit it, with a maximum Task instance count per node.
 - **Automatic completion**: the WorkItem completes after every selected path closes.
 
-`max_task_executions` is shared configuration counted independently for each Workflow node and WorkItem; there is no total Task-instance limit.
+`max_task_instances_per_node` is shared configuration counted independently for each Workflow node and WorkItem; there is no total Task-instance limit.
 
 ### Blackboard
 

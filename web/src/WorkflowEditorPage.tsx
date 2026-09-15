@@ -132,7 +132,7 @@ function RelationProperties({ relation, draft, onChange }: { relation: WorkflowR
 
 function WorkflowProperties({ draft, onChange }: { draft: WorkflowDraft; onChange: (update: Partial<WorkflowDraft>) => void }) {
   const { t } = useI18n()
-  return <div className="property-form"><span>{t('workflowSettings')}</span><h2>{t('workflowDetails')}</h2><label>{t('displayName')}<input value={draft.name} onChange={event => onChange({ name: event.target.value })} /></label><label>{t('description')}<textarea rows={3} value={draft.description} onChange={event => onChange({ description: event.target.value })} /></label><label>{t('agentInstructions')}<textarea rows={6} value={draft.agentInstructions} onChange={event => onChange({ agentInstructions: event.target.value })} /></label><label>{t('suggestedTags')}<CommaValuesInput values={draft.suggestedTags} onChange={suggestedTags => onChange({ suggestedTags })} /></label><label>{t('executionLimit')}<input type="number" min={0} max={500} step={1} aria-describedby="execution-limit-help" value={draft.maxTaskExecutions} onChange={event => onChange({ maxTaskExecutions: Number(event.target.value) })} /></label><p className="property-intro" id="execution-limit-help">{t('executionLimitHelp')}</p></div>
+  return <div className="property-form"><span>{t('workflowSettings')}</span><h2>{t('workflowDetails')}</h2><label>{t('displayName')}<input value={draft.name} onChange={event => onChange({ name: event.target.value })} /></label><label>{t('description')}<textarea rows={3} value={draft.description} onChange={event => onChange({ description: event.target.value })} /></label><label>{t('agentInstructions')}<textarea rows={6} value={draft.agentInstructions} onChange={event => onChange({ agentInstructions: event.target.value })} /></label><label>{t('suggestedTags')}<CommaValuesInput values={draft.suggestedTags} onChange={suggestedTags => onChange({ suggestedTags })} /></label><label>{t('taskInstanceLimit')}<input type="number" min={0} max={500} step={1} aria-describedby="task-instance-limit-help" value={draft.maxTaskInstancesPerNode} onChange={event => onChange({ maxTaskInstancesPerNode: Number(event.target.value) })} /></label><p className="property-intro" id="task-instance-limit-help">{t('taskInstanceLimitHelp')}</p></div>
 }
 
 function TaskProperties({ task, isStart, onChange, onToggleStart, confirmDelete, onRequestDelete, onCancelDelete, onDelete }: {
@@ -157,7 +157,7 @@ function CommaValuesInput({ values, onChange }: { values: string[]; onChange: (v
 function validationMessage(error: string) {
   const messages = {
     name: 'validationWorkflowName', tasks: 'validationWorkflowTasks', start: 'validationWorkflowStart', titles: 'validationTaskTitles',
-    'execution-limit': 'validationExecutionLimit', 'duplicate-relation': 'validationDuplicateRelation', artifacts: 'validationArtifacts', 'duplicate-artifacts': 'validationDuplicateArtifacts',
+    'task-instance-limit': 'validationTaskInstanceLimit', 'duplicate-relation': 'validationDuplicateRelation', artifacts: 'validationArtifacts', 'duplicate-artifacts': 'validationDuplicateArtifacts',
   } as const
   return messages[error as keyof typeof messages] ?? 'validationWorkflowGraph'
 }

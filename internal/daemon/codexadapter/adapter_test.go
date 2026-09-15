@@ -373,7 +373,7 @@ func TestRuntimeFailureAndCoordination(t *testing.T) {
 		a, r := fixture(t, "success")
 		r.Candidate.Kind = kind
 		r.Candidate.TaskID = ""
-		a.environment = append(a.environment, `KAIROS_FAKE_OUTCOME={"coordination":{"kind":"abandoned"},"runtime_failure":null}`)
+		a.environment = append(a.environment, `KAIROS_FAKE_OUTCOME={"coordination":{"kind":"candidate_declined"},"runtime_failure":null}`)
 		ref, err := a.Start(context.Background(), r)
 		if err != nil {
 			t.Fatal(err)

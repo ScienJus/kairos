@@ -61,7 +61,7 @@ func prepareWorkflowFanout(t testing.TB, repo *SQLRepository, history int) appli
 	t.Helper()
 	ctx := context.Background()
 	actor := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "benchmark"}}
-	def := domain.WorkflowDefinition{DefinitionMetadata: domain.DefinitionMetadata{ID: "scale", Version: 1, Name: "Scale", CreatedAt: repositoryTestTime, UpdatedAt: repositoryTestTime}, Graph: domain.WorkflowGraph{MaxTaskExecutions: 500}}
+	def := domain.WorkflowDefinition{DefinitionMetadata: domain.DefinitionMetadata{ID: "scale", Version: 1, Name: "Scale", CreatedAt: repositoryTestTime, UpdatedAt: repositoryTestTime}, Graph: domain.WorkflowGraph{MaxTaskInstancesPerNode: 500}}
 	for i := 0; i < 100; i++ {
 		id := domain.WorkflowTaskID(fmt.Sprintf("node-%d", i))
 		def.Graph.Tasks = append(def.Graph.Tasks, domain.WorkflowTaskDefinition{ID: id, Title: string(id), Executor: domain.ExecutorHuman, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone})
@@ -98,7 +98,7 @@ func prepareWorkflowFanout(t testing.TB, repo *SQLRepository, history int) appli
 			}
 		}
 		// Historical aggregate snapshots across 91 independent nodes stay
-		// below 500 executions per node, including their initial instances.
+		// below 500 taskInstances per node, including their initial instances.
 		for i := len(tasks); i < history; i++ {
 			task := source
 			task.ID = domain.TaskID(fmt.Sprintf("history-%d", i))

@@ -63,16 +63,16 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 	contextData := workItemEnvelope["data"].(map[string]any)
 	workItemData := contextData["work_item"].(map[string]any)
 	assertJSONKeys(t, workItemData,
-		[]string{"cancelled_at", "cancelled_by", "cancellation_reason", "failure", "workflow_max_task_executions", "restart_of_work_item_id", "restart_context", "recovery_instructions"},
-		[]string{"cancelledat", "cancelledby", "cancellationreason"},
+		[]string{"cancelled_at", "cancelled_by", "cancellation_reason", "failure", "workflow_max_task_instances_per_node", "started_over_from_work_item_id", "start_over_context", "recovery_instructions"},
+		[]string{"cancelledat", "cancelledby", "cancellationreason", "workflow_max_task_executions", "restart_of_work_item_id", "restart_context"},
 	)
 	if workItemData["cancelled_at"] != nil || workItemData["cancelled_by"] != nil || workItemData["cancellation_reason"] != "" {
 		t.Fatalf("open WorkItem cancellation metadata = %#v, want null/null/empty", workItemData)
 	}
-	if workItemData["failure"] != nil || workItemData["workflow_max_task_executions"] != float64(0) {
+	if workItemData["failure"] != nil || workItemData["workflow_max_task_instances_per_node"] != float64(0) {
 		t.Fatalf("empty failure/override representation: %#v", workItemData)
 	}
-	if workItemData["restart_of_work_item_id"] != nil || workItemData["restart_context"] != "" || workItemData["recovery_instructions"] != "" {
+	if workItemData["started_over_from_work_item_id"] != nil || workItemData["start_over_context"] != "" || workItemData["recovery_instructions"] != "" {
 		t.Fatalf("empty recovery fields: %#v", workItemData)
 	}
 	if claims, ok := contextData["coordination_claims"].([]any); !ok || len(claims) != 0 {

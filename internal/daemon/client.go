@@ -263,11 +263,11 @@ func (c *HTTPClient) Apply(ctx context.Context, candidate Candidate, id, operati
 				children[i] = taskSpecRequest(child)
 			}
 			body["children"] = children
-		case RetryableFailure, HumanInterventionRequired, TerminalFailure:
+		case RetryableFailure, HumanInterventionRequired, WorkItemFailure:
 			path = taskPath(candidate) + "/failures"
 			body["action"] = failureAction(t.Kind)
 			body["reason"], body["retry_prompt"] = t.Reason, t.RetryPrompt
-		case Abandoned:
+		case CandidateDeclined:
 			return c.Release(ctx, candidate, id, t.Reason)
 		}
 	} else {
@@ -284,7 +284,7 @@ func (c *HTTPClient) Apply(ctx context.Context, candidate Candidate, id, operati
 			body["result"] = d.Result
 		case AcceptCompletion:
 			path = workPath(candidate) + "/acceptance"
-		case Abandoned:
+		case CandidateDeclined:
 			return c.Release(ctx, candidate, id, "")
 		}
 	}

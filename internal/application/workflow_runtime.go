@@ -8,7 +8,7 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-const defaultMaxWorkflowTaskExecutions = domain.DefaultWorkflowMaxTaskExecutions
+const defaultMaxWorkflowTaskInstancesPerNode = domain.DefaultWorkflowMaxTaskInstancesPerNode
 
 func (s *Service) applyWorkflowDecision(
 	store WriteStore,
@@ -50,7 +50,7 @@ func (s *Service) propagateWorkflowDecision(store WriteStore, workItem *domain.W
 		relations[relation.ID] = relation
 	}
 	for _, relationID := range group.RelationIDs {
-		// An applied decision can be resumed after a limit failure. Inputs, including
+		// An applied decision can be continued after a limit failure. Inputs, including
 		// waiting joins, are the durable receipt; never deliver the same edge twice.
 		if delivered[relationID] {
 			continue
@@ -242,15 +242,15 @@ func (s *Service) resolveWorkflowActivationInput(
 		return false, nil
 	}
 
-	limit := effectiveWorkflowExecutionLimit(*workItem, definition)
+	limit := effectiveWorkflowTaskInstanceLimit(*workItem, definition)
 	// Count the target node using indexed columns, without decoding history.
 	// Resolved activations include start, skipped and replacement instances.
-	executions, err := store.CountResolvedWorkflowTaskActivations(workItem.ID, relation.ToTaskID)
+	taskInstances, err := store.CountResolvedWorkflowTaskActivations(workItem.ID, relation.ToTaskID)
 	if err != nil {
-		return false, fmt.Errorf("count workflow node executions: %w", err)
+		return false, fmt.Errorf("count workflow node task instances: %w", err)
 	}
-	if executions >= limit {
-		if err := s.failWorkflowExecutionLimit(store, workItem, sourceTask, relation.ToTaskID, executions, limit, now); err != nil {
+	if taskInstances >= limit {
+		if err := s.failWorkflowTaskInstanceLimit(store, workItem, sourceTask, relation.ToTaskID, taskInstances, limit, now); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -548,26 +548,26 @@ func workflowTaskDefinition(
 	return domain.WorkflowTaskDefinition{}, false
 }
 
-func (s *Service) failWorkflowExecutionLimit(
+func (s *Service) failWorkflowTaskInstanceLimit(
 	store WriteStore,
 	workItem *domain.WorkItem,
 	sourceTask domain.Task,
 	targetTaskID domain.WorkflowTaskID,
-	executions, limit int,
+	taskInstances, limit int,
 	now time.Time,
 ) error {
 	actor := domain.ActorRef{Kind: domain.ActorAgent, ID: "kairos"}
-	message := workflowExecutionLimitMessage(targetTaskID, sourceTask.ID, limit)
-	workItem.Failure = &domain.WorkItemFailure{Kind: domain.FailureWorkflowExecutionLimit, Message: message, WorkflowTaskID: targetTaskID, Executions: executions, Limit: limit}
+	message := workflowTaskInstanceLimitMessage(targetTaskID, sourceTask.ID, limit)
+	workItem.Failure = &domain.WorkItemFailure{Kind: domain.FailureWorkflowTaskInstanceLimit, Message: message, WorkflowTaskID: targetTaskID, TaskInstances: taskInstances, Limit: limit}
 	return s.failWorkItem(store, workItem, &sourceTask.ID, &actor, message, now)
 }
 
-func workflowExecutionLimitMessage(nodeID domain.WorkflowTaskID, sourceID domain.TaskID, limit int) string {
-	message := fmt.Sprintf("workflow node %q reached max_task_executions (%d); cannot create execution %d after task %s", nodeID, limit, limit+1, sourceID)
+func workflowTaskInstanceLimitMessage(nodeID domain.WorkflowTaskID, sourceID domain.TaskID, limit int) string {
+	message := fmt.Sprintf("workflow node %q reached max_task_instances_per_node (%d); cannot create task instance %d after task %s", nodeID, limit, limit+1, sourceID)
 	if len(message) > domain.MaxHistoryTextBytes {
 		// Keep the cause readable even when the quoted ID exceeds the message
 		// budget. The structured failure retains the complete node identity.
-		return fmt.Sprintf("workflow node reached max_task_executions (%d); cannot create execution %d; see failure.workflow_task_id for the full node ID", limit, limit+1)
+		return fmt.Sprintf("workflow node reached max_task_instances_per_node (%d); cannot create task instance %d; see failure.workflow_task_id for the full node ID", limit, limit+1)
 	}
 	return message
 }
@@ -581,14 +581,14 @@ func hasAppliedDecision(task domain.Task) bool {
 	return false
 }
 
-func effectiveWorkflowExecutionLimit(workItem domain.WorkItem, definition domain.WorkflowDefinition) int {
-	if workItem.WorkflowMaxTaskExecutions > 0 {
-		return workItem.WorkflowMaxTaskExecutions
+func effectiveWorkflowTaskInstanceLimit(workItem domain.WorkItem, definition domain.WorkflowDefinition) int {
+	if workItem.WorkflowMaxTaskInstancesPerNode > 0 {
+		return workItem.WorkflowMaxTaskInstancesPerNode
 	}
-	if definition.Graph.MaxTaskExecutions > 0 {
-		return definition.Graph.MaxTaskExecutions
+	if definition.Graph.MaxTaskInstancesPerNode > 0 {
+		return definition.Graph.MaxTaskInstancesPerNode
 	}
-	return defaultMaxWorkflowTaskExecutions
+	return defaultMaxWorkflowTaskInstancesPerNode
 }
 
 // deliveredWorkflowInputs indexes persisted receipts once per propagation or

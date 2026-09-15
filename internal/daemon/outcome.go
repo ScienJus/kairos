@@ -17,9 +17,9 @@ const (
 	Completed                 OutcomeKind = "completed"
 	Decomposed                OutcomeKind = "decomposed"
 	RetryableFailure          OutcomeKind = "retryable_failure"
-	TerminalFailure           OutcomeKind = "terminal_failure"
+	WorkItemFailure           OutcomeKind = "work_item_failure"
 	HumanInterventionRequired OutcomeKind = "human_intervention_required"
-	Abandoned                 OutcomeKind = "abandoned"
+	CandidateDeclined         OutcomeKind = "candidate_declined"
 	CreateTask                OutcomeKind = "create_task"
 	SubmitCompletion          OutcomeKind = "submit_completion"
 	AcceptCompletion          OutcomeKind = "accept_completion"
@@ -131,14 +131,14 @@ func (o HarnessOutcome) Validate(c Candidate) error {
 					return err
 				}
 			}
-		case RetryableFailure, HumanInterventionRequired, TerminalFailure, Abandoned:
+		case RetryableFailure, HumanInterventionRequired, WorkItemFailure, CandidateDeclined:
 			if t.Kind == HumanInterventionRequired && c.Mode != domain.CoordinationModeWorkflow {
 				return errors.New("human_intervention_required requires a Workflow Task")
 			}
 			if t.Result != "" || len(t.ArtifactIDs) != 0 || t.RequestReview || t.Transition != nil || len(t.Children) != 0 {
-				return errors.New("invalid failure or abandoned fields")
+				return errors.New("invalid failure or candidate_declined fields")
 			}
-			if t.Kind != Abandoned && strings.TrimSpace(t.Reason) == "" {
+			if t.Kind != CandidateDeclined && strings.TrimSpace(t.Reason) == "" {
 				return errors.New("business failure requires a reason")
 			}
 			if t.Kind != RetryableFailure && t.RetryPrompt != "" {
@@ -148,7 +148,7 @@ func (o HarnessOutcome) Validate(c Candidate) error {
 			return errors.New("unsupported Task outcome")
 		}
 		reason := t.Reason
-		if t.Kind == Abandoned {
+		if t.Kind == CandidateDeclined {
 			reason = strings.TrimSpace(reason)
 		}
 		return validateOutcomeText(strings.TrimSpace(t.Result), reason, t.RetryPrompt)
@@ -172,9 +172,9 @@ func (o HarnessOutcome) Validate(c Candidate) error {
 		if c.Kind != WorkItemAcceptance || d.Task != nil || d.Result != "" {
 			return errors.New("invalid accept_completion decision")
 		}
-	case Abandoned:
+	case CandidateDeclined:
 		if d.Task != nil || d.Result != "" {
-			return errors.New("abandoned decision has no payload")
+			return errors.New("candidate_declined decision has no payload")
 		}
 	default:
 		return errors.New("unsupported Coordination decision")

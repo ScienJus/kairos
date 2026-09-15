@@ -16,7 +16,7 @@ const identity: Identity = { id: 'human-1', kind: 'human', role: '' }
 function definition(id: string, version: number): WorkflowDefinition {
   return {
     id, version, name: id === 'delivery' ? 'Delivery' : 'Operations', description: '', agent_instructions: '', suggested_tags: [],
-    graph: { start_task_ids: ['implement'], relations: [], max_task_executions: 20, tasks: [{
+    graph: { start_task_ids: ['implement'], relations: [], max_task_instances_per_node: 20, tasks: [{
       id: 'implement', title: 'Implement', description: '', acceptance_criteria: '', executor: 'agent', allowed_roles: [], execution: 'required', review_policy: 'none', default_tags: [], artifacts: [],
     }] },
   }
@@ -33,12 +33,12 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear() })
 describe('Workflow definition routes', () => {
   it('labels the per-node limit and displays the effective default for zero', async () => {
     const value = definition('delivery', 2)
-    value.graph.max_task_executions = 0
+    value.graph.max_task_instances_per_node = 0
     vi.spyOn(api, 'listWorkflowDefinitions').mockResolvedValue({ data: [value], next_cursor: null })
     vi.spyOn(api, 'listWorkflowDefinitionVersions').mockResolvedValue({ data: [value], next_cursor: null })
     vi.spyOn(api, 'getWorkflowDefinition').mockResolvedValue(value)
     renderPage()
-    const label = await screen.findByText('Max executions per node')
+    const label = await screen.findByText('Max task instances per node')
     expect(label.parentElement).toHaveTextContent('100')
   })
 

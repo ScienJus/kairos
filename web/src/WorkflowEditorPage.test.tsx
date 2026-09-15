@@ -18,7 +18,7 @@ function definition(version: number): WorkflowDefinition {
   return {
     id: 'delivery', version, name: `Delivery v${version}`, description: '', agent_instructions: '', suggested_tags: [],
     graph: {
-      start_task_ids: ['implement'], max_task_executions: 20, relations: [],
+      start_task_ids: ['implement'], max_task_instances_per_node: 20, relations: [],
       tasks: [{
         id: 'implement', title: 'Implement', description: '', acceptance_criteria: '', executor: 'agent', allowed_roles: [],
         execution: 'required', review_policy: 'none', default_tags: [], artifacts: [],

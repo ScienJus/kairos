@@ -219,8 +219,8 @@ type outcomeView struct {
 
 type workItemLifecycleView struct {
 	workItemView
-	Failure                   *domain.WorkItemFailure `json:"failure"`
-	WorkflowMaxTaskExecutions int                     `json:"workflow_max_task_executions"`
+	Failure                         *domain.WorkItemFailure `json:"failure"`
+	WorkflowMaxTaskInstancesPerNode int                     `json:"workflow_max_task_instances_per_node"`
 }
 
 type workItemContextOutput struct {
@@ -606,7 +606,7 @@ func stringValues[T ~string](values []T) []string {
 func workItemLifecycleViewFrom(value domain.WorkItem) workItemLifecycleView {
 	view := workItemViewFrom(value)
 	view.Context = workItemRecoveryContext(value)
-	return workItemLifecycleView{workItemView: view, Failure: value.Failure, WorkflowMaxTaskExecutions: value.WorkflowMaxTaskExecutions}
+	return workItemLifecycleView{workItemView: view, Failure: value.Failure, WorkflowMaxTaskInstancesPerNode: value.WorkflowMaxTaskInstancesPerNode}
 }
 
 func taskContextSummaryViews(values []domain.Task) []taskSummaryView {
@@ -619,8 +619,8 @@ func taskContextSummaryViews(values []domain.Task) []taskSummaryView {
 
 func workItemRecoveryContext(value domain.WorkItem) string {
 	context := value.Context
-	if value.RestartOfWorkItemID != nil {
-		context += "\n\nRestart context:\n" + value.RestartContext
+	if value.StartedOverFromWorkItemID != nil {
+		context += "\n\nStart-over context:\n" + value.StartOverContext
 	}
 	if value.RecoveryInstructions != "" {
 		context += "\nOperator instructions:\n" + value.RecoveryInstructions

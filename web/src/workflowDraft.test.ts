@@ -7,7 +7,7 @@ import { appendWorkflowTask, connectWorkflowTasks, deleteWorkflowTask, draftFrom
 const task = (id: string): WorkflowTaskDefinition => ({ id, title: id, description: '', acceptance_criteria: '', executor: 'agent', allowed_roles: [], execution: 'required', review_policy: 'none', default_tags: [], artifacts: [] })
 const definition: WorkflowDefinition = {
   id: 'release', version: 2, name: 'Release', description: '', agent_instructions: '', suggested_tags: [],
-  graph: { start_task_ids: ['a'], tasks: [{ ...task('a'), artifacts: [{ name: 'commit', description: 'Provide the immutable commit.' }] }, task('b')], relations: [{ id: 'ab', from_task_id: 'a', to_task_id: 'b', label: 'Ready', agent_guidance: 'Continue when implementation is ready.' }], max_task_executions: 10 },
+  graph: { start_task_ids: ['a'], tasks: [{ ...task('a'), artifacts: [{ name: 'commit', description: 'Provide the immutable commit.' }] }, task('b')], relations: [{ id: 'ab', from_task_id: 'a', to_task_id: 'b', label: 'Ready', agent_guidance: 'Continue when implementation is ready.' }], max_task_instances_per_node: 10 },
 }
 
 beforeEach(() => {
@@ -18,16 +18,16 @@ beforeEach(() => {
 describe('Workflow local drafts', () => {
   it.each([0, 1, 500])('accepts per-node limit %s independently of the number of start nodes', limit => {
     const draft = draftFromDefinition(definition)
-    draft.maxTaskExecutions = limit
+    draft.maxTaskInstancesPerNode = limit
     draft.startTaskIDs = ['a', 'b']
     expect(validateWorkflowDraft(draft)).toEqual([])
-    expect(workflowDraftInput(draft).graph.max_task_executions).toBe(limit)
+    expect(workflowDraftInput(draft).graph.max_task_instances_per_node).toBe(limit)
   })
 
   it.each([-1, 501, 1.5, NaN])('rejects invalid per-node limit %s', limit => {
     const draft = draftFromDefinition(definition)
-    draft.maxTaskExecutions = limit
-    expect(validateWorkflowDraft(draft)).toContain('execution-limit')
+    draft.maxTaskInstancesPerNode = limit
+    expect(validateWorkflowDraft(draft)).toContain('task-instance-limit')
   })
 
   it('creates and restores isolated drafts', () => {
@@ -92,7 +92,7 @@ describe('Workflow local drafts', () => {
     const draft = draftFromDefinition(definition)
     const input = workflowDraftInput(draft)
     expect(validateWorkflowDraft(draft)).toEqual([])
-    expect(input).toMatchObject({ id: 'release', base_version: 2, graph: { start_task_ids: ['a'], max_task_executions: 10 } })
+    expect(input).toMatchObject({ id: 'release', base_version: 2, graph: { start_task_ids: ['a'], max_task_instances_per_node: 10 } })
     expect(input.graph.relations).toEqual([{ id: 'ab', from_task_id: 'a', to_task_id: 'b', label: 'Ready', agent_guidance: 'Continue when implementation is ready.' }])
     expect(input.graph.tasks[0].artifacts).toEqual([{ name: 'commit', description: 'Provide the immutable commit.' }])
 

@@ -39,7 +39,7 @@ func TestCancelledRunningProbePreservesQuarantine(t *testing.T) {
 				core, _, options := schedulerFixture(t)
 				adapter := &cancelledHealthAdapter{entered: make(chan struct{}, 1)}
 				adapter.observe = func(context.Context, RunRef) (RunObservation, error) {
-					return RunObservation{State: OutcomeReady, Outcome: &HarnessOutcome{Task: &TaskOutcome{Kind: Abandoned}}}, nil
+					return RunObservation{State: OutcomeReady, Outcome: &HarnessOutcome{Task: &TaskOutcome{Kind: CandidateDeclined}}}, nil
 				}
 				s, err := NewScheduler(core, adapter, options)
 				if err != nil {
@@ -61,7 +61,7 @@ func TestCancelledRunningProbePreservesQuarantine(t *testing.T) {
 				record := s.records[core.rows[0].Candidate]
 				s.mu.Unlock()
 				if !record.quarantined {
-					t.Fatal("initial abandonment did not quarantine")
+					t.Fatal("initial candidate decline did not quarantine")
 				}
 				adapter.block.Store(true)
 				<-adapter.entered

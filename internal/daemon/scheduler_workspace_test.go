@@ -90,7 +90,7 @@ func TestSchedulerWorkspaceCleanupPreservesClaimedOrNonemptyDirectories(t *testi
 		t.Run(scenario, func(t *testing.T) {
 			core, adapter, options := schedulerFixture(t)
 			adapter.observe = func(context.Context, RunRef) (RunObservation, error) {
-				return RunObservation{State: OutcomeReady, Outcome: &HarnessOutcome{Task: &TaskOutcome{Kind: Abandoned}}}, nil
+				return RunObservation{State: OutcomeReady, Outcome: &HarnessOutcome{Task: &TaskOutcome{Kind: CandidateDeclined}}}, nil
 			}
 			if scenario == "unclaimed_nonempty" {
 				core.claimError = &ClaimAttemptError{State: ClaimNotSent, Err: errors.New("preflight unavailable")}
@@ -114,7 +114,7 @@ func TestSchedulerWorkspaceCleanupPreservesClaimedOrNonemptyDirectories(t *testi
 			}
 			result, err := pending.dispatch.Run(context.Background())
 			if scenario == "claimed_empty" {
-				if err != nil || !result.ClaimEnded || result.ClaimID == "" || result.Outcome != Abandoned {
+				if err != nil || !result.ClaimEnded || result.ClaimID == "" || result.Outcome != CandidateDeclined {
 					t.Fatalf("claimed completion: %+v %v", result, err)
 				}
 			} else if !statusIs(err, 409) || result.ClaimID != "" {

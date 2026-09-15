@@ -39,7 +39,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 	flags.SetOutput(stderr)
 	coreURL := flags.String("core-url", "http://localhost:8080", "Kairos Core base URL")
 	mcpURL := flags.String("mcp-url", "", "MCP endpoint (defaults to Core URL + /mcp)")
-	adapter := flags.String("adapter", "unavailable", "unavailable, fake-abandon (diagnostics), or codex")
+	adapter := flags.String("adapter", "unavailable", "unavailable, fake-decline (diagnostics), or codex")
 	codexExecutable := flags.String("codex-executable", "codex", "Codex CLI executable (0.146.0 or newer; required execution options are probed)")
 	codexHome := flags.String("codex-home", "", "dedicated authenticated Codex home (required with --adapter=codex)")
 	codexModel := flags.String("codex-model", "", "explicit model for Codex (required with --adapter=codex)")
@@ -70,7 +70,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 	if flags.NArg() != 0 {
 		return errors.New("positional arguments are not supported")
 	}
-	if *adapter != "unavailable" && *adapter != "fake-abandon" && *adapter != "codex" {
+	if *adapter != "unavailable" && *adapter != "fake-decline" && *adapter != "codex" {
 		return errors.New("unsupported adapter")
 	}
 	core, err := daemon.NewHTTPClient(*coreURL, daemon.NewSecret(getenv("KAIROS_DAEMON_TOKEN")), nil)
@@ -86,7 +86,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 		options.Tags = strings.Split(*tags, ",")
 	}
 	options.Logger = slog.New(slog.NewJSONHandler(out, nil))
-	var harness daemon.Adapter = &diagnosticAdapter{enabled: *adapter == "fake-abandon", runs: make(map[string]daemon.Candidate)}
+	var harness daemon.Adapter = &diagnosticAdapter{enabled: *adapter == "fake-decline", runs: make(map[string]daemon.Candidate)}
 	if *adapter == "codex" {
 		harness, err = codexadapter.New(codexadapter.Options{Executable: *codexExecutable, Home: *codexHome, Model: *codexModel})
 		if err != nil {
@@ -135,9 +135,9 @@ func (a *diagnosticAdapter) Observe(_ context.Context, r daemon.RunRef) (daemon.
 	}
 	outcome := &daemon.HarnessOutcome{}
 	if candidate.Kind == daemon.TaskCandidate {
-		outcome.Task = &daemon.TaskOutcome{Kind: daemon.Abandoned}
+		outcome.Task = &daemon.TaskOutcome{Kind: daemon.CandidateDeclined}
 	} else {
-		outcome.Coordination = &daemon.CoordinationDecision{Kind: daemon.Abandoned}
+		outcome.Coordination = &daemon.CoordinationDecision{Kind: daemon.CandidateDeclined}
 	}
 	delete(a.runs, r.ID)
 	return daemon.RunObservation{State: daemon.OutcomeReady, Outcome: outcome}, nil

@@ -75,11 +75,12 @@ func TestWorkflowRetryPreservesSuccessfulJoinInputs(t *testing.T) {
 				}
 				retry := func(task domain.Task) domain.Task {
 					t.Helper()
-					command := application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: read().WorkItem.Version, Instructions: "先检查已有 PR"}
-					_, err := repositoryTestService(t, openPeer(t)).ResumeWorkflow(ctx, command)
+					command := application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: read().WorkItem.Version, Instructions: "先检查已有 PR"}
+					_, err := repositoryTestService(t, openPeer(t)).ContinueWorkflow(ctx, command)
 					if err != nil {
 						t.Fatal(err)
 					}
+					assertStoredRecoveryEvent(t, repo, work.ID, "work_item.continued")
 					var replacement domain.Task
 					for _, candidate := range read().Tasks {
 						if candidate.RetryOfTaskID != nil && *candidate.RetryOfTaskID == task.ID {
@@ -89,7 +90,7 @@ func TestWorkflowRetryPreservesSuccessfulJoinInputs(t *testing.T) {
 					if replacement.ID == task.ID || replacement.RetryOfTaskID == nil || *replacement.RetryOfTaskID != task.ID || replacement.RetryInstructions != "先检查已有 PR" || !strings.Contains(replacement.RetryContext, "执行失败") {
 						t.Fatalf("retry context/source: %+v", replacement)
 					}
-					if _, err := service.ResumeWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) {
+					if _, err := service.ContinueWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) {
 						t.Fatalf("duplicate retry: %v", err)
 					}
 					return replacement
@@ -127,7 +128,7 @@ func TestWorkflowRetryPreservesSuccessfulJoinInputs(t *testing.T) {
 					if failed.WorkItem.Status != domain.WorkItemStatusFailed {
 						t.Fatal("expected workflow failure")
 					}
-					if _, err := service.ResumeWorkflow(ctx, application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version}); err != nil {
+					if _, err := service.ContinueWorkflow(ctx, application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version}); err != nil {
 						t.Fatal(err)
 					}
 					submit(pending("a"))
@@ -193,14 +194,14 @@ func TestWorkflowRetryPreservesSuccessfulJoinInputs(t *testing.T) {
 }
 
 func attemptDefinition() domain.WorkflowDefinition {
-	def := domain.WorkflowDefinition{DefinitionMetadata: domain.DefinitionMetadata{ID: "attempts", Version: 1, Name: "Attempts", CreatedAt: repositoryTestTime, UpdatedAt: repositoryTestTime}, Graph: domain.WorkflowGraph{StartTaskIDs: []domain.WorkflowTaskID{"a", "b"}, MaxTaskExecutions: 3, Relations: []domain.WorkflowRelationDefinition{{ID: "ac", FromTaskID: "a", ToTaskID: "c"}, {ID: "bc", FromTaskID: "b", ToTaskID: "c"}}}}
+	def := domain.WorkflowDefinition{DefinitionMetadata: domain.DefinitionMetadata{ID: "attempts", Version: 1, Name: "Attempts", CreatedAt: repositoryTestTime, UpdatedAt: repositoryTestTime}, Graph: domain.WorkflowGraph{StartTaskIDs: []domain.WorkflowTaskID{"a", "b"}, MaxTaskInstancesPerNode: 3, Relations: []domain.WorkflowRelationDefinition{{ID: "ac", FromTaskID: "a", ToTaskID: "c"}, {ID: "bc", FromTaskID: "b", ToTaskID: "c"}}}}
 	for _, id := range []domain.WorkflowTaskID{"a", "b", "c"} {
 		def.Graph.Tasks = append(def.Graph.Tasks, domain.WorkflowTaskDefinition{ID: id, Title: string(id), Executor: domain.ExecutorHuman, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone})
 	}
 	return def
 }
 
-func TestWorkflowRestartCopiesIntentNotExecution(t *testing.T) {
+func TestWorkflowStartOverCopiesIntentNotExecution(t *testing.T) {
 	forEachSQLRepository(t, func(t *testing.T, repo *SQLRepository, openPeer func(*testing.T) *SQLRepository) {
 		ctx := context.Background()
 		service := repositoryTestService(t, repo)
@@ -238,28 +239,50 @@ func TestWorkflowRestartCopiesIntentNotExecution(t *testing.T) {
 			t.Fatal(err)
 		}
 		notes := strings.Repeat("界", domain.MaxHistoryTextBytes/3) + "xx"
-		command := application.RestartWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version, OperationID: "restart-once", Instructions: notes}
-		fresh, err := repositoryTestService(t, openPeer(t)).RestartWorkflow(ctx, command)
+		command := application.StartOverWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version, OperationID: "start-over-once", Instructions: notes}
+		fresh, err := repositoryTestService(t, openPeer(t)).StartOverWorkflow(ctx, command)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if fresh.ID == work.ID || fresh.Definition != work.Definition || fresh.RestartOfWorkItemID == nil || *fresh.RestartOfWorkItemID != work.ID || fresh.Status != domain.WorkItemStatusOpen || fresh.Failure != nil || fresh.RecoveryInstructions != notes || fresh.Context != work.Context || fresh.Constraints != work.Constraints || len(fresh.RestartContext) > domain.MaxHistoryTextBytes || !strings.Contains(fresh.RestartContext, "full history") {
-			t.Fatalf("restart copy contract: %+v", fresh)
+		if fresh.ID == work.ID || fresh.Definition != work.Definition || fresh.StartedOverFromWorkItemID == nil || *fresh.StartedOverFromWorkItemID != work.ID || fresh.Status != domain.WorkItemStatusOpen || fresh.Failure != nil || fresh.RecoveryInstructions != notes || fresh.Context != work.Context || fresh.Constraints != work.Constraints || len(fresh.StartOverContext) > domain.MaxHistoryTextBytes || !strings.Contains(fresh.StartOverContext, "full history") {
+			t.Fatalf("start-over copy contract: %+v", fresh)
 		}
-		repeated, err := service.RestartWorkflow(ctx, command)
+		repeated, err := service.StartOverWorkflow(ctx, command)
 		if err != nil || repeated.ID != fresh.ID {
-			t.Fatalf("restart idempotency: %s %v", repeated.ID, err)
+			t.Fatalf("start-over idempotency: %s %v", repeated.ID, err)
+		}
+
+		assertStoredRecoveryEvent(t, repo, work.ID, "work_item.started_over")
+		if err := repo.View(ctx, func(store application.ReadStore) error {
+			record, err := store.GetIdempotencyRecord(actor.Actor, command.OperationID)
+			if err != nil {
+				return err
+			}
+			if record.Operation != "start_over_workflow" || record.Status != application.IdempotencyCompleted {
+				return fmt.Errorf("unexpected start-over idempotency: %+v", record)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		var sourceColumn string
+		var limitColumn int
+		if err := repo.db.QueryRowContext(ctx, rebind(repo.dialect, "SELECT started_over_from_work_item_id, workflow_max_task_instances_per_node FROM work_items WHERE id = ?"), fresh.ID).Scan(&sourceColumn, &limitColumn); err != nil {
+			t.Fatal(err)
+		}
+		if sourceColumn != string(work.ID) || limitColumn != fresh.WorkflowMaxTaskInstancesPerNode {
+			t.Fatalf("start-over columns = %s/%d", sourceColumn, limitColumn)
 		}
 		command.OperationID = "another"
-		if _, err := service.RestartWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) {
-			t.Fatalf("stale restart: %v", err)
+		if _, err := service.StartOverWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) {
+			t.Fatalf("stale start-over: %v", err)
 		}
 		old, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{WorkItemID: work.ID, Identity: actor})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if old.WorkItem.Status != domain.WorkItemStatusFailed || !reflect.DeepEqual(old.Tasks, failed.Tasks) || !reflect.DeepEqual(old.Claims, failed.Claims) {
-			t.Fatal("restart changed original execution")
+			t.Fatal("start-over changed original execution")
 		}
 		current, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{WorkItemID: fresh.ID, Identity: actor})
 		if err != nil {
@@ -282,7 +305,7 @@ func TestWorkflowRetryLimitAndHumanAttention(t *testing.T) {
 		service := repositoryTestService(t, repo)
 		actor := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
 		def := attemptDefinition()
-		def.Graph.MaxTaskExecutions = 1
+		def.Graph.MaxTaskInstancesPerNode = 1
 		if err := def.Validate(); err != nil {
 			t.Fatal(err)
 		}
@@ -324,13 +347,13 @@ func TestWorkflowRetryLimitAndHumanAttention(t *testing.T) {
 		if !found {
 			t.Fatal("failed Workflow Task missing from Human Attention")
 		}
-		if _, err := service.ResumeWorkflow(ctx, application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version}); !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), "increase max_task_executions") {
+		if _, err := service.ContinueWorkflow(ctx, application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version}); !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), "increase max_task_instances_per_node") {
 			t.Fatalf("retry limit: %v", err)
 		}
 		if !reflect.DeepEqual(failed, read()) {
 			t.Fatal("failed retry mutated persisted work")
 		}
-		_, err = repositoryTestService(t, openPeer(t)).ResumeWorkflow(ctx, application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version, MaxTaskExecutions: 2})
+		_, err = repositoryTestService(t, openPeer(t)).ContinueWorkflow(ctx, application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: failed.WorkItem.Version, MaxTaskInstancesPerNode: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -358,7 +381,7 @@ func TestWorkflowRetryLimitAndHumanAttention(t *testing.T) {
 			t.Fatal(err)
 		}
 		stopped := read()
-		if failure.ID == "" || stopped.WorkItem.Status != domain.WorkItemStatusFailed || stopped.WorkItem.Failure == nil || stopped.WorkItem.Failure.Kind != domain.FailureWorkflowExecutionLimit || stopped.WorkItem.Failure.Executions != 2 || stopped.WorkItem.Failure.Limit != 2 {
+		if failure.ID == "" || stopped.WorkItem.Status != domain.WorkItemStatusFailed || stopped.WorkItem.Failure == nil || stopped.WorkItem.Failure.Kind != domain.FailureWorkflowTaskInstanceLimit || stopped.WorkItem.Failure.TaskInstances != 2 || stopped.WorkItem.Failure.Limit != 2 {
 			t.Fatalf("automatic retry did not commit cap failure: %+v", stopped.WorkItem)
 		}
 		if len(stopped.Tasks) != 3 || len(stopped.ActiveClaims) != 0 {
@@ -369,7 +392,7 @@ func TestWorkflowRetryLimitAndHumanAttention(t *testing.T) {
 				t.Fatal("automatic retry failure was not committed")
 			}
 		}
-		if _, err := service.ResumeWorkflow(ctx, application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: stopped.WorkItem.Version, MaxTaskExecutions: 3}); err != nil {
+		if _, err := service.ContinueWorkflow(ctx, application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: stopped.WorkItem.Version, MaxTaskInstancesPerNode: 3}); err != nil {
 			t.Fatal(err)
 		}
 		if len(read().Tasks) != 4 {
@@ -386,7 +409,7 @@ func TestWorkflowContinuePreservesUnaffectedBranches(t *testing.T) {
 				service := repositoryTestService(t, repo)
 				actor := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
 				def := attemptDefinition()
-				def.Graph.MaxTaskExecutions = 2
+				def.Graph.MaxTaskInstancesPerNode = 2
 				def.Graph.Tasks[0].ReviewPolicy = domain.ReviewExecutorDecides
 				if err := def.Validate(); err != nil {
 					t.Fatal(err)
@@ -464,17 +487,17 @@ func TestWorkflowContinuePreservesUnaffectedBranches(t *testing.T) {
 						a = task
 					}
 				}
-				command := application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: before.WorkItem.Version, MaxTaskExecutions: 2}
+				command := application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: before.WorkItem.Version, MaxTaskInstancesPerNode: 2}
 				if scenario == "interrupted" {
-					if _, err := service.ResumeWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), `node "a" has 2`) {
+					if _, err := service.ContinueWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), `node "a" has 2`) {
 						t.Fatalf("expected A retry limit: %v", err)
 					}
 					if !reflect.DeepEqual(before, read()) {
 						t.Fatal("partial branch recovery committed on capacity conflict")
 					}
-					command.MaxTaskExecutions = 3
+					command.MaxTaskInstancesPerNode = 3
 				}
-				if _, err := repositoryTestService(t, openPeer(t)).ResumeWorkflow(ctx, command); err != nil {
+				if _, err := repositoryTestService(t, openPeer(t)).ContinueWorkflow(ctx, command); err != nil {
 					t.Fatal(err)
 				}
 				after := read()
@@ -505,7 +528,7 @@ func TestWorkflowContinuePreservesUnaffectedBranches(t *testing.T) {
 	}
 }
 
-func TestWorkflowRestartPersistsCurrentFailureWithManyLinks(t *testing.T) {
+func TestWorkflowStartOverPersistsCurrentFailureWithManyLinks(t *testing.T) {
 	forEachSQLRepository(t, func(t *testing.T, repo *SQLRepository, openPeer func(*testing.T) *SQLRepository) {
 		ctx := context.Background()
 		service := repositoryTestService(t, repo)
@@ -550,7 +573,7 @@ func TestWorkflowRestartPersistsCurrentFailureWithManyLinks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fresh, err := service.RestartWorkflow(ctx, application.RestartWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: current.WorkItem.Version, OperationID: "restart-many-links"})
+		fresh, err := service.StartOverWorkflow(ctx, application.StartOverWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: current.WorkItem.Version, OperationID: "start-over-many-links"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -558,28 +581,28 @@ func TestWorkflowRestartPersistsCurrentFailureWithManyLinks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, required := range []string{reason, "Restart uses the same Workflow version and initial nodes"} {
-			if !strings.Contains(persisted.WorkItem.RestartContext, required) {
-				t.Fatalf("persisted restart context lost %q", required)
+		for _, required := range []string{reason, "Start over uses the same Workflow version and initial nodes"} {
+			if !strings.Contains(persisted.WorkItem.StartOverContext, required) {
+				t.Fatalf("persisted start-over context lost %q", required)
 			}
 		}
-		if strings.Contains(fresh.RestartContext, "https://") || len(persisted.Artifacts) != 0 {
-			t.Fatal("restart copied old submission or Artifact links")
+		if strings.Contains(fresh.StartOverContext, "https://") || len(persisted.Artifacts) != 0 {
+			t.Fatal("start-over copied old submission or Artifact links")
 		}
 		old, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{WorkItemID: work.ID, Identity: actor})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(old.Tasks, current.Tasks) || !reflect.DeepEqual(old.Artifacts, current.Artifacts) || len(old.Artifacts) != 1 || old.Artifacts[0].URI != oldArtifact {
-			t.Fatal("restart changed source execution history")
+			t.Fatal("start-over changed source execution history")
 		}
-		if persisted.WorkItem.RestartContext != fresh.RestartContext || len(fresh.RestartContext) > domain.MaxHistoryTextBytes {
-			t.Fatal("restart context changed or exceeded byte budget")
+		if persisted.WorkItem.StartOverContext != fresh.StartOverContext || len(fresh.StartOverContext) > domain.MaxHistoryTextBytes {
+			t.Fatal("start-over context changed or exceeded byte budget")
 		}
 	})
 }
 
-func TestWorkflowRestartKeepsHistoryOnEachSource(t *testing.T) {
+func TestWorkflowStartOverKeepsHistoryOnEachSource(t *testing.T) {
 	forEachSQLRepository(t, func(t *testing.T, repo *SQLRepository, openPeer func(*testing.T) *SQLRepository) {
 		ctx := context.Background()
 		service := repositoryTestService(t, repo)
@@ -618,15 +641,15 @@ func TestWorkflowRestartKeepsHistoryOnEachSource(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			fresh, err := repositoryTestService(t, openPeer(t)).RestartWorkflow(ctx, application.RestartWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: current.WorkItem.Version, OperationID: "restart-" + string(work.ID)})
+			fresh, err := repositoryTestService(t, openPeer(t)).StartOverWorkflow(ctx, application.StartOverWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: current.WorkItem.Version, OperationID: "start-over-" + string(work.ID)})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if fresh.RestartOfWorkItemID == nil || *fresh.RestartOfWorkItemID != work.ID || !strings.Contains(fresh.RestartContext, strings.Split(reason, "界")[0]) || len(fresh.RestartContext) > domain.MaxHistoryTextBytes {
+			if fresh.StartedOverFromWorkItemID == nil || *fresh.StartedOverFromWorkItemID != work.ID || !strings.Contains(fresh.StartOverContext, strings.Split(reason, "界")[0]) || len(fresh.StartOverContext) > domain.MaxHistoryTextBytes {
 				t.Fatalf("round %d lost current failure/source", round)
 			}
-			if round > 0 && strings.Contains(fresh.RestartContext, marker) {
-				t.Fatal("restart copied an earlier WorkItem failure")
+			if round > 0 && strings.Contains(fresh.StartOverContext, marker) {
+				t.Fatal("start-over copied an earlier WorkItem failure")
 			}
 			old, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{WorkItemID: work.ID, Identity: actor})
 			if err != nil {
@@ -635,8 +658,8 @@ func TestWorkflowRestartKeepsHistoryOnEachSource(t *testing.T) {
 			if old.WorkItem.Status != domain.WorkItemStatusFailed || len(old.ActiveClaims) != 0 {
 				t.Fatal("Start over left original running")
 			}
-			if old.WorkItem.RestartContext != current.WorkItem.RestartContext {
-				t.Fatal("restart altered the source's own failure summary")
+			if old.WorkItem.StartOverContext != current.WorkItem.StartOverContext {
+				t.Fatal("start-over altered the source's own failure summary")
 			}
 			for _, claim := range old.Claims {
 				if claim.ID == bc.ID && claim.EndReason != domain.ClaimEndRevoked {
@@ -667,9 +690,9 @@ func TestWorkflowContinuePreservesLimitBlockedRetryGuidance(t *testing.T) {
 				service := repositoryTestService(t, repo)
 				actor := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
 				def := attemptDefinition()
-				def.Graph.MaxTaskExecutions = 1
+				def.Graph.MaxTaskInstancesPerNode = 1
 				if scenario.inherited != "" {
-					def.Graph.MaxTaskExecutions = 2
+					def.Graph.MaxTaskInstancesPerNode = 2
 				}
 				if err := def.Validate(); err != nil {
 					t.Fatal(err)
@@ -713,7 +736,7 @@ func TestWorkflowContinuePreservesLimitBlockedRetryGuidance(t *testing.T) {
 				sourceID := retry(scenario.prompt)
 				blocked := read()
 				failure := blocked.WorkItem.Failure
-				if blocked.WorkItem.Status != domain.WorkItemStatusFailed || failure == nil || failure.Kind != domain.FailureWorkflowExecutionLimit || failure.Executions != def.Graph.MaxTaskExecutions || failure.Limit != def.Graph.MaxTaskExecutions {
+				if blocked.WorkItem.Status != domain.WorkItemStatusFailed || failure == nil || failure.Kind != domain.FailureWorkflowTaskInstanceLimit || failure.TaskInstances != def.Graph.MaxTaskInstancesPerNode || failure.Limit != def.Graph.MaxTaskInstancesPerNode {
 					t.Fatalf("expected committed node limit failure, got %+v", failure)
 				}
 				for _, task := range blocked.Tasks {
@@ -722,7 +745,7 @@ func TestWorkflowContinuePreservesLimitBlockedRetryGuidance(t *testing.T) {
 					}
 				}
 				peer := repositoryTestService(t, openPeer(t))
-				if _, err := peer.ResumeWorkflow(ctx, application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: blocked.WorkItem.Version, MaxTaskExecutions: def.Graph.MaxTaskExecutions + 1, Instructions: scenario.instructions}); err != nil {
+				if _, err := peer.ContinueWorkflow(ctx, application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: blocked.WorkItem.Version, MaxTaskInstancesPerNode: def.Graph.MaxTaskInstancesPerNode + 1, Instructions: scenario.instructions}); err != nil {
 					t.Fatal(err)
 				}
 				after := read()
@@ -817,7 +840,7 @@ func TestWorkflowRecoveryPreservesReviewAndRetryGuidance(t *testing.T) {
 		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureAwaitHuman, Reason: "temporary error"}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := service.ResumeWorkflow(ctx, application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: read().WorkItem.Version}); err != nil {
+		if _, err := service.ContinueWorkflow(ctx, application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: read().WorkItem.Version}); err != nil {
 			t.Fatal(err)
 		}
 		task = replacement(task)
@@ -835,12 +858,12 @@ func TestWorkflowRecoveryPreservesReviewAndRetryGuidance(t *testing.T) {
 		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureAwaitHuman, Reason: "later error"}); err != nil {
 			t.Fatal(err)
 		}
-		fresh, err := service.RestartWorkflow(ctx, application.RestartWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: read().WorkItem.Version, OperationID: "restart-review"})
+		fresh, err := service.StartOverWorkflow(ctx, application.StartOverWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: read().WorkItem.Version, OperationID: "start-over-review"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(fresh.RestartContext, feedback) || !strings.Contains(fresh.RestartContext, "later error") {
-			t.Fatal("restart must copy current failure without old review feedback")
+		if strings.Contains(fresh.StartOverContext, feedback) || !strings.Contains(fresh.StartOverContext, "later error") {
+			t.Fatal("start-over must copy current failure without old review feedback")
 		}
 		for _, old := range read().Tasks {
 			if old.ID == first.ID && old.Reviews[0].Feedback != feedback {
@@ -916,16 +939,16 @@ func TestWorkflowContinueCountsSameNodeReplacements(t *testing.T) {
 		}
 		counted := &workflowRecoveryCountingRepository{Repository: openPeer(t), reads: make(map[string]int)}
 		peer := repositoryTestService(t, counted)
-		command := application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: before.WorkItem.Version, MaxTaskExecutions: 3}
-		if _, err := peer.ResumeWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), `node "a" has 3 executions at limit 3`) {
+		command := application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: before.WorkItem.Version, MaxTaskInstancesPerNode: 3}
+		if _, err := peer.ContinueWorkflow(ctx, command); !errors.Is(err, application.ErrConflict) || !strings.Contains(err.Error(), `node "a" has 3 task instances at limit 3`) {
 			t.Fatalf("expected second replacement to hit the per-node guard: %v", err)
 		}
 		if !reflect.DeepEqual(before, read()) {
 			t.Fatal("insufficient batch capacity committed a partial retry")
 		}
 		counted.reads = make(map[string]int)
-		command.MaxTaskExecutions = 4
-		if _, err := peer.ResumeWorkflow(ctx, command); err != nil {
+		command.MaxTaskInstancesPerNode = 4
+		if _, err := peer.ContinueWorkflow(ctx, command); err != nil {
 			t.Fatal(err)
 		}
 		// Counts include the final completion/progress reads, but do not scale
@@ -959,7 +982,7 @@ func TestWorkflowContinueCountsSameNodeReplacements(t *testing.T) {
 				}
 			}
 			if count != 4 {
-				t.Fatalf("persisted execution count = %d, want 4", count)
+				t.Fatalf("persisted task instance count = %d, want 4", count)
 			}
 			return nil
 		}); err != nil {
@@ -1003,4 +1026,36 @@ func (s *workflowRecoveryCountingStore) GetWorkflowDefinition(id domain.Definiti
 func (s *workflowRecoveryCountingStore) ListTaskRelations(id domain.WorkItemID) ([]domain.TaskRelation, error) {
 	s.reads["relations"]++
 	return s.WriteStore.ListTaskRelations(id)
+}
+
+func assertStoredRecoveryEvent(t *testing.T, repo *SQLRepository, workID domain.WorkItemID, want domain.WorkItemEventType) {
+	t.Helper()
+	rows, err := repo.db.QueryContext(context.Background(), rebind(repo.dialect, "SELECT payload FROM work_item_events WHERE work_item_id = ? ORDER BY sequence"), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			t.Fatal(err)
+		}
+		event, err := decodeJSON[domain.WorkItemEvent](payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !event.Type.Valid() {
+			t.Fatalf("invalid persisted event: %s", event.Type)
+		}
+		if event.Type == want {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatalf("missing persisted event %s", want)
+	}
 }

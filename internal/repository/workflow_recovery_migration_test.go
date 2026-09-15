@@ -33,12 +33,12 @@ func TestWorkflowRecoveryMigrationBackfillsHistoricalFailures(t *testing.T) {
 				if id == "ordinary" {
 					actor = domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}
 				}
-				return store.AppendWorkItemEvent(domain.WorkItemEvent{ID: domain.WorkItemEventID("failure-" + id), WorkItemID: id, Sequence: 1, Type: domain.WorkItemEventWorkItemFailed, EntityID: string(id), Actor: &actor, Message: "workflow exceeded MaxTaskExecutions (10) after task source-task", OccurredAt: repositoryTestTime})
+				return store.AppendWorkItemEvent(domain.WorkItemEvent{ID: domain.WorkItemEventID("failure-" + id), WorkItemID: id, Sequence: 1, Type: domain.WorkItemEventWorkItemFailed, EntityID: string(id), Actor: &actor, Message: "workflow exceeded MaxTaskInstancesPerNode (10) after task source-task", OccurredAt: repositoryTestTime})
 			}); err != nil {
 				t.Fatal(err)
 			}
 		}
-		for _, statement := range []string{"ALTER TABLE work_items DROP COLUMN workflow_max_task_executions", "DELETE FROM schema_migrations WHERE version = '006_workflow_recovery'"} {
+		for _, statement := range []string{"ALTER TABLE work_items DROP COLUMN workflow_max_task_instances_per_node", "DELETE FROM schema_migrations WHERE version = '006_workflow_recovery'"} {
 			if _, err := repo.db.ExecContext(ctx, statement); err != nil {
 				t.Fatal(err)
 			}
@@ -55,7 +55,7 @@ func TestWorkflowRecoveryMigrationBackfillsHistoricalFailures(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if work.Status != domain.WorkItemStatusFailed || work.Version != 0 || work.WorkflowMaxTaskExecutions != 0 {
+				if work.Status != domain.WorkItemStatusFailed || work.Version != 0 || work.WorkflowMaxTaskInstancesPerNode != 0 {
 					t.Fatal("migration changed lifecycle or limit")
 				}
 				if id == "no-event" {
@@ -65,7 +65,7 @@ func TestWorkflowRecoveryMigrationBackfillsHistoricalFailures(t *testing.T) {
 					continue
 				}
 				want := domain.FailureExecution
-				if work.Failure == nil || work.Failure.Kind != want || work.Failure.Message != "workflow exceeded MaxTaskExecutions (10) after task source-task" || work.Failure.Limit != 0 || work.Failure.Executions != 0 {
+				if work.Failure == nil || work.Failure.Kind != want || work.Failure.Message != "workflow exceeded MaxTaskInstancesPerNode (10) after task source-task" || work.Failure.Limit != 0 || work.Failure.TaskInstances != 0 {
 					t.Fatalf("failure %s: %+v", id, work.Failure)
 				}
 			}

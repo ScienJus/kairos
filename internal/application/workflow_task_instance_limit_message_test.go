@@ -9,11 +9,11 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-func TestWorkflowExecutionLimitMessageBoundary(t *testing.T) {
+func TestWorkflowTaskInstanceLimitMessageBoundary(t *testing.T) {
 	const source = domain.TaskID("source")
 	const limit = 1
 	format := func(node string) string {
-		return fmt.Sprintf("workflow node %q reached max_task_executions (1); cannot create execution 2 after task source", node)
+		return fmt.Sprintf("workflow node %q reached max_task_instances_per_node (1); cannot create task instance 2 after task source", node)
 	}
 	budget := domain.MaxHistoryTextBytes - len(format(""))
 	for _, node := range []string{
@@ -23,11 +23,11 @@ func TestWorkflowExecutionLimitMessageBoundary(t *testing.T) {
 		strings.Repeat("界", budget/3) + strings.Repeat("x", budget%3+1),
 		strings.Repeat("\n", budget/2+1), // Quoting expands the stored ID.
 	} {
-		message := workflowExecutionLimitMessage(domain.WorkflowTaskID(node), source, limit)
+		message := workflowTaskInstanceLimitMessage(domain.WorkflowTaskID(node), source, limit)
 		if len(message) > domain.MaxHistoryTextBytes || !utf8.ValidString(message) {
 			t.Fatal("generated failure message exceeds its UTF-8 byte budget")
 		}
-		if !strings.Contains(message, "reached max_task_executions (1); cannot create execution 2") {
+		if !strings.Contains(message, "reached max_task_instances_per_node (1); cannot create task instance 2") {
 			t.Fatal("message lost the guard-specific cause")
 		}
 		if len(format(node)) <= domain.MaxHistoryTextBytes {

@@ -340,7 +340,7 @@ paths:
     get:
       operationId: listHumanAttention
       summary: List Human Attention
-      description: Returns pending Reviews, unclaimed Pending Human Tasks, Working Tasks actively claimed by the requesting Human (including executor=either), and WorkItems awaiting human acceptance. For Human callers, also returns Failed Tasks in Open Workflows that have no replacement attempt; creating a retry replacement removes the old failed Task from this list. Other actors' Working Tasks and unclaimed either Tasks are excluded. Ownership and replacement filtering precede pagination; human_task entries may have task.status pending, working or failed. Terminal WorkItems do not contribute Task entries.
+      description: Returns pending Reviews, unclaimed Pending Human Tasks, Working Tasks actively claimed by the requesting Human (including executor=either), and WorkItems awaiting human acceptance. For Human callers, also returns Failed Tasks in Open Workflows that have no replacement attempt; creating a retry replacement removes the old failed Task from this list. Other actors' Working Tasks and unclaimed either Tasks are excluded. Ownership and replacement filtering precede pagination; human_task entries may have task.status pending, working or failed. Non-open WorkItems do not contribute Task entries; a WorkItem awaiting Human acceptance can still contribute an acceptance entry.
       parameters:
         - $ref: '#/components/parameters/PageLimitQuery'
         - $ref: '#/components/parameters/PageCursorQuery'
@@ -412,6 +412,7 @@ paths:
     get:
       operationId: getWorkItemContext
       summary: Get Work Item Context
+      description: Read durable context across all WorkItem lifecycle states, subject to authorization. Failed Workflow WorkItems remain readable and may be recovered by a Human through Continue or Start over.
       responses:
         '200':
           description: Durable WorkItem execution context
@@ -600,14 +601,14 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
-  /api/v1/work-items/{work_item_id}/resume:
+  /api/v1/work-items/{work_item_id}/continue:
     parameters:
       - $ref: '#/components/parameters/WorkItemIdPath'
       - $ref: '#/components/parameters/TrustedActorKindHeader'
       - $ref: '#/components/parameters/TrustedActorRoleHeader'
     post:
-      operationId: resumeWorkflow
-      summary: Continue a failed Workflow
+      operationId: continueWorkflow
+      summary: Continue a Workflow with current failures
       description: Human-only unified Continue execution for a Failed Workflow with unfinished work or an Open Workflow with current failed Tasks. Atomically creates replacements for all current failed attempts and attempts revoked by whole-workflow failure, preserves running/successful branches, normal Pending attempts and pending reviews, and replays missing decision inputs. A Task that exhausted its Claim history capacity also requires replacement. No arbitrary Task selection or separate retry endpoint. Retains the binding and per-node counts. The optional limit cannot decrease the effective limit and must leave room for all required retries. Ended Claims remain invalid. Stale versions, ineligible state or insufficient capacity return 409 and roll back all changes. No Agent MCP mutation.
       requestBody:
         required: true
@@ -619,7 +620,7 @@ paths:
               required: [version]
               properties:
                 version: { type: integer, format: int64, minimum: 0 }
-                max_task_executions: { type: integer, minimum: 0, maximum: 500, default: 0, description: Zero keeps the effective limit. }
+                max_task_instances_per_node: { type: integer, minimum: 0, maximum: 500, default: 0, description: Zero keeps the effective limit. }
                 instructions: { $ref: '#/components/schemas/HistoryText' }
       responses:
         '200': { $ref: '#/components/responses/WorkItem' }
@@ -629,15 +630,15 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
-  /api/v1/work-items/{work_item_id}/restart:
+  /api/v1/work-items/{work_item_id}/start-over:
     parameters:
       - $ref: '#/components/parameters/WorkItemIdPath'
       - $ref: '#/components/parameters/TrustedActorKindHeader'
       - $ref: '#/components/parameters/TrustedActorRoleHeader'
     post:
-      operationId: restartWorkflow
-      summary: Start a failed Workflow over as a new WorkItem
-      description: Human-only. Copies original intent, pinned Definition version, current limit override and a bounded failure summary; creates fresh start Tasks with independent counts. An Open source with current failed Tasks is failed and its remaining Claims revoked atomically; an already Failed source stays Failed. The source retains history and advances its version. The UTF-8-safe 32 KiB restart summary includes the source ID and current WorkItem/failed Task reasons. Only Human instructions supplied in this request are carried separately. Old URLs, Artifacts, Reviews, Submissions, instructions and restart summaries are not scanned or copied. Scoped executors cannot read the source WorkItem; include external outcomes to reuse in the new instructions. External actions are not undone and managed artifact files are not copied. Identical requests with the same Idempotency-Key return the same new WorkItem. No arbitrary-stage replay or Agent MCP mutation.
+      operationId: startOverWorkflow
+      summary: Start over in a new WorkItem using the source Workflow and intent
+      description: Human-only. Copies original intent, pinned Definition version, current limit override and a bounded failure summary; creates fresh start Tasks with independent counts. An Open source with current failed Tasks is failed and its remaining Claims revoked atomically; an already Failed source stays Failed. The source retains history and advances its version. The UTF-8-safe 32 KiB start-over summary includes the source ID and current WorkItem/failed Task reasons. Only Human instructions supplied in this request are carried separately. Old URLs, Artifacts, Reviews, Submissions, instructions and start-over summaries are not scanned or copied. Scoped executors cannot read the source WorkItem; include external outcomes to reuse in the new instructions. External actions are not undone and managed artifact files are not copied. Identical requests with the same Idempotency-Key return the same new WorkItem. No arbitrary-stage replay or Agent MCP mutation.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -1361,7 +1362,7 @@ components:
         agent_guidance: { type: string }
     WorkflowGraph:
       type: object
-      required: [start_task_ids, tasks, relations, max_task_executions]
+      required: [start_task_ids, tasks, relations, max_task_instances_per_node]
       properties:
         start_task_ids:
           allOf:
@@ -1369,7 +1370,7 @@ components:
           uniqueItems: true
         tasks: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/WorkflowTaskDefinition' } }
         relations: { type: array, maxItems: 1000, items: { $ref: '#/components/schemas/WorkflowRelationDefinition' } }
-        max_task_executions: { type: integer, minimum: 0, maximum: 500, description: "Shared limit on Task instances per Definition node within one WorkItem, including start and skipped instances. Other nodes have independent counts; reclaiming the same Task does not count again; Workflow retry creates and counts a new instance. No total Workflow Task limit. Zero uses the server default of 100." }
+        max_task_instances_per_node: { type: integer, minimum: 0, maximum: 500, description: "Shared limit on Task instances per Definition node within one WorkItem, including start and skipped instances. Other nodes have independent counts; reclaiming the same Task does not count again; Workflow retry creates and counts a new instance. No total Workflow Task limit. Zero uses the server default of 100." }
     WorkflowDefinition:
       allOf:
         - $ref: '#/components/schemas/DefinitionMetadata'
@@ -1403,7 +1404,7 @@ components:
           uniqueItems: true
         tasks: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/WorkflowTaskDefinitionRequest' } }
         relations: { type: array, maxItems: 1000, items: { $ref: '#/components/schemas/WorkflowRelationDefinitionRequest' } }
-        max_task_executions: { type: integer, minimum: 0, maximum: 500, default: 0, description: "Shared limit on Task instances per Definition node within one WorkItem, including start and skipped instances. Other nodes have independent counts; reclaiming the same Task does not count again; Workflow retry creates and counts a new instance. No total Workflow Task limit. Zero uses the server default of 100." }
+        max_task_instances_per_node: { type: integer, minimum: 0, maximum: 500, default: 0, description: "Shared limit on Task instances per Definition node within one WorkItem, including start and skipped instances. Other nodes have independent counts; reclaiming the same Task does not count again; Workflow retry creates and counts a new instance. No total Workflow Task limit. Zero uses the server default of 100." }
     WorkflowTaskDefinitionRequest:
       type: object
       additionalProperties: false
@@ -1458,7 +1459,7 @@ components:
         mode: { $ref: '#/components/schemas/CoordinationMode' }
     WorkItem:
       type: object
-      required: [id, definition, status, acceptance_mode, title, goal, context, constraints, acceptance_criteria, tags, result, version, created_at, updated_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, failure, workflow_max_task_executions, restart_of_work_item_id, restart_context, recovery_instructions]
+      required: [id, definition, status, acceptance_mode, title, goal, context, constraints, acceptance_criteria, tags, result, version, created_at, updated_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, failure, workflow_max_task_instances_per_node, started_over_from_work_item_id, start_over_context, recovery_instructions]
       properties:
         id: { type: string }
         definition: { $ref: '#/components/schemas/DefinitionBinding' }
@@ -1480,27 +1481,27 @@ components:
         cancelled_at: { $ref: '#/components/schemas/NullableDateTime' }
         cancelled_by: { $ref: '#/components/schemas/NullableActorRef' }
         cancellation_reason: { $ref: '#/components/schemas/HistoryText' }
-        restart_of_work_item_id: { $ref: '#/components/schemas/NullableString' }
-        restart_context: { $ref: '#/components/schemas/HistoryText', description: Current failure reasons and source ID for a restarted Workflow, bounded to 32768 UTF-8 bytes; old execution history is not copied. Empty otherwise. }
-        recovery_instructions: { $ref: '#/components/schemas/HistoryText', description: Operator guidance for the current continue/restart; empty by default. }
-        workflow_max_task_executions:
+        started_over_from_work_item_id: { $ref: '#/components/schemas/NullableString' }
+        start_over_context: { $ref: '#/components/schemas/HistoryText', description: Current failure reasons and source ID for a Workflow created by Start over, bounded to 32768 UTF-8 bytes; old execution history is not copied. Empty otherwise. }
+        recovery_instructions: { $ref: '#/components/schemas/HistoryText', description: Operator guidance for the current continue/start-over; empty by default. }
+        workflow_max_task_instances_per_node:
           type: integer
           minimum: 0
           maximum: 500
           description: Workflow-only per-WorkItem override, applied independently to every node. Zero inherits the bound Definition limit. Always zero for Blackboard.
         failure:
-          description: Current terminal failure snapshot; null before failure and after recovery. The original reason remains in event history. Historical records without a failure event can remain null.
+          description: Current failure snapshot; null before failure and after recovery. The original reason remains in event history. Historical records without a failure event can remain null.
           oneOf:
             - $ref: '#/components/schemas/WorkItemFailure'
             - type: 'null'
     WorkItemFailure:
       type: object
-      required: [kind, message, workflow_task_id, executions, limit]
+      required: [kind, message, workflow_task_id, task_instances, limit]
       properties:
-        kind: { type: string, enum: [execution_failure, workflow_execution_limit] }
+        kind: { type: string, enum: [execution_failure, workflow_task_instance_limit] }
         message: { $ref: '#/components/schemas/HistoryText', description: 'Generated node-limit messages use a brief explanation if full detail would exceed 32768 UTF-8 bytes. The complete blocked node ID remains in workflow_task_id.' }
         workflow_task_id: { type: string, description: Complete blocked Definition node ID for a per-node guard even when message is abbreviated; empty for ordinary or legacy failures. }
-        executions: { type: integer, minimum: 0, description: Materialized instance count at a per-node failure; zero otherwise. }
+        task_instances: { type: integer, minimum: 0, description: Materialized instance count at a per-node failure; zero otherwise. }
         limit: { type: integer, minimum: 0, maximum: 500, description: Limit that triggered the guard; zero for ordinary failures. }
     CreateWorkItemRequest:
       type: object
@@ -1569,7 +1570,7 @@ components:
         applied_at: { $ref: '#/components/schemas/NullableDateTime' }
     Task:
       type: object
-      description: Task histories are complete. Each Task accepts at most 128 Claims, 64 Submissions, 64 Reviews, 64 ordinary Failures, 64 Transition Decisions, and 64 Artifacts. A terminal fail_work_item Failure may add one final record; attempting to append beyond any history ceiling fails the WorkItem and ends active Claims.
+      description: Task histories are complete. Each Task accepts at most 128 Claims, 64 Submissions, 64 Reviews, 64 ordinary Failures, 64 Transition Decisions, and 64 Artifacts. A fail_work_item Failure that ends the current Task may add one final record; attempting to append beyond any history ceiling fails the WorkItem and ends active Claims.
       required: [id, work_item_id, workflow_task_id, workflow_activation_id, retry_of_task_id, retry_context, retry_instructions, status, active_claim_id, parent_task_id, decomposed_at, title, description, acceptance_criteria, executor, skipped_by, skip_reason, allowed_roles, tags, execution, review_policy, reviews, submissions, failures, transition_decisions, position, version, created_at, updated_at, completed_at]
       properties:
         id: { type: string }

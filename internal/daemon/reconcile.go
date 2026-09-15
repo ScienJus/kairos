@@ -21,7 +21,7 @@ func outcomeMatches(candidate Candidate, status ClaimStatus, intent HarnessOutco
 	}
 	reason := status.Claim.EndReason
 	if candidate.Kind != TaskCandidate {
-		expected := map[OutcomeKind]string{CreateTask: "task_created", SubmitCompletion: "completion_submitted", AcceptCompletion: "completion_accepted", Abandoned: "released"}
+		expected := map[OutcomeKind]string{CreateTask: "task_created", SubmitCompletion: "completion_submitted", AcceptCompletion: "completion_accepted", CandidateDeclined: "released"}
 		if reason != expected[intent.Kind()] {
 			return false
 		}
@@ -46,7 +46,7 @@ func outcomeMatches(candidate Candidate, status ClaimStatus, intent HarnessOutco
 		}
 	}
 	t := intent.Task
-	if t.Kind == Abandoned {
+	if t.Kind == CandidateDeclined {
 		return reason == "released"
 	}
 	if status.Task == nil {
@@ -78,7 +78,7 @@ func outcomeMatches(candidate Candidate, status ClaimStatus, intent HarnessOutco
 			}
 		}
 		return true
-	case RetryableFailure, HumanInterventionRequired, TerminalFailure:
+	case RetryableFailure, HumanInterventionRequired, WorkItemFailure:
 		if reason != "task_failed" {
 			return false
 		}

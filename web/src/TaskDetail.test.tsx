@@ -35,7 +35,7 @@ function makeWorkItem(): WorkItem {
     id: 'work-1', definition: { id: 'definition-1', version: 1, mode: 'blackboard' }, status: 'open', acceptance_mode: 'none',
     title: 'Release', goal: 'Ship safely', context: '', constraints: '', acceptance_criteria: '', tags: [], result: '',
     version: 1, created_at: '2026-08-17T08:00:00Z', updated_at: '2026-08-17T08:00:00Z', completed_at: null,
-    cancelled_at: null, cancelled_by: null, cancellation_reason: '', restart_of_work_item_id: null, restart_context: '', recovery_instructions: '', failure: null, workflow_max_task_executions: 0,
+    cancelled_at: null, cancelled_by: null, cancellation_reason: '', started_over_from_work_item_id: null, start_over_context: '', recovery_instructions: '', failure: null, workflow_max_task_instances_per_node: 0,
   }
 }
 

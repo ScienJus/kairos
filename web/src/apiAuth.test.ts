@@ -192,3 +192,23 @@ describe('API authentication transport', () => {
     window.removeEventListener(authenticationRequiredEvent, authenticationRequired)
   })
 })
+
+
+describe('Workflow recovery transport', () => {
+  it('uses the continue route and per-node instance limit field', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: {} }), { status: 200 }))
+    await api.continueWorkflow(trustedIdentity, 'work-1', 7, 20, 'Decision made')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/work-items/work-1/continue')
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('POST')
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ version: 7, max_task_instances_per_node: 20, instructions: 'Decision made' })
+  })
+
+  it('uses start-over with an idempotency key', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: {} }), { status: 201 }))
+    await api.startOverWorkflow(trustedIdentity, 'work-1', 7, 'Reuse existing PR')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/work-items/work-1/start-over')
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('POST')
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ version: 7, instructions: 'Reuse existing PR' })
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Idempotency-Key')).toBeTruthy()
+  })
+})

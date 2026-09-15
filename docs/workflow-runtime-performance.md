@@ -1,6 +1,6 @@
 # Workflow expansion measurements
 
-The per-node execution limit permits much more than 500 Tasks in one WorkItem.
+The per-node task instance limit permits much more than 500 Tasks in one WorkItem.
 Expansion must therefore avoid repeatedly decoding every historical aggregate for
 individual edges. This optimization does not add a total WorkItem Task limit.
 

@@ -113,7 +113,7 @@ func (f *fakeCore) Apply(_ context.Context, c Candidate, id, op string, o Harnes
 	now := time.Now()
 	f.claim.EndedAt = &now
 	if c.Kind != TaskCandidate {
-		f.claim.EndReason = map[OutcomeKind]string{CreateTask: "task_created", SubmitCompletion: "completion_submitted", AcceptCompletion: "completion_accepted", Abandoned: "released"}[o.Kind()]
+		f.claim.EndReason = map[OutcomeKind]string{CreateTask: "task_created", SubmitCompletion: "completion_submitted", AcceptCompletion: "completion_accepted", CandidateDeclined: "released"}[o.Kind()]
 		if o.Kind() == CreateTask {
 			spec := o.Coordination.Task
 			f.status.Tasks = []domain.Task{{ID: "created", Title: spec.Title, Executor: spec.Executor, AllowedRoles: spec.AllowedRoles, Tags: spec.Tags, CreatedAt: now}}
@@ -129,7 +129,7 @@ func (f *fakeCore) Apply(_ context.Context, c Candidate, id, op string, o Harnes
 				f.claim.EndReason = "submitted_for_review"
 			}
 			f.status.Task.Submissions = append(f.status.Task.Submissions, domain.TaskSubmission{ID: "submission", ClaimID: domain.ClaimID(id), Result: o.Task.Result})
-		case RetryableFailure, HumanInterventionRequired, TerminalFailure:
+		case RetryableFailure, HumanInterventionRequired, WorkItemFailure:
 			f.claim.EndReason = "task_failed"
 			f.status.Task.Failures = append(f.status.Task.Failures, domain.TaskFailure{ClaimID: domain.ClaimID(id), Action: failureAction(o.Kind()), Reason: o.Task.Reason, RetryPrompt: o.Task.RetryPrompt})
 		case Decomposed:
@@ -139,7 +139,7 @@ func (f *fakeCore) Apply(_ context.Context, c Candidate, id, op string, o Harnes
 				parentID := c.TaskID
 				f.status.Tasks = append(f.status.Tasks, domain.Task{ID: domain.TaskID(fmt.Sprint(i)), ParentTaskID: &parentID, Title: spec.Title, Executor: spec.Executor, AllowedRoles: spec.AllowedRoles, Tags: spec.Tags, CreatedAt: now})
 			}
-		case Abandoned:
+		case CandidateDeclined:
 			f.claim.EndReason = "released"
 		}
 	}
@@ -221,7 +221,7 @@ func TestOutcomeApplicability(t *testing.T) {
 			} else if mode == domain.CoordinationModeWorkflow {
 				continue
 			}
-			for _, outcome := range []OutcomeKind{Completed, Decomposed, RetryableFailure, HumanInterventionRequired, TerminalFailure, Abandoned, CreateTask, SubmitCompletion, AcceptCompletion} {
+			for _, outcome := range []OutcomeKind{Completed, Decomposed, RetryableFailure, HumanInterventionRequired, WorkItemFailure, CandidateDeclined, CreateTask, SubmitCompletion, AcceptCompletion} {
 				t.Run(string(kind)+"/"+string(mode)+"/"+string(outcome), func(t *testing.T) {
 					spec := TaskSpec{Title: "child", Executor: domain.ExecutorAgent}
 					o := HarnessOutcome{}
@@ -232,7 +232,7 @@ func TestOutcomeApplicability(t *testing.T) {
 							o.Task.Result = "done"
 						case Decomposed:
 							o.Task.Children = []TaskSpec{spec}
-						case RetryableFailure, HumanInterventionRequired, TerminalFailure:
+						case RetryableFailure, HumanInterventionRequired, WorkItemFailure:
 							o.Task.Reason = "business failure"
 						}
 					} else {
@@ -244,9 +244,9 @@ func TestOutcomeApplicability(t *testing.T) {
 							o.Coordination.Result = "done"
 						}
 					}
-					allowed := outcome == Abandoned
+					allowed := outcome == CandidateDeclined
 					if kind == TaskCandidate {
-						allowed = allowed || outcome == Completed || outcome == RetryableFailure || outcome == TerminalFailure || (outcome == Decomposed && mode == domain.CoordinationModeBlackboard) || (outcome == HumanInterventionRequired && mode == domain.CoordinationModeWorkflow)
+						allowed = allowed || outcome == Completed || outcome == RetryableFailure || outcome == WorkItemFailure || (outcome == Decomposed && mode == domain.CoordinationModeBlackboard) || (outcome == HumanInterventionRequired && mode == domain.CoordinationModeWorkflow)
 					} else {
 						allowed = allowed || outcome == CreateTask || (outcome == SubmitCompletion && kind != WorkItemAcceptance) || (outcome == AcceptCompletion && kind == WorkItemAcceptance)
 					}
