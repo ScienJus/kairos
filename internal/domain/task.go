@@ -260,6 +260,11 @@ func (t Task) Validate(mode CoordinationMode) error {
 	if err := validateTaskFailureHistory(t.ID, t.Failures); err != nil {
 		return err
 	}
+	for _, failure := range t.Failures {
+		if failure.Action == TaskFailureAwaitHuman && mode != CoordinationModeWorkflow {
+			return invalid("failures", "await_human is only supported for Workflow")
+		}
+	}
 	submissions := make(map[SubmissionID]struct{}, len(t.Submissions))
 	for _, submission := range t.Submissions {
 		submissions[submission.ID] = struct{}{}
@@ -339,11 +344,11 @@ func (t Task) Validate(mode CoordinationMode) error {
 	}
 
 	if t.Status == TaskStatusFailed {
-		if len(t.Failures) == 0 || (t.Failures[len(t.Failures)-1].Action == TaskFailureReopen && mode != CoordinationModeWorkflow) {
+		if len(t.Failures) == 0 || (t.Failures[len(t.Failures)-1].Action == TaskFailureRetry && mode != CoordinationModeWorkflow) {
 			return invalid("failures", "a failed task requires a terminal failure record")
 		}
-	} else if len(t.Failures) > 0 && (t.Failures[len(t.Failures)-1].Action == TaskFailureFailWorkItem || t.Failures[len(t.Failures)-1].Action == TaskFailureStop) {
-		return invalid("status", "must be failed after a fail_work_item failure")
+	} else if len(t.Failures) > 0 && (t.Failures[len(t.Failures)-1].Action == TaskFailureFailWorkItem || t.Failures[len(t.Failures)-1].Action == TaskFailureAwaitHuman) {
+		return invalid("status", "must be failed after await_human or fail_work_item")
 	}
 
 	return nil

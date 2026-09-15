@@ -118,6 +118,8 @@ Working
 
 Task 生命周期变化、执行责任、Submission、Review、Failure 和 Artifact 共同展示所属 WorkItem 如何推进。完整的 WorkItem 事件时间线仍在规划中，底层 Event 已经持久化。
 
+`fail_task` 操作接受 `retry`（请求下一次尝试）、`await_human`（将当前 Workflow 尝试结束为 Failed，等待人工继续执行时创建替代实例）和 `fail_work_item`（使整个 WorkItem 失败）。Workflow 重试创建替代 Task，Blackboard 重试复用原 Task。
+
 Workflow 或当前 Task 失败后，人类可以**继续执行**：重试失败或中断的尝试，保留成功分支；也可以**从头执行**：携带原始目标和失败摘要创建新 WorkItem。旧历史留在来源 WorkItem，受限执行者无法跨 WorkItem 读取；请在补充说明中列出需复用的外部成果。详细规则见 [API 参考](docs/api-reference.zh-CN.md)。
 
 ## 项目状态

@@ -169,6 +169,8 @@ Authenticated 登录框接受 Identity Token 或部署 Admin Token，完全使�
 
 Workflow 的执行限制应显示为“单节点最大执行次数”，说明统一配置、各节点分别计数。编辑器接受 0–500 的整数；0 使用默认值 100，详情页显示有效值 100。
 
+失败动作表单使用 `retry`（请求重试）、`await_human`（等待人工处理，仅 Workflow）和 `fail_work_item`（使整个 WorkItem 失败）；历史列表使用相同动作值和明确文案。`retry_prompt` 只随 `retry` 发送。
+
 WorkItem 详情页对 Failed 展示 `work_item.failure`，包括原始原因、上限和节点名称。历史失败统一展示迁移保留的原始原因，不区分旧版专用失败类型。Human 可选择“继续执行”或“从头执行”，均可填写补充说明，失败时保留输入。继续执行可提高当前 WorkItem 的单节点上限；从头执行成功后导航到新 WorkItem，并展示来源链接和本次失败摘要。表单提示受限执行者无法读取来源历史，要求 Human 在补充说明中列出需复用的外部成果；旧 URL、Artifact、Review、Submission 不自动复制。达到 500 次的节点不能继续增加实例，但仍可从头执行。Agent 不展示管理按钮；Blackboard 不使用 Workflow 恢复入口。开放 Workflow 中含未被替代的 Failed Task 时也显示同一组“继续执行 / 从头执行”入口，列出各失败原因；独立的“重试 Task”入口移除。一次继续执行替换所有当前失败实例，成功后刷新列表，旧失败实例仅作为历史，不再使恢复入口重复出现；人工待办仍可定位当前失败 Task。恢复表单不以 WorkItem 版本为 key，以免冲突刷新后丢失输入。刷新详情、列表、人工待办和任务上下文，不清空历史。
 
 恢复上限使用后端 `recovery_task_ids` 计算，包含 Failed 和因全流程失败中断的 Pending 实例，不在前端复制 Claim 终止原因或容量判断。中断节点需要第 501 次执行时隐藏继续执行，保留从头执行。

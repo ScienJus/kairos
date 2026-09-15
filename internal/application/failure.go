@@ -93,8 +93,8 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 		if err := failure.Validate(); err != nil {
 			return err
 		}
-		if failure.Action == domain.TaskFailureStop && workItem.CoordinationMode() != domain.CoordinationModeWorkflow {
-			return invalidCommand("fail_task is only supported for Workflow")
+		if failure.Action == domain.TaskFailureAwaitHuman && workItem.CoordinationMode() != domain.CoordinationModeWorkflow {
+			return invalidCommand("await_human is only supported for Workflow")
 		}
 		if len(task.Failures) >= MaxFailuresPerTask && failure.Action != domain.TaskFailureFailWorkItem {
 			reason := historyLimitReason(task.ID, "failure records", MaxFailuresPerTask)
@@ -113,8 +113,8 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 		task.UpdatedAt = now
 		task.Version++
 
-		eventType := domain.WorkItemEventTaskReopened
-		if failure.Action == domain.TaskFailureReopen && workItem.CoordinationMode() == domain.CoordinationModeBlackboard {
+		eventType := domain.WorkItemEventTaskRetryRequested
+		if failure.Action == domain.TaskFailureRetry && workItem.CoordinationMode() == domain.CoordinationModeBlackboard {
 			task.Status = domain.TaskStatusPending
 		} else {
 			task.Status = domain.TaskStatusFailed
@@ -141,7 +141,7 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 			}
 		}
 
-		if failure.Action == domain.TaskFailureReopen && workItem.CoordinationMode() == domain.CoordinationModeWorkflow {
+		if failure.Action == domain.TaskFailureRetry && workItem.CoordinationMode() == domain.CoordinationModeWorkflow {
 			state, err := loadWorkflowRetryState(store, workItem)
 			if err != nil {
 				return err

@@ -266,7 +266,7 @@ describe('Workflow restart', () => {
 
 function failedTask(id: string, node = id): Task {
   return { ...completedTask(), id, workflow_task_id: node, workflow_activation_id: `activation-${id}`, status: 'failed', completed_at: null,
-    failures: [{ id: `failure-${id}`, task_id: id, claim_id: `claim-${id}`, action: 'fail_task', reason: `${id} failed`, retry_prompt: '', failed_at: '2026-08-19T09:00:00Z' }] }
+    failures: [{ id: `failure-${id}`, task_id: id, claim_id: `claim-${id}`, action: 'await_human', reason: `${id} failed`, retry_prompt: '', failed_at: '2026-08-19T09:00:00Z' }] }
 }
 
 describe('Unified Continue execution', () => {

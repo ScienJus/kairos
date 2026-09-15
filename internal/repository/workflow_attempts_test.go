@@ -99,13 +99,13 @@ func TestWorkflowRetryPreservesSuccessfulJoinInputs(t *testing.T) {
 				var oldClaim domain.Claim
 				switch scenario {
 				case "a-fails":
-					oldClaim = fail(a, domain.TaskFailureStop)
+					oldClaim = fail(a, domain.TaskFailureAwaitHuman)
 					submit(b)
 					oldFailed = a
 					submit(retry(a))
 				case "both-fail":
-					oldClaim = fail(a, domain.TaskFailureStop)
-					fail(b, domain.TaskFailureStop)
+					oldClaim = fail(a, domain.TaskFailureAwaitHuman)
+					fail(b, domain.TaskFailureAwaitHuman)
 					oldFailed = a
 					submit(retry(a))
 					if len(read().Tasks) != 4 {
@@ -116,7 +116,7 @@ func TestWorkflowRetryPreservesSuccessfulJoinInputs(t *testing.T) {
 					submit(a)
 					submit(b)
 					c := pending("c")
-					oldClaim = fail(c, domain.TaskFailureStop)
+					oldClaim = fail(c, domain.TaskFailureAwaitHuman)
 					oldFailed = c
 					submit(retry(c))
 				case "workflow-fails":
@@ -132,12 +132,12 @@ func TestWorkflowRetryPreservesSuccessfulJoinInputs(t *testing.T) {
 					}
 					submit(pending("a"))
 				case "automatic-retry":
-					oldClaim = fail(a, domain.TaskFailureReopen)
+					oldClaim = fail(a, domain.TaskFailureRetry)
 					oldFailed = a
 					submit(b)
 					replacement := pending("a")
 					if replacement.ID == a.ID {
-						t.Fatal("reopened original task")
+						t.Fatal("retryed original task")
 					}
 					submit(replacement)
 				}
@@ -306,7 +306,7 @@ func TestWorkflowRetryLimitAndHumanAttention(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureStop, Reason: "temporary failure"}); err != nil {
+		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureAwaitHuman, Reason: "temporary failure"}); err != nil {
 			t.Fatal(err)
 		}
 		failed := read()
@@ -353,7 +353,7 @@ func TestWorkflowRetryLimitAndHumanAttention(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		failure, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: replacement.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureReopen, Reason: "retry also failed"})
+		failure, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: replacement.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureRetry, Reason: "retry also failed"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -417,7 +417,7 @@ func TestWorkflowContinuePreservesUnaffectedBranches(t *testing.T) {
 				first := read()
 				a, b := first.Tasks[0], first.Tasks[1]
 				c := claim(a)
-				if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: a.ID, ClaimID: c.ID, Identity: actor, Action: domain.TaskFailureReopen, Reason: "first attempt failed"}); err != nil {
+				if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: a.ID, ClaimID: c.ID, Identity: actor, Action: domain.TaskFailureRetry, Reason: "first attempt failed"}); err != nil {
 					t.Fatal(err)
 				}
 				for _, task := range read().Tasks {
@@ -450,7 +450,7 @@ func TestWorkflowContinuePreservesUnaffectedBranches(t *testing.T) {
 				bc := claim(b)
 				action := domain.TaskFailureFailWorkItem
 				if scenario == "working" {
-					action = domain.TaskFailureStop
+					action = domain.TaskFailureAwaitHuman
 				}
 				if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: b.ID, ClaimID: bc.ID, Identity: actor, Action: action, Reason: "B failed"}); err != nil {
 					t.Fatal(err)
@@ -534,7 +534,7 @@ func TestWorkflowRestartPersistsCurrentFailureWithManyLinks(t *testing.T) {
 				t.Fatal(err)
 			}
 			if *task.WorkflowTaskID == "a" {
-				_, err = service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureStop, Reason: reason})
+				_, err = service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureAwaitHuman, Reason: reason})
 			} else {
 				artifact, createErr := service.CreateArtifact(ctx, application.CreateArtifactCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Name: "old-deliverable", URI: oldArtifact})
 				if createErr != nil {
@@ -610,7 +610,7 @@ func TestWorkflowRestartKeepsHistoryOnEachSource(t *testing.T) {
 			if round == 2 {
 				reason += strings.Repeat("界", (domain.MaxHistoryTextBytes-len(reason))/3)
 			}
-			if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: c.ID, Identity: actor, Action: domain.TaskFailureStop, Reason: reason}); err != nil {
+			if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: c.ID, Identity: actor, Action: domain.TaskFailureAwaitHuman, Reason: reason}); err != nil {
 				t.Fatal(err)
 			}
 			// The other branch is still working when Start over must stop the source.
@@ -689,7 +689,7 @@ func TestWorkflowContinuePreservesLimitBlockedRetryGuidance(t *testing.T) {
 					}
 					return value
 				}
-				reopen := func(prompt string) domain.TaskID {
+				retry := func(prompt string) domain.TaskID {
 					t.Helper()
 					for _, task := range read().Tasks {
 						if *task.WorkflowTaskID != "a" || task.Status != domain.TaskStatusPending {
@@ -699,7 +699,7 @@ func TestWorkflowContinuePreservesLimitBlockedRetryGuidance(t *testing.T) {
 						if err != nil {
 							t.Fatal(err)
 						}
-						if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureReopen, Reason: "Permission denied", RetryPrompt: prompt}); err != nil {
+						if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureRetry, Reason: "Permission denied", RetryPrompt: prompt}); err != nil {
 							t.Fatal(err)
 						}
 						return task.ID
@@ -708,9 +708,9 @@ func TestWorkflowContinuePreservesLimitBlockedRetryGuidance(t *testing.T) {
 					return ""
 				}
 				if scenario.inherited != "" {
-					reopen(scenario.inherited)
+					retry(scenario.inherited)
 				}
-				sourceID := reopen(scenario.prompt)
+				sourceID := retry(scenario.prompt)
 				blocked := read()
 				failure := blocked.WorkItem.Failure
 				if blocked.WorkItem.Status != domain.WorkItemStatusFailed || failure == nil || failure.Kind != domain.FailureWorkflowExecutionLimit || failure.Executions != def.Graph.MaxTaskExecutions || failure.Limit != def.Graph.MaxTaskExecutions {
@@ -718,7 +718,7 @@ func TestWorkflowContinuePreservesLimitBlockedRetryGuidance(t *testing.T) {
 				}
 				for _, task := range blocked.Tasks {
 					if task.ID == sourceID && (len(task.Failures) != 1 || task.Failures[0].RetryPrompt != scenario.prompt) {
-						t.Fatal("blocked reopen did not persist its prompt")
+						t.Fatal("blocked retry did not persist its prompt")
 					}
 				}
 				peer := repositoryTestService(t, openPeer(t))
@@ -805,7 +805,7 @@ func TestWorkflowRecoveryPreservesReviewAndRetryGuidance(t *testing.T) {
 		// complete even though the generated history must truncate the error.
 		prompt := strings.Repeat("界", domain.MaxHistoryTextBytes/3) + "xx"
 		held = claim(task)
-		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureReopen, Reason: strings.Repeat("x", domain.MaxHistoryTextBytes), RetryPrompt: prompt}); err != nil {
+		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureRetry, Reason: strings.Repeat("x", domain.MaxHistoryTextBytes), RetryPrompt: prompt}); err != nil {
 			t.Fatal(err)
 		}
 		first := task
@@ -814,7 +814,7 @@ func TestWorkflowRecoveryPreservesReviewAndRetryGuidance(t *testing.T) {
 			t.Fatal("automatic retry lost guidance")
 		}
 		held = claim(task)
-		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureStop, Reason: "temporary error"}); err != nil {
+		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureAwaitHuman, Reason: "temporary error"}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := service.ResumeWorkflow(ctx, application.ResumeWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: read().WorkItem.Version}); err != nil {
@@ -832,7 +832,7 @@ func TestWorkflowRecoveryPreservesReviewAndRetryGuidance(t *testing.T) {
 			t.Fatal("inherited guidance displaced the latest failure reason")
 		}
 		held = claim(task)
-		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureStop, Reason: "later error"}); err != nil {
+		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureAwaitHuman, Reason: "later error"}); err != nil {
 			t.Fatal(err)
 		}
 		fresh, err := service.RestartWorkflow(ctx, application.RestartWorkflowCommand{WorkItemID: work.ID, Identity: actor, Version: read().WorkItem.Version, OperationID: "restart-review"})
@@ -906,7 +906,7 @@ func TestWorkflowContinueCountsSameNodeReplacements(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureStop, Reason: "retry required"}); err != nil {
+			if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: actor, Action: domain.TaskFailureAwaitHuman, Reason: "retry required"}); err != nil {
 				t.Fatal(err)
 			}
 		}

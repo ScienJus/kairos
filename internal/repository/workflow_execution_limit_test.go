@@ -14,7 +14,7 @@ import (
 )
 
 func TestWorkflowLongNodeLimitCommitsFailure(t *testing.T) {
-	for _, action := range []string{"reopen", "submit"} {
+	for _, action := range []string{"retry", "submit"} {
 		t.Run(action, func(t *testing.T) {
 			forEachSQLRepository(t, func(t *testing.T, repo *SQLRepository, openPeer func(*testing.T) *SQLRepository) {
 				ctx := context.Background()
@@ -54,8 +54,8 @@ func TestWorkflowLongNodeLimitCommitsFailure(t *testing.T) {
 						source, held = task, claim
 					}
 				}
-				if action == "reopen" {
-					_, err = service.FailTask(ctx, application.FailTaskCommand{TaskID: source.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureReopen, Reason: "Permission denied", RetryPrompt: "Repair permissions"})
+				if action == "retry" {
+					_, err = service.FailTask(ctx, application.FailTaskCommand{TaskID: source.ID, ClaimID: held.ID, Identity: actor, Action: domain.TaskFailureRetry, Reason: "Permission denied", RetryPrompt: "Repair permissions"})
 				} else {
 					_, err = service.SubmitTask(ctx, application.SubmitTaskCommand{TaskID: source.ID, ClaimID: held.ID, Identity: actor, Result: "Need another pass", Transition: &application.WorkflowTransitionCommand{ChoiceGroupID: "continue:again"}})
 				}
@@ -81,7 +81,7 @@ func TestWorkflowLongNodeLimitCommitsFailure(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if action == "reopen" {
+				if action == "retry" {
 					if execution.Task.Status != domain.TaskStatusFailed || len(execution.Task.Failures) != 1 || execution.Task.Failures[0].RetryPrompt != "Repair permissions" {
 						t.Fatal("source failure was rolled back")
 					}

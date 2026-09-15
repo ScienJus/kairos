@@ -1545,9 +1545,9 @@ components:
         id: { type: string }
         task_id: { type: string }
         claim_id: { type: string }
-        action: { type: string, enum: [reopen, fail_task, fail_work_item], description: "Workflow reopen creates a new attempt; fail_task stops only the Workflow Task for Human Continue execution; fail_work_item stops all work. Blackboard reopen reuses the same Task. Blackboard fail_task is rejected without state changes, including at the failure-history limit." }
+        action: { type: string, enum: [retry, await_human, fail_work_item], description: "Workflow retry creates a new attempt; await_human stops only the Workflow Task for Human Continue execution; fail_work_item stops all work. Blackboard retry reuses the same Task. Blackboard await_human is rejected without state changes, including at the failure-history limit." }
         reason: { $ref: '#/components/schemas/HistoryText' }
-        retry_prompt: { $ref: '#/components/schemas/HistoryText' }
+        retry_prompt: { $ref: '#/components/schemas/HistoryText', description: Guidance for the next attempt; nonempty only for action retry. }
         failed_at: { $ref: '#/components/schemas/DateTime' }
     TransitionDecision:
       type: object
@@ -1578,7 +1578,7 @@ components:
         workflow_activation_id: { $ref: '#/components/schemas/NullableString' }
         retry_of_task_id: { $ref: '#/components/schemas/NullableString', description: Previous Workflow attempt replaced by this Task; null otherwise. }
         retry_context: { $ref: '#/components/schemas/HistoryText', description: 'Bounded recovery summary prioritizing current failure and interruption causes before earlier history. Full retry instructions remain in retry_instructions.' }
-        retry_instructions: { $ref: '#/components/schemas/HistoryText', description: 'Retry guidance from reopen retry_prompt or Human instructions, kept separately from the bounded summary. Uses the first nonempty value from current Human instructions, the source attempt latest reopen failure retry_prompt (including a limit-blocked reopen), and inherited retry_instructions.' }
+        retry_instructions: { $ref: '#/components/schemas/HistoryText', description: 'Retry guidance from action retry or Human instructions, kept separately from the bounded summary. Uses the first nonempty value from current Human instructions, the source attempt latest retry failure retry_prompt (including a limit-blocked retry), and inherited retry_instructions.' }
         status: { $ref: '#/components/schemas/TaskStatus' }
         active_claim_id: { $ref: '#/components/schemas/NullableString' }
         parent_task_id: { $ref: '#/components/schemas/NullableString' }
@@ -1887,9 +1887,9 @@ components:
       required: [claim_id, action, reason]
       properties:
         claim_id: { type: string }
-        action: { type: string, enum: [reopen, fail_task, fail_work_item], description: "Workflow reopen creates a new attempt; fail_task stops only the Workflow Task for Human Continue execution; fail_work_item stops all work. Blackboard reopen reuses the same Task. Blackboard fail_task is rejected without state changes, including at the failure-history limit." }
+        action: { type: string, enum: [retry, await_human, fail_work_item], description: "Workflow retry creates a new attempt; await_human stops only the Workflow Task for Human Continue execution; fail_work_item stops all work. Blackboard retry reuses the same Task. Blackboard await_human is rejected without state changes, including at the failure-history limit." }
         reason: { $ref: '#/components/schemas/HistoryText' }
-        retry_prompt: { $ref: '#/components/schemas/HistoryText' }
+        retry_prompt: { $ref: '#/components/schemas/HistoryText', description: Guidance for the next attempt; nonempty only for action retry. }
     WorkItemResponse:
       type: object
       required: [data]

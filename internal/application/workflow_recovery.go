@@ -156,7 +156,7 @@ func (s *Service) ResumeWorkflow(ctx context.Context, command ResumeWorkflowComm
 		if err != nil {
 			return err
 		}
-		// Avoid reopening a malformed/legacy record with no blocked work to resume.
+		// Avoid resuming a malformed/legacy record with no blocked work to resume.
 		progressed := retried || len(after) > len(before)
 		for _, activation := range after {
 			if status, exists := previousStatus[activation.ID]; exists && status != activation.Status {

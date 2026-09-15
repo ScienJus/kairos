@@ -62,7 +62,7 @@ Blackboard 中的执行者也可以在产生成果前将 Task 拆分为子 Task�
 
 Result 是执行者留下的持久说明，Artifact 是具名、可寻址的实际交付物。执行者持有 Claim 时可以暂存 Artifact，并在创建 Submission 时绑定。绑定后的 Artifact 进入同一份不可变历史，并对整个 WorkItem 可见。
 
-执行者报告失败时，Kairos 在 Task 下创建不可变的 Task Failure。重新打开产生的提示会进入后续执行上下文；全局失败则结束当前 Task 与 WorkItem。Claim、Submission、Review、Failure 和推进决策同时形成持久、按顺序追加的 WorkItem Event 历史。面向用户的 WorkItem 事件时间线是独立的展现能力，目前仍在规划中。
+执行者报告失败时，Kairos 在 Task 下创建不可变的 Task Failure。通过 `retry` 动作提供的提示会进入下一次尝试的执行上下文；全局失败则结束当前 Task 与 WorkItem。Claim、Submission、Review、Failure 和推进决策同时形成持久、按顺序追加的 WorkItem Event 历史。面向用户的 WorkItem 事件时间线是独立的展现能力，目前仍在规划中。
 
 WorkItem 取消是独立的人工管理决定，不属于执行失败。它记录取消操作者、时间和原因，结束 Active Claim 并阻止后续 Task 变更，但不会改写已有 Task 结果或创建 Task Failure。
 

@@ -32,7 +32,7 @@ func TestHistoryRecordsRejectOversizedText(t *testing.T) {
 	if err := (TaskSubmission{ID: "submission", TaskID: "task", ClaimID: "claim", Result: tooLong, SubmittedAt: testTime}).Validate(); err == nil {
 		t.Fatal("oversized submission result was accepted")
 	}
-	if err := (TaskFailure{ID: "failure", TaskID: "task", ClaimID: "claim", Action: TaskFailureReopen, Reason: tooLong, FailedAt: testTime}).Validate(); err == nil {
+	if err := (TaskFailure{ID: "failure", TaskID: "task", ClaimID: "claim", Action: TaskFailureRetry, Reason: tooLong, FailedAt: testTime}).Validate(); err == nil {
 		t.Fatal("oversized failure reason was accepted")
 	}
 	if err := (Review{ID: "review", TaskID: "task", Status: ReviewStatusRejected, RequestedBy: "reviewer", RequestedAt: testTime, Feedback: tooLong}).Validate(); err == nil {

@@ -194,6 +194,7 @@ func TestHTTPDispatchOutcomesAndLostResponses(t *testing.T) {
 		{TaskCandidate, domain.CoordinationModeWorkflow, completedOutcome()},
 		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: Completed, Result: "review", RequestReview: true}}},
 		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: RetryableFailure, Reason: "business blocker", RetryPrompt: "try this"}}},
+		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: HumanInterventionRequired, Reason: "human decision needed"}}},
 		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: TerminalFailure, Reason: "business impossible"}}},
 		{TaskCandidate, domain.CoordinationModeWorkflow, HarnessOutcome{Task: &TaskOutcome{Kind: Abandoned}}},
 	}
@@ -258,6 +259,31 @@ func TestHTTPDispatchOutcomesAndLostResponses(t *testing.T) {
 			}
 			if claimCount != 1 {
 				t.Fatalf("created %d Executor Claims", claimCount)
+			}
+			if tc.outcome.Kind() == RetryableFailure || tc.outcome.Kind() == TerminalFailure || tc.outcome.Kind() == HumanInterventionRequired {
+				wantAction := "retry"
+				if tc.outcome.Kind() == TerminalFailure {
+					wantAction = "fail_work_item"
+				} else if tc.outcome.Kind() == HumanInterventionRequired {
+					wantAction = "await_human"
+					if view.WorkItem.Status != domain.WorkItemStatusOpen || len(view.Tasks) != 1 || view.Tasks[0].Status != domain.TaskStatusFailed || view.Tasks[0].ActiveClaimID != nil {
+						t.Fatalf("await_human must leave one failed attempt in an open Workflow: %+v", view)
+					}
+				}
+				found := false
+				for _, task := range view.Tasks {
+					for _, failure := range task.Failures {
+						if failure.ClaimID == domain.ClaimID(s.ClaimID) {
+							found = true
+							if string(failure.Action) != wantAction {
+								t.Fatalf("daemon persisted action %q, want %q", failure.Action, wantAction)
+							}
+						}
+					}
+				}
+				if !found {
+					t.Fatal("daemon did not persist the failure action")
+				}
 			}
 			if tc.outcome.Kind() == CreateTask {
 				expected := 2

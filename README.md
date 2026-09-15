@@ -119,6 +119,8 @@ The operations console currently provides a workspace overview, a human-attentio
 
 Task lifecycle changes, responsibility, submissions, Reviews, failures, and Artifacts together show how the owning WorkItem is advancing. A complete WorkItem event timeline is planned; the underlying events are already persisted.
 
+The `fail_task` operation accepts `retry` for another attempt, `await_human` to end the current Workflow attempt as Failed and wait for Human Continue to create a replacement attempt, and `fail_work_item` to fail the whole WorkItem. Workflow retry creates a replacement Task; Blackboard retry reuses the same Task.
+
 For failed Workflows or current failed Tasks, Humans can **Continue execution** to retry failed/interrupted attempts while retaining successful branches, or **Start over** in a new WorkItem with the original goal and a failure summary. History stays on the source WorkItem; include external outcomes to reuse in your instructions because scoped executors cannot read the source history. See the [API reference](docs/api-reference.md).
 
 ## Project Status

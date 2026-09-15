@@ -128,15 +128,18 @@ Adapter 将 Harness 专用输出转换成 HarnessOutcome，分为 TaskOutcome �
 
 ### TaskOutcome
 
-除 `decomposed` 仅限 Blackboard 外，其余 Task outcome 均适用于 Workflow 和 Blackboard。
+`decomposed` 仅限 Blackboard，`human_intervention_required` 仅限 Workflow；其余 Task outcome 均适用于两种模式。
 
 | Outcome | 内容 | Daemon 调用 |
 | --- | --- | --- |
 | `completed` | Result、Artifact IDs、Review 请求、可选 Workflow transition | `submit_task` |
 | `decomposed` | 子 Task specs | `decompose_blackboard_task` |
-| `retryable_failure` | 业务原因、可选 retry prompt | `fail_task(action=reopen)` |
+| `retryable_failure` | 业务原因、可选 retry prompt | `fail_task(action=retry)` |
+| `human_intervention_required` | 业务原因；仅 Workflow，retry prompt 为空 | `fail_task(action=await_human)` |
 | `terminal_failure` | 业务原因 | `fail_task(action=fail_work_item)` |
 | `abandoned` | 可选 release reason | `release_claim` |
+
+`human_intervention_required` 将当前 Workflow 尝试结束为 Failed，等待 Human 继续执行时创建替代实例；其他分支继续。Blackboard 在调用 Core 前拒绝此 outcome。
 
 Workflow 的 `retryable_failure` 在同一节点创建新 Task 并增加该节点执行次数；Blackboard 复用原 Task。Daemon 在后续发现中认领替代实例。Failed Workflow 需 Human 继续执行或从头执行，旧 Claim 保持失效。
 

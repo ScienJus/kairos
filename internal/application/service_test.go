@@ -1708,10 +1708,10 @@ func TestTaskHistoryLimitsFailWorkItem(t *testing.T) {
 			endedAt := applicationTestTime.Add(time.Duration(index+1) * time.Second)
 			claimedAt := endedAt.Add(-time.Second)
 			repository.claims[claimID] = domain.Claim{ID: claimID, TaskID: task.ID, Executor: identity.Actor, ClaimedAt: claimedAt, EndedAt: &endedAt, EndReason: domain.ClaimEndTaskFailed}
-			stored.Failures[index] = domain.TaskFailure{ID: domain.TaskFailureID(fmt.Sprintf("failure-%d", index)), TaskID: task.ID, ClaimID: claimID, Action: domain.TaskFailureReopen, Reason: "retry", FailedAt: endedAt}
+			stored.Failures[index] = domain.TaskFailure{ID: domain.TaskFailureID(fmt.Sprintf("failure-%d", index)), TaskID: task.ID, ClaimID: claimID, Action: domain.TaskFailureRetry, Reason: "retry", FailedAt: endedAt}
 		}
 		repository.tasks[task.ID] = stored
-		if _, err := service.FailTask(context.Background(), FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Action: domain.TaskFailureReopen, Reason: "retry"}); !errors.Is(err, ErrConflict) {
+		if _, err := service.FailTask(context.Background(), FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Action: domain.TaskFailureRetry, Reason: "retry"}); !errors.Is(err, ErrConflict) {
 			t.Fatalf("failure limit error = %v, want ErrConflict after terminal failure", err)
 		}
 		if repository.workItems[task.WorkItemID].Status != domain.WorkItemStatusFailed || repository.tasks[task.ID].ActiveClaimID != nil || len(repository.tasks[task.ID].Failures) != MaxFailuresPerTask {
@@ -1728,7 +1728,7 @@ func TestTaskHistoryLimitsFailWorkItem(t *testing.T) {
 			endedAt := applicationTestTime.Add(-time.Duration(MaxFailuresPerTask-index) * time.Second)
 			claimedAt := endedAt.Add(-time.Second)
 			repository.claims[claimID] = domain.Claim{ID: claimID, TaskID: task.ID, Executor: identity.Actor, ClaimedAt: claimedAt, EndedAt: &endedAt, EndReason: domain.ClaimEndTaskFailed}
-			stored.Failures[index] = domain.TaskFailure{ID: domain.TaskFailureID(fmt.Sprintf("terminal-failure-%d", index)), TaskID: task.ID, ClaimID: claimID, Action: domain.TaskFailureReopen, Reason: "retry", FailedAt: endedAt}
+			stored.Failures[index] = domain.TaskFailure{ID: domain.TaskFailureID(fmt.Sprintf("terminal-failure-%d", index)), TaskID: task.ID, ClaimID: claimID, Action: domain.TaskFailureRetry, Reason: "retry", FailedAt: endedAt}
 		}
 		repository.tasks[task.ID] = stored
 		created, err := service.FailTask(context.Background(), FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: identity, Action: domain.TaskFailureFailWorkItem, Reason: "terminal failure"})
@@ -2192,7 +2192,7 @@ func TestReplayableCreateReturnsOriginalResultAndRejectsReuse(t *testing.T) {
 	}
 }
 
-func TestFailTaskReopensAndPreservesFailure(t *testing.T) {
+func TestFailTaskRetriesAndPreservesFailure(t *testing.T) {
 	t.Parallel()
 
 	repository := newTestRepository()
@@ -2223,16 +2223,19 @@ func TestFailTaskReopensAndPreservesFailure(t *testing.T) {
 		TaskID:      task.ID,
 		ClaimID:     claim.ID,
 		Identity:    identity,
-		Action:      domain.TaskFailureReopen,
+		Action:      domain.TaskFailureRetry,
 		Reason:      "Logs are unavailable",
 		RetryPrompt: "Check the archive after replication catches up.",
 	})
 	if err != nil {
 		t.Fatalf("fail task: %v", err)
 	}
-	reopened := repository.tasks[task.ID]
-	if reopened.Status != domain.TaskStatusPending || len(reopened.Failures) != 1 || reopened.Failures[0].ID != failure.ID {
-		t.Fatalf("reopened task: %#v", reopened)
+	if got := repository.events[len(repository.events)-1].Type; got != "task.retry_requested" {
+		t.Fatalf("Blackboard retry event = %q", got)
+	}
+	retried := repository.tasks[task.ID]
+	if retried.Status != domain.TaskStatusPending || len(retried.Failures) != 1 || retried.Failures[0].ID != failure.ID {
+		t.Fatalf("retried task: %#v", retried)
 	}
 	retryClaim, err := service.ClaimTask(context.Background(), ClaimTaskCommand{TaskID: task.ID, Identity: identity})
 	if err != nil {
