@@ -3,6 +3,9 @@ package daemon
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -13,12 +16,12 @@ import (
 func TestOutcomeRejectsMixedAndInapplicableFields(t *testing.T) {
 	for _, o := range []HarnessOutcome{
 		{},
-		{Task: &TaskOutcome{Kind: Completed, Result: "done"}, Coordination: &CoordinationDecision{Kind: Abandoned}},
+		{Task: &TaskOutcome{Kind: Completed, Result: "done"}, Coordination: &CoordinationDecision{Kind: CandidateDeclined}},
 		{Task: &TaskOutcome{Kind: Completed, Result: "done", Transition: &Transition{ChoiceGroupID: "continue"}}},
 		{Task: &TaskOutcome{Kind: Completed, Result: "done", Reason: "unexpected"}},
 		{Task: &TaskOutcome{Kind: Completed, Result: "done", ArtifactIDs: []domain.ArtifactID{"a", "a"}}},
-		{Task: &TaskOutcome{Kind: Abandoned, RetryPrompt: "unexpected"}},
-		{Task: &TaskOutcome{Kind: TerminalFailure, Reason: "failure", RetryPrompt: "unexpected"}},
+		{Task: &TaskOutcome{Kind: CandidateDeclined, RetryPrompt: "unexpected"}},
+		{Task: &TaskOutcome{Kind: WorkItemFailure, Reason: "failure", RetryPrompt: "unexpected"}},
 		{Task: &TaskOutcome{Kind: Decomposed, Children: []TaskSpec{{Title: "child", Executor: domain.ExecutorAgent}}, RequestReview: true}},
 	} {
 		if o.Validate(taskCandidate()) == nil {
@@ -128,4 +131,97 @@ func TestHeartbeatTimeoutCannotOverrunSafetyDeadline(t *testing.T) {
 			t.Fatalf("Stop after safety deadline: %s", stoppedAt.Sub(start))
 		}
 	})
+}
+
+func TestHumanInterventionOutcomeValidation(t *testing.T) {
+	candidate := taskCandidate()
+	candidate.Mode = domain.CoordinationModeWorkflow
+	valid := HarnessOutcome{Task: &TaskOutcome{Kind: HumanInterventionRequired, Reason: "Human decision needed"}}
+	if err := valid.Validate(candidate); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*TaskOutcome)
+		want   string
+	}{
+		{"missing reason", func(o *TaskOutcome) { o.Reason = " " }, "business failure requires a reason"},
+		{"retry prompt", func(o *TaskOutcome) { o.RetryPrompt = "retry" }, "retry prompt requires retryable_failure"},
+		{"whitespace prompt", func(o *TaskOutcome) { o.RetryPrompt = " " }, "retry prompt requires retryable_failure"},
+		{"result", func(o *TaskOutcome) { o.Result = "done" }, "invalid failure or candidate_declined fields"},
+		{"artifacts", func(o *TaskOutcome) { o.ArtifactIDs = []domain.ArtifactID{"artifact"} }, "invalid failure or candidate_declined fields"},
+		{"review", func(o *TaskOutcome) { o.RequestReview = true }, "invalid failure or candidate_declined fields"},
+		{"transition", func(o *TaskOutcome) { o.Transition = &Transition{} }, "invalid failure or candidate_declined fields"},
+		{"children", func(o *TaskOutcome) { o.Children = []TaskSpec{{Title: "child"}} }, "invalid failure or candidate_declined fields"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := *valid.Task
+			tc.mutate(&task)
+			if err := (HarnessOutcome{Task: &task}).Validate(candidate); err == nil || err.Error() != tc.want {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+	for _, reason := range []string{strings.Repeat("a", domain.MaxHistoryTextBytes), strings.Repeat("界", domain.MaxHistoryTextBytes/3) + strings.Repeat("a", domain.MaxHistoryTextBytes%3)} {
+		task := *valid.Task
+		task.Reason = reason
+		if err := (HarnessOutcome{Task: &task}).Validate(candidate); err != nil {
+			t.Fatal(err)
+		}
+		task.Reason += "a"
+		if err := (HarnessOutcome{Task: &task}).Validate(candidate); err == nil || err.Error() != "outcome history text exceeds the Core byte limit" {
+			t.Fatalf("byte limit: %v", err)
+		}
+	}
+	candidate.Mode = domain.CoordinationModeBlackboard
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusNoContent) }))
+	defer server.Close()
+	client, err := NewHTTPClient(server.URL, NewSecret("test-token"), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Apply(context.Background(), candidate, "claim", "operation", valid); err == nil || !strings.Contains(err.Error(), "human_intervention_required requires a Workflow Task") {
+		t.Fatalf("Blackboard rejection: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("invalid outcome sent %d Core requests", calls)
+	}
+}
+
+func TestOutcomeNames(t *testing.T) {
+	for _, tc := range []struct {
+		kind CandidateKind
+		mode domain.CoordinationMode
+		json string
+		want OutcomeKind
+	}{
+		{TaskCandidate, domain.CoordinationModeWorkflow, `{"task":{"kind":"work_item_failure","reason":"Cannot continue"}}`, WorkItemFailure},
+		{TaskCandidate, domain.CoordinationModeBlackboard, `{"task":{"kind":"candidate_declined"}}`, CandidateDeclined},
+		{EmptyBlackboard, domain.CoordinationModeBlackboard, `{"coordination":{"kind":"candidate_declined"}}`, CandidateDeclined},
+	} {
+		candidate := Candidate{Kind: tc.kind, Mode: tc.mode, WorkItemID: "work"}
+		if tc.kind == TaskCandidate {
+			candidate.TaskID = "task"
+		}
+		outcome, err := DecodeOutcome([]byte(tc.json), candidate)
+		if err != nil || outcome.Kind() != tc.want {
+			t.Fatalf("new outcome %s: %+v %v", tc.json, outcome, err)
+		}
+	}
+	for _, old := range []OutcomeKind{"terminal_failure", "abandoned"} {
+		for _, kind := range []CandidateKind{TaskCandidate, EmptyBlackboard, BlackboardCompletion, WorkItemAcceptance} {
+			candidate := Candidate{Kind: kind, Mode: domain.CoordinationModeBlackboard, WorkItemID: "work"}
+			outcome := HarnessOutcome{Coordination: &CoordinationDecision{Kind: old}}
+			want := "unsupported Coordination decision"
+			if kind == TaskCandidate {
+				candidate.TaskID = "task"
+				outcome = HarnessOutcome{Task: &TaskOutcome{Kind: old, Reason: "Business reason"}}
+				want = "unsupported Task outcome"
+			}
+			if err := outcome.Validate(candidate); err == nil || err.Error() != want {
+				t.Fatalf("removed outcome %s/%s: %v", kind, old, err)
+			}
+		}
+	}
 }

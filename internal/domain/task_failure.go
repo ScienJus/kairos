@@ -9,13 +9,14 @@ import (
 type TaskFailureAction string
 
 const (
-	TaskFailureReopen       TaskFailureAction = "reopen"
+	TaskFailureRetry        TaskFailureAction = "retry"
+	TaskFailureAwaitHuman   TaskFailureAction = "await_human"
 	TaskFailureFailWorkItem TaskFailureAction = "fail_work_item"
 )
 
 // Valid reports whether the failure action is recognized.
 func (a TaskFailureAction) Valid() bool {
-	return a == TaskFailureReopen || a == TaskFailureFailWorkItem
+	return a == TaskFailureAwaitHuman || a == TaskFailureRetry || a == TaskFailureFailWorkItem
 }
 
 // TaskFailure records one immutable failure reported from a Claim.
@@ -27,7 +28,7 @@ type TaskFailure struct {
 	Action TaskFailureAction `json:"action"`
 	Reason string            `json:"reason"`
 
-	// RetryPrompt is appended to the shared execution context after reopening.
+	// RetryPrompt guides the next attempt when Action is retry.
 	RetryPrompt string `json:"retry_prompt"`
 
 	FailedAt time.Time `json:"failed_at"`
@@ -56,8 +57,8 @@ func (f TaskFailure) Validate() error {
 	if err := validateHistoryText("failure.retry_prompt", f.RetryPrompt); err != nil {
 		return err
 	}
-	if f.Action != TaskFailureReopen && strings.TrimSpace(f.RetryPrompt) != "" {
-		return invalid("failure.retry_prompt", "is supported only when reopening the task")
+	if f.Action != TaskFailureRetry && strings.TrimSpace(f.RetryPrompt) != "" {
+		return invalid("failure.retry_prompt", "is supported only for action retry")
 	}
 	if f.FailedAt.IsZero() {
 		return invalid("failure.failed_at", "is required")

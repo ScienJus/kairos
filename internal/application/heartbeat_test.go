@@ -180,7 +180,7 @@ func TestUnreapedAgentClaimCanFailOrDecomposePastLeaseUntil(t *testing.T) {
 		clock.now = claim.LeaseUntil
 		if _, err := service.FailTask(context.Background(), FailTaskCommand{
 			TaskID: task.ID, ClaimID: claim.ID, Identity: owner,
-			Action: domain.TaskFailureReopen, Reason: "retry after lease deadline",
+			Action: domain.TaskFailureRetry, Reason: "retry after lease deadline",
 		}); err != nil {
 			t.Fatalf("fail before reaping: %v", err)
 		}

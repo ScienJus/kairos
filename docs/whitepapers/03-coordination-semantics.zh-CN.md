@@ -96,7 +96,7 @@ Workflow 的典型过程是：
 绑定 Workflow Version → 按需产生 Task → 执行 → 继续推进 → 完成
 ```
 
-Workflow Definition 可以包含循环。每次再次经过同一个定义节点时，系统创建新的 Task 实例，运行时 Task Graph 因而保持为实际执行历史。Workflow 的推进选择决定继续循环或退出，Task 实例总数上限只作为失控保护；超过上限时 WorkItem 失败。
+Workflow Definition 可以包含循环。每次再次经过同一个定义节点时，系统创建新的 Task 实例，运行时 Task Graph 因而保持为实际执行历史。Workflow 的推进选择决定继续循环或退出，各定义节点的 Task 实例次数上限分别作为失控保护；尝试创建某节点超额的下一次实例时 WorkItem 失败，不限制流程实例总数。
 
 Blackboard 形成持续反馈循环：
 
@@ -150,3 +150,5 @@ Kairos 的协调语义可以归纳为：
 5. 一个 WorkItem 的 Task Relation 在同一时刻采用统一的模式语义。
 
 > Workflow 用图约束推进路径；Blackboard 用图分享团队当前认为最合适的计划。
+
+Workflow 恢复保留成功分支结果，为失败或中断的尝试创建新 Task；从头执行则创建独立的 WorkItem。路由与恢复契约见 [Workflow](04-workflow.zh-CN.md) 和 [API 参考](../api-reference.zh-CN.md)。

@@ -55,3 +55,7 @@ controls validity. Stop is best-effort; a Daemon crash leaves Core to reap Claim
 not external processes. Use OS/container isolation for untrusted workloads.
 
 For a deployed Core behind a loopback reverse proxy, configure the proxy’s upstream Host to match the loopback destination; see the [API reference](../../docs/api-reference.md). A Host rejection is infrastructure failure, not a Token or Task failure. Inspect private `run-*/outcome.json` for a reported runtime failure reason before resuming; CLI preflight does not test browser launch.
+
+The Workflow example sets `max_task_instances_per_node` per node, not for the whole WorkItem; every node has its own count.
+
+If a Workflow fails, wait for a Human to continue or start over, then rediscover and claim fresh work. See [Workflow recovery](../../docs/api-reference.md) for operator actions and retained context.

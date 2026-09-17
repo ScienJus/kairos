@@ -76,8 +76,8 @@ func runSchedulerTest(t *testing.T, s *Scheduler) context.CancelFunc {
 	return func() { cancel(); <-done }
 }
 
-func TestSchedulerBoundsFailedAndAbandonedClaims(t *testing.T) {
-	for _, kind := range []string{"malformed", "overflow", "abandoned"} {
+func TestSchedulerBoundsFailedAndCandidateDeclinedClaims(t *testing.T) {
+	for _, kind := range []string{"malformed", "overflow", "candidate_declined"} {
 		t.Run(kind, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				c, a, o := schedulerFixture(t)
@@ -85,8 +85,8 @@ func TestSchedulerBoundsFailedAndAbandonedClaims(t *testing.T) {
 					switch kind {
 					case "overflow":
 						return RunObservation{State: RuntimeFailed}, nil
-					case "abandoned":
-						return RunObservation{State: OutcomeReady, Outcome: &HarnessOutcome{Task: &TaskOutcome{Kind: Abandoned}}}, nil
+					case "candidate_declined":
+						return RunObservation{State: OutcomeReady, Outcome: &HarnessOutcome{Task: &TaskOutcome{Kind: CandidateDeclined}}}, nil
 					default:
 						return RunObservation{State: OutcomeReady, Outcome: &HarnessOutcome{}}, nil
 					}
@@ -98,7 +98,7 @@ func TestSchedulerBoundsFailedAndAbandonedClaims(t *testing.T) {
 				stop := runSchedulerTest(t, s)
 				time.Sleep(time.Hour)
 				want := uint64(o.MaxDispatches)
-				if kind == "abandoned" {
+				if kind == "candidate_declined" {
 					want = 1
 				}
 				if stats := s.Stats(); stats.Claims != want || stats.Active != 0 || stats.Suppressed == 0 {
@@ -125,7 +125,7 @@ func TestSchedulerProbeRecoveryAndSecretFreeLogs(t *testing.T) {
 		var logs bytes.Buffer
 		o.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
 		a.observe = func(context.Context, RunRef) (RunObservation, error) {
-			return RunObservation{State: OutcomeReady, Outcome: &HarnessOutcome{Task: &TaskOutcome{Kind: Abandoned}}}, nil
+			return RunObservation{State: OutcomeReady, Outcome: &HarnessOutcome{Task: &TaskOutcome{Kind: CandidateDeclined}}}, nil
 		}
 		s, err := NewScheduler(c, a, o)
 		if err != nil {
@@ -247,9 +247,9 @@ func TestSchedulerRotationAndConflict(t *testing.T) {
 			return RunRef{ID: string(r.Candidate.Kind)}, nil
 		}
 		a.observe = func(_ context.Context, r RunRef) (RunObservation, error) {
-			outcome := &HarnessOutcome{Coordination: &CoordinationDecision{Kind: Abandoned}}
+			outcome := &HarnessOutcome{Coordination: &CoordinationDecision{Kind: CandidateDeclined}}
 			if r.ID == string(TaskCandidate) {
-				outcome = &HarnessOutcome{Task: &TaskOutcome{Kind: Abandoned}}
+				outcome = &HarnessOutcome{Task: &TaskOutcome{Kind: CandidateDeclined}}
 			}
 			return RunObservation{State: OutcomeReady, Outcome: outcome}, nil
 		}

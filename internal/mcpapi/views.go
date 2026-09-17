@@ -217,8 +217,14 @@ type outcomeView struct {
 	OccurredAt string     `json:"occurred_at,omitempty"`
 }
 
+type workItemLifecycleView struct {
+	workItemView
+	Failure                         *domain.WorkItemFailure `json:"failure"`
+	WorkflowMaxTaskInstancesPerNode int                     `json:"workflow_max_task_instances_per_node"`
+}
+
 type workItemContextOutput struct {
-	WorkItem                workItemView            `json:"work_item"`
+	WorkItem                workItemLifecycleView   `json:"work_item"`
 	Definition              definitionView          `json:"definition"`
 	Tasks                   []taskSummaryView       `json:"tasks"`
 	Relations               []relationView          `json:"relations"`
@@ -296,6 +302,8 @@ func taskContextView(value application.TaskExecutionContext) taskContextOutput {
 		ExpectedArtifacts: artifactDefinitionViews(value.ExpectedArtifacts),
 		Artifacts:         artifactViews(value.Artifacts),
 	}
+	result.WorkItem.Context = workItemRecoveryContext(value.WorkItem)
+	result.Task.Description = taskRecoveryDescription(value.Task)
 	result.Responsibility = responsibilityView{Kind: value.Responsibility.Kind, Actor: actorViewPtr(value.Responsibility.Actor)}
 	result.Outcome = outcomeView{Kind: value.Outcome.Kind, Actor: actorViewPtr(value.Outcome.Actor), Reason: value.Outcome.Reason}
 	if value.Outcome.OccurredAt != nil {
@@ -303,7 +311,7 @@ func taskContextView(value application.TaskExecutionContext) taskContextOutput {
 	}
 	if value.Workflow != nil {
 		workflow := workflowContextView{
-			UpstreamTasks: taskSummaryViews(value.Workflow.UpstreamTasks),
+			UpstreamTasks: taskContextSummaryViews(value.Workflow.UpstreamTasks),
 			ChoiceGroups:  make([]workflowChoiceGroupView, 0, len(value.Workflow.ChoiceGroups)),
 		}
 		for _, group := range value.Workflow.ChoiceGroups {
@@ -333,9 +341,9 @@ func taskContextView(value application.TaskExecutionContext) taskContextOutput {
 
 func workItemContextView(value application.WorkItemExecutionContext) workItemContextOutput {
 	result := workItemContextOutput{
-		WorkItem:           workItemViewFrom(value.WorkItem),
+		WorkItem:           workItemLifecycleViewFrom(value.WorkItem),
 		Definition:         definitionViewFrom(value.Definition),
-		Tasks:              taskSummaryViews(value.Tasks),
+		Tasks:              taskContextSummaryViews(value.Tasks),
 		Relations:          relationViews(value.Relations),
 		CoordinationClaims: coordinationClaimViews(value.CoordinationClaims),
 		Artifacts:          artifactViews(value.Artifacts),
@@ -593,4 +601,35 @@ func stringValues[T ~string](values []T) []string {
 		result = append(result, string(value))
 	}
 	return result
+}
+
+func workItemLifecycleViewFrom(value domain.WorkItem) workItemLifecycleView {
+	view := workItemViewFrom(value)
+	view.Context = workItemRecoveryContext(value)
+	return workItemLifecycleView{workItemView: view, Failure: value.Failure, WorkflowMaxTaskInstancesPerNode: value.WorkflowMaxTaskInstancesPerNode}
+}
+
+func taskContextSummaryViews(values []domain.Task) []taskSummaryView {
+	result := taskSummaryViews(values)
+	for i, task := range values {
+		result[i].Description = taskRecoveryDescription(task)
+	}
+	return result
+}
+
+func workItemRecoveryContext(value domain.WorkItem) string {
+	context := value.Context
+	if value.StartedOverFromWorkItemID != nil {
+		context += "\n\nStart-over context:\n" + value.StartOverContext
+	}
+	if value.RecoveryInstructions != "" {
+		context += "\nOperator instructions:\n" + value.RecoveryInstructions
+	}
+	return context
+}
+func taskRecoveryDescription(value domain.Task) string {
+	if value.RetryOfTaskID == nil {
+		return value.Description
+	}
+	return value.Description + "\n\nRetry context:\n" + value.RetryContext + "\nRetry instructions:\n" + value.RetryInstructions
 }

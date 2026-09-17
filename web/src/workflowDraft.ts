@@ -11,7 +11,8 @@ export interface WorkflowDraft {
   tasks: WorkflowTaskDefinition[]
   relations: WorkflowRelationDefinition[]
   startTaskIDs: string[]
-  maxTaskExecutions: number
+  // Shared per-node instance limit, not a total Workflow budget. Zero uses 100.
+  maxTaskInstancesPerNode: number
   savedAt: string
 }
 
@@ -25,7 +26,7 @@ export function newWorkflowDraft(): WorkflowDraft {
   return {
     definitionID: crypto.randomUUID(), baseVersion: null, targetVersion: 1,
     name: '', description: '', agentInstructions: '', suggestedTags: [],
-    tasks: [], relations: [], startTaskIDs: [], maxTaskExecutions: 20,
+    tasks: [], relations: [], startTaskIDs: [], maxTaskInstancesPerNode: 20,
     savedAt: new Date().toISOString(),
   }
 }
@@ -36,7 +37,7 @@ export function draftFromDefinition(definition: WorkflowDefinition): WorkflowDra
     name: definition.name, description: definition.description, agentInstructions: definition.agent_instructions,
     suggestedTags: [...definition.suggested_tags], tasks: definition.graph.tasks.map(task => ({ ...task, allowed_roles: [...task.allowed_roles], default_tags: [...task.default_tags], artifacts: (task.artifacts ?? []).map(artifact => ({ ...artifact })) })),
     relations: definition.graph.relations.map(relation => ({ ...relation })), startTaskIDs: [...definition.graph.start_task_ids],
-    maxTaskExecutions: definition.graph.max_task_executions, savedAt: new Date().toISOString(),
+    maxTaskInstancesPerNode: definition.graph.max_task_instances_per_node, savedAt: new Date().toISOString(),
   }
 }
 
@@ -80,7 +81,7 @@ export function validateWorkflowDraft(draft: WorkflowDraft) {
   if (draft.tasks.some(task => !task.title.trim())) errors.push('titles')
   if (draft.tasks.some(task => task.artifacts.some(artifact => !artifact.name.trim() || !artifact.description.trim()))) errors.push('artifacts')
   if (draft.tasks.some(task => new Set(task.artifacts.map(artifact => artifact.name.trim())).size !== task.artifacts.length)) errors.push('duplicate-artifacts')
-  if (draft.maxTaskExecutions <= 0) errors.push('execution-limit')
+  if (!Number.isInteger(draft.maxTaskInstancesPerNode) || draft.maxTaskInstancesPerNode < 0 || draft.maxTaskInstancesPerNode > 500) errors.push('task-instance-limit')
   const pairs = new Set<string>()
   for (const relation of draft.relations) {
     const pair = `${relation.from_task_id}:${relation.to_task_id}`
@@ -98,7 +99,7 @@ export function workflowDraftInput(draft: WorkflowDraft): CreateWorkflowDefiniti
       start_task_ids: draft.startTaskIDs,
       tasks: draft.tasks.map(task => ({ id: task.id, title: task.title.trim(), description: task.description.trim(), acceptance_criteria: task.acceptance_criteria.trim(), executor: task.executor, allowed_roles: task.allowed_roles, execution: task.execution, review_policy: task.review_policy, default_tags: task.default_tags, artifacts: task.artifacts.map(artifact => ({ name: artifact.name.trim(), description: artifact.description.trim() })) })),
       relations: draft.relations.map(relation => ({ id: relation.id, from_task_id: relation.from_task_id, to_task_id: relation.to_task_id, label: (relation.label ?? '').trim(), agent_guidance: (relation.agent_guidance ?? '').trim() })),
-      max_task_executions: draft.maxTaskExecutions,
+      max_task_instances_per_node: draft.maxTaskInstancesPerNode,
     },
   }
 }

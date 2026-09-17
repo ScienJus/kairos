@@ -19,7 +19,7 @@ function workItem(id: string, status: WorkItem['status']): WorkItem {
     id, definition: { id: 'work', version: 1, mode: 'blackboard' }, status, acceptance_mode: 'none',
     title: id === 'active-work' ? 'Active work' : 'Completed work', goal: 'Keep the queues separate', context: '', constraints: '',
     acceptance_criteria: '', tags: [], result: '', version: 1, created_at: '2026-08-25T10:00:00Z', updated_at: '2026-08-25T11:00:00Z',
-    completed_at: status === 'completed' ? '2026-08-25T11:00:00Z' : null, cancelled_at: null, cancelled_by: null, cancellation_reason: '',
+    completed_at: status === 'completed' ? '2026-08-25T11:00:00Z' : null, cancelled_at: null, cancelled_by: null, cancellation_reason: '', started_over_from_work_item_id: null, start_over_context: '', recovery_instructions: '', failure: null, workflow_max_task_instances_per_node: 0,
   }
 }
 

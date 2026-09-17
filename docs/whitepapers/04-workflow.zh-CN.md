@@ -14,11 +14,11 @@ WorkItem 创建时绑定最新已存储的 Workflow Definition ID 与 Version。
 
 Workflow Definition 还可以提供作用于全部运行时 Task 的 Agent Instructions 与 Suggested Tags。Suggested Tags 由执行者用于动态标注具体 Task，不参与 Workflow 前置关系和候选资格计算。
 
-Workflow Graph 由起点、Task Definition、单向 Relation 和 `MaxTaskExecutions` 组成。一个 Workflow 可以有多个起点；WorkItem 创建时同时产生全部起始 Task，因此起始 Task 必须是 required。Task Definition 可以配置 Default Tags，系统在产生运行时 Task 时复制这些标签，执行者仍可按实际情况调整。
+Workflow Graph 由起点、Task Definition、单向 Relation 和 `MaxTaskInstancesPerNode` 组成。一个 Workflow 可以有多个起点；WorkItem 创建时同时产生全部起始 Task，因此起始 Task 必须是 required。Task Definition 可以配置 Default Tags，系统在产生运行时 Task 时复制这些标签，执行者仍可按实际情况调整。
 
 Relation 可以配置可选的 `Label` 与 `AgentGuidance`。`Label` 是图上显示的简短交接提示；`AgentGuidance` 进入当前 Task 的 Workflow execution context，帮助执行者判断已有的 optional、continue 或 exit 决策。两者都可以留空，尤其是没有判断空间的简单单通路。Guidance 只解释编译后已经合法的推进方式，不会把普通 Relation 变成条件分支，也不会改变 required、optional、并行或循环语义。
 
-运维 UI 会把不可变的 Definition Graph 与运行时 Task、Relation 合并投影。尚未产生运行时 Task 的 Definition 节点显示为“尚未到达”；它们只用于展示，不能 Claim，也不能打开 Task execution context。完整图展示不会预先创建 Task，也不会改变 Workflow Activation 与 Transition 语义。循环 Relation 保留为返回边；同一循环 Definition 节点的多次运行会在主图节点上汇总执行次数。选择节点时默认打开最新的运行时 Task，并可使用上一项和下一项控件逐个查看保留在执行历史中的具体实例。
+运维 UI 会把不可变的 Definition Graph 与运行时 Task、Relation 合并投影。尚未产生运行时 Task 的 Definition 节点显示为“尚未到达”；它们只用于展示，不能 Claim，也不能打开 Task execution context。完整图展示不会预先创建 Task，也不会改变 Workflow Activation 与 Transition 语义。循环 Relation 保留为返回边；同一循环 Definition 节点的多次运行会在主图节点上汇总任务实例数。选择节点时默认打开最新的运行时 Task，并可使用上一项和下一项控件逐个查看保留在执行历史中的具体实例。
 
 Workflow Definition 描述可以重复到达的任务节点和推进关系，运行时则从定义的起点开始，在到达相应节点时产生具体 Task：
 
@@ -52,7 +52,7 @@ Workflow 版本创建时，系统根据图结构为每个 Task 推导推进选�
 
 选择 Continue Group 即表示保留并产生其目标 Task，该次激活不再应用目标 Task 的 optional 配置。未选择的 Continue Group 不产生 Task。
 
-选择 Exit Group 后，其中的 required Task 自动产生，optional Task 仍由执行者判断是否保留。循环必须存在出口；一个 Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation Definition。起始 Task ID 必须唯一、存在于图中且对应 required Task，因此其数量由 Task Definition 上限自然约束。`MaxTaskExecutions` 限制一个 WorkItem 最多产生的 Task 实例总数，配置为零时使用 100 的系统默认值，显式值不能超过 500。这些值只作为失控保护，零不表示无限。运行时 Task Graph 只连接具体实例，因此始终记录为无环的执行历史。
+选择 Exit Group 后，其中的 required Task 自动产生，optional Task 仍由执行者判断是否保留。循环必须存在出口；一个 Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation Definition。起始 Task ID 必须唯一、存在于图中且对应 required Task，因此其数量由 Task Definition 上限自然约束。`MaxTaskInstancesPerNode` 在同一 WorkItem 内按每个 Task Definition 节点分别计数，配置为零时使用 100 的默认值，显式值不能超过 500。每次新建 Task 实例计一次，包括起始和跳过的实例；释放或重新认领同一 Task 不增加次数；Workflow 重试创建新 Task，因此增加次数。其他节点和其他 WorkItem 互不占用额度；不再限制整个流程的 Task 实例总数，零不表示无限。运行时 Task Graph 只连接具体实例，因此始终记录为无环的执行历史。 同一 WorkItem 内的重试保留先前 Human Review 驳回意见；从头执行不复制评审历史。 从头执行只携带本次失败摘要和当前 Human 说明，旧执行历史保留在来源 WorkItem。Workflow 重试将完整指引单独保存到 `retry_instructions`，不受错误摘要截断影响。依次采用首个非空值：本次 Human 输入、来源尝试最新 `retry` 失败的 `retry_prompt`、来源尝试已继承的 `retry_instructions`。自动 retry 被任务实例数上限阻止后，人类提高上限并继续执行，也会保留该指引。重试摘要优先为最新失败及中断原因保留空间，再携带较早历史，不重复拼接完整重试指引。 节点上限失败消息超过 32 KiB 时使用简短说明，完整节点 ID 仍保存在 `failure.workflow_task_id`；失败状态和 Claim 结束操作正常提交。
 
 执行者提交 Task 时，Kairos 保存一条 Transition Decision，记录选择的 Group、触发或跳过的 Relation、执行者和理由。需要 Review 时，Decision 暂不应用；Review 通过后再应用并产生下游 Task。被驳回的 Decision 作为未应用历史保留，同一个运行时 Task 最多应用一条 Decision。Decision、Activation、下游 Task 与 Task Relation 在同一事务中更新。
 
@@ -241,6 +241,12 @@ Skipped
 
 Workflow 完成是结构性结果，不会自动合成 WorkItem 级 Result。完成后的 WorkItem 保持 `result` 为空；持久成果保留在具体 Task Submission 和 Artifact 中。确实需要最终总结的 Workflow 应将其建模为末尾 Task，由执行者正式提交。
 
-Task 实例总数达到 `MaxTaskExecutions` 时，WorkItem 进入 Failed。
+每个节点可以产生恰好 `MaxTaskInstancesPerNode` 个 Task 实例；推进决策尝试创建该节点的下一次实例时，WorkItem 才进入 Failed，并结束活跃 Claim。失败事件记录目标节点 ID 和上限。来源 Submission 与推进决策仍提交成功，不创建超额的目标 Task；达到上限后退出到其他节点仍然有效。
+
+人工恢复为整批替代任务准备一次事务内快照，索引各节点任务实例数、来源激活和 Task 前驱关系；每次成功创建替代实例后递增计数和下一个 Task 位置，再检查下一个替代任务。控制台按节点汇总已有实例和待替代实例数量，计算建议上限，不增加流程 Task 总数限制。
+
+普通扩展通过现有索引列查询等待中的激活、目标节点计数和下一个 Task 位置，不再为每条边解码全部 Task/Activation 历史；保留现有事务与重复等待激活检查，不增加缓存或数据库结构。基准测试及仍然存在的历史读取成本见[运行时测量](../workflow-runtime-performance.md)。
 
 > Workflow 划定边界；执行者只在流程明确留下的决策点作出选择。
+
+WorkItem 失败或仍有当前失败 Task 的 Workflow 提供两个 Human 操作：**继续执行**保留当前 WorkItem、成功分支、等待汇合和待人工评审，为失败或中断的执行创建新 Task，并仅补发已提交决策中尚未送达的输入；**从头执行**创建新的 WorkItem，从起点执行，复制原始目标和绑定的 Workflow 版本，并携带有长度限制的失败摘要及操作人补充说明。原 WorkItem 以 Failed 状态结束并保留执行历史，剩余 Claim 在同一事务中结束。A 的重试与同一轮成功的 B 汇合；A、B 都失败时，必须等二者的新尝试都成功才触发 C。不提供任意阶段重跑。继续执行保留各节点计数，重试的新 Task 也计数，必要时提高上限（最高 500）；从头执行的新 WorkItem 独立计数。已结束 Claim 不复活，恢复后重新发现并认领。从头执行保留来源 WorkItem 引用和当前失败摘要，不扫描或复制旧 URL、Artifact、Review、Submission 或恢复摘要。受限执行者不能读取其他 WorkItem，人类应在当前补充说明中列出需复用的外部成果；已有外部操作不会撤销。迁移将历史失败归一为普通执行失败并保留原始消息，不自动恢复。API 详见 `/continue` 和 `/start-over`。
