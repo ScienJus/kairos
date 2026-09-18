@@ -52,16 +52,37 @@ func (m WorkItemAcceptanceMode) Valid() bool {
 	return m == WorkItemAcceptanceNone || m == WorkItemAcceptanceAgent || m == WorkItemAcceptanceHuman
 }
 
+// WorkItemFailure is the current failure snapshot. Recovery clears the
+// snapshot; the original failure remains in the append-only event history.
+type WorkItemFailure struct {
+	Kind           string         `json:"kind"`
+	Message        string         `json:"message"`
+	WorkflowTaskID WorkflowTaskID `json:"workflow_task_id"`
+	TaskInstances  int            `json:"task_instances"`
+	Limit          int            `json:"limit"`
+}
+
+const FailureWorkflowTaskInstanceLimit = "workflow_task_instance_limit"
+const FailureExecution = "execution_failure"
+
 // WorkItem represents one concrete unit of work.
 type WorkItem struct {
 	// ID uniquely identifies this concrete work item. [Both]
-	ID WorkItemID `json:"id"`
+	ID                        WorkItemID  `json:"id"`
+	StartedOverFromWorkItemID *WorkItemID `json:"started_over_from_work_item_id"`
+	StartOverContext          string      `json:"start_over_context"`
+	RecoveryInstructions      string      `json:"recovery_instructions"`
 
 	// Definition identifies the coordination space, mode, and immutable version. [Both]
 	Definition DefinitionBinding `json:"definition"`
 
 	// Status is the current lifecycle state. [Both]
 	Status WorkItemStatus `json:"status"`
+
+	Failure *WorkItemFailure `json:"failure"`
+	// WorkflowMaxTaskInstancesPerNode overrides the bound Definition for this WorkItem;
+	// zero inherits its limit. Every node still has an independent counter.
+	WorkflowMaxTaskInstancesPerNode int `json:"workflow_max_task_instances_per_node"`
 
 	// AcceptanceMode controls what happens after a collaborator submits completion.
 	AcceptanceMode WorkItemAcceptanceMode `json:"acceptance_mode"`
@@ -106,11 +127,52 @@ func (w WorkItem) Validate() error {
 	if strings.TrimSpace(string(w.ID)) == "" {
 		return invalid("id", "is required")
 	}
+	if err := validateHistoryText("start_over_context", w.StartOverContext); err != nil {
+		return err
+	}
+	if err := validateHistoryText("recovery_instructions", w.RecoveryInstructions); err != nil {
+		return err
+	}
+	if w.StartedOverFromWorkItemID != nil && (w.CoordinationMode() != CoordinationModeWorkflow || *w.StartedOverFromWorkItemID == w.ID || strings.TrimSpace(string(*w.StartedOverFromWorkItemID)) == "") {
+		return invalid("started_over_from_work_item_id", "must reference another Workflow WorkItem")
+	}
 	if err := w.Definition.Validate(); err != nil {
 		return err
 	}
 	if !w.Status.Valid() {
 		return invalid("status", "unsupported value %q", w.Status)
+	}
+	if w.WorkflowMaxTaskInstancesPerNode < 0 || w.WorkflowMaxTaskInstancesPerNode > MaxWorkflowTaskInstancesPerNode {
+		return invalid("workflow_max_task_instances_per_node", "must be between 0 and %d", MaxWorkflowTaskInstancesPerNode)
+	}
+	if w.CoordinationMode() != CoordinationModeWorkflow && w.WorkflowMaxTaskInstancesPerNode != 0 {
+		return invalid("workflow_max_task_instances_per_node", "only supported for workflows")
+	}
+	if w.Failure != nil {
+		if w.Status != WorkItemStatusFailed {
+			return invalid("failure", "requires failed status")
+		}
+		if err := validateHistoryText("failure.message", w.Failure.Message); err != nil {
+			return err
+		}
+		switch w.Failure.Kind {
+		case FailureWorkflowTaskInstanceLimit:
+			if w.CoordinationMode() != CoordinationModeWorkflow {
+				return invalid("failure.kind", "requires workflow mode")
+			}
+			if w.Failure.Limit < 1 || w.Failure.Limit > MaxWorkflowTaskInstancesPerNode {
+				return invalid("failure.limit", "out of range")
+			}
+			if w.Failure.WorkflowTaskID == "" || w.Failure.TaskInstances < w.Failure.Limit {
+				return invalid("failure", "missing node task instance limit details")
+			}
+		case FailureExecution:
+			if w.Failure.WorkflowTaskID != "" || w.Failure.TaskInstances != 0 || w.Failure.Limit != 0 {
+				return invalid("failure", "ordinary failure has no workflow limit details")
+			}
+		default:
+			return invalid("failure.kind", "unsupported value")
+		}
 	}
 	if w.AcceptanceMode == "" {
 		w.AcceptanceMode = WorkItemAcceptanceNone

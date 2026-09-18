@@ -28,7 +28,7 @@ type FailTaskCommand struct {
 	RetryPrompt string
 }
 
-// FailTask reopens the Task or fails its entire WorkItem.
+// FailTask retries an attempt, stops a Workflow Task, or fails its WorkItem.
 func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain.TaskFailure, error) {
 	if strings.TrimSpace(string(command.TaskID)) == "" || strings.TrimSpace(string(command.ClaimID)) == "" {
 		return domain.TaskFailure{}, invalidCommand("task id and claim id are required")
@@ -93,6 +93,9 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 		if err := failure.Validate(); err != nil {
 			return err
 		}
+		if failure.Action == domain.TaskFailureAwaitHuman && workItem.CoordinationMode() != domain.CoordinationModeWorkflow {
+			return invalidCommand("await_human is only supported for Workflow")
+		}
 		if len(task.Failures) >= MaxFailuresPerTask && failure.Action != domain.TaskFailureFailWorkItem {
 			reason := historyLimitReason(task.ID, "failure records", MaxFailuresPerTask)
 			if err := s.failWorkItem(store, &workItem, nil, systemFailureActor(), reason, now); err != nil {
@@ -110,8 +113,8 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 		task.UpdatedAt = now
 		task.Version++
 
-		eventType := domain.WorkItemEventTaskReopened
-		if failure.Action == domain.TaskFailureReopen {
+		eventType := domain.WorkItemEventTaskRetryRequested
+		if failure.Action == domain.TaskFailureRetry && workItem.CoordinationMode() == domain.CoordinationModeBlackboard {
 			task.Status = domain.TaskStatusPending
 		} else {
 			task.Status = domain.TaskStatusFailed
@@ -138,6 +141,21 @@ func (s *Service) FailTask(ctx context.Context, command FailTaskCommand) (domain
 			}
 		}
 
+		if failure.Action == domain.TaskFailureRetry && workItem.CoordinationMode() == domain.CoordinationModeWorkflow {
+			state, err := loadWorkflowRetryState(store, workItem)
+			if err != nil {
+				return err
+			}
+			if _, err := s.retryWorkflowTask(store, state, workItem, task, actor, failure.RetryPrompt, ""); err != nil {
+				if limit, ok := err.(*workflowRetryLimitError); ok {
+					if err := s.failWorkflowTaskInstanceLimit(store, &workItem, task, limit.Node, limit.Count, limit.Limit, now); err != nil {
+						return err
+					}
+				} else {
+					return err
+				}
+			}
+		}
 		created = failure
 		return nil
 	})
@@ -198,6 +216,9 @@ func (s *Service) failWorkItem(
 			}
 			break
 		}
+	}
+	if workItem.Failure == nil {
+		workItem.Failure = &domain.WorkItemFailure{Kind: domain.FailureExecution, Message: reason}
 	}
 	workItem.Status = domain.WorkItemStatusFailed
 	workItem.UpdatedAt = now

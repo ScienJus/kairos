@@ -20,7 +20,7 @@ const claim: Claim = {
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: 'task-1', work_item_id: 'work-1', status: 'working', active_claim_id: claim.id, parent_task_id: null,
-    workflow_task_id: null, workflow_activation_id: null, decomposed_at: null,
+    workflow_task_id: null, workflow_activation_id: null, retry_of_task_id: null, retry_context: '', retry_instructions: '', decomposed_at: null,
     title: 'Prepare release', description: 'Prepare the release notes.', acceptance_criteria: 'Notes are ready.',
     executor: 'human', allowed_roles: [], tags: [], reviews: [], submissions: [], failures: [],
     transition_decisions: [], position: 0, created_at: '2026-08-17T08:00:00Z',
@@ -35,7 +35,7 @@ function makeWorkItem(): WorkItem {
     id: 'work-1', definition: { id: 'definition-1', version: 1, mode: 'blackboard' }, status: 'open', acceptance_mode: 'none',
     title: 'Release', goal: 'Ship safely', context: '', constraints: '', acceptance_criteria: '', tags: [], result: '',
     version: 1, created_at: '2026-08-17T08:00:00Z', updated_at: '2026-08-17T08:00:00Z', completed_at: null,
-    cancelled_at: null, cancelled_by: null, cancellation_reason: '',
+    cancelled_at: null, cancelled_by: null, cancellation_reason: '', started_over_from_work_item_id: null, start_over_context: '', recovery_instructions: '', failure: null, workflow_max_task_instances_per_node: 0,
   }
 }
 
@@ -358,6 +358,29 @@ describe('Task detail operations', () => {
     expect(result).toHaveValue('Keep this result')
   })
 
+  it.each(['retry', 'await_human'] as const)('submits the Workflow failure action %s', async action => {
+    const task = makeTask({ workflow_task_id: 'dev', workflow_activation_id: 'activation', execution: 'required', review_policy: 'none' })
+    const value = execution(task, [claim])
+    value.work_item.definition.mode = 'workflow'
+    value.blackboard = null
+    value.workflow = { upstream_tasks: [], choice_groups: [] }
+    vi.spyOn(api, 'getTaskContext').mockResolvedValue(value)
+    const fail = vi.spyOn(api, 'failTask').mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    renderTask(task, claim, 'workflow')
+    await user.click(await screen.findByRole('button', { name: 'I could not complete this task' }))
+    await user.type(screen.getByRole('textbox', { name: 'What prevented completion?' }), 'Missing credentials')
+    await user.type(screen.getByRole('textbox', { name: 'What should the next attempt know?' }), 'Use the configured token')
+    if (action === 'await_human') {
+      await user.click(screen.getByRole('radio', { name: /Wait for human intervention/ }))
+      expect(screen.queryByRole('textbox', { name: 'What should the next attempt know?' })).not.toBeInTheDocument()
+    }
+    await user.click(screen.getByRole('button', { name: action === 'retry' ? 'Record and request retry' : 'Wait for human intervention' }))
+    await waitFor(() => expect(fail).toHaveBeenCalledWith(identity, task.id, {
+      claim_id: claim.id, action, reason: 'Missing credentials', retry_prompt: action === 'retry' ? 'Use the configured token' : '',
+    }))
+  })
+
   it('can close the entire WorkItem from a claimed task failure', async () => {
     const task = makeTask()
     vi.spyOn(api, 'getTaskContext').mockResolvedValue(execution(task, [claim]))
@@ -368,6 +391,7 @@ describe('Task detail operations', () => {
 
     await user.click(await screen.findByRole('button', { name: 'I could not complete this task' }))
     await user.type(screen.getByRole('textbox', { name: 'What prevented completion?' }), 'The requested outcome is impossible')
+    expect(screen.queryByRole('radio', { name: /Wait for human intervention/ })).not.toBeInTheDocument()
     await user.click(screen.getByRole('radio', { name: /Close the entire work as failed/ }))
     expect(screen.queryByRole('textbox', { name: 'What should the next attempt know?' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Close work as failed' }))

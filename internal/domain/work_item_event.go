@@ -12,22 +12,24 @@ const (
 	WorkItemEventWorkItemCreated     WorkItemEventType = "work_item.created"
 	WorkItemEventWorkItemCompleted   WorkItemEventType = "work_item.completed"
 	WorkItemEventWorkItemCancelled   WorkItemEventType = "work_item.cancelled"
+	WorkItemEventWorkItemStartedOver WorkItemEventType = "work_item.started_over"
+	WorkItemEventWorkItemContinued   WorkItemEventType = "work_item.continued"
 	WorkItemEventWorkItemFailed      WorkItemEventType = "work_item.failed"
 	WorkItemEventCompletionSubmitted WorkItemEventType = "work_item.completion_submitted"
 	WorkItemEventAcceptanceRequested WorkItemEventType = "work_item.acceptance_requested"
 
-	WorkItemEventTaskCreated      WorkItemEventType = "task.created"
-	WorkItemEventTaskClaimed      WorkItemEventType = "task.claimed"
-	WorkItemEventTaskReleased     WorkItemEventType = "task.released"
-	WorkItemEventTaskRevoked      WorkItemEventType = "task.revoked"
-	WorkItemEventTaskSubmitted    WorkItemEventType = "task.submitted"
-	WorkItemEventTaskCompleted    WorkItemEventType = "task.completed"
-	WorkItemEventTaskSkipped      WorkItemEventType = "task.skipped"
-	WorkItemEventTaskFailed       WorkItemEventType = "task.failed"
-	WorkItemEventTaskReopened     WorkItemEventType = "task.reopened"
-	WorkItemEventTaskDecomposed   WorkItemEventType = "task.decomposed"
-	WorkItemEventTaskClaimExpired WorkItemEventType = "task.claim_expired"
-	WorkItemEventRelationAdded    WorkItemEventType = "task_relation.added"
+	WorkItemEventTaskCreated        WorkItemEventType = "task.created"
+	WorkItemEventTaskClaimed        WorkItemEventType = "task.claimed"
+	WorkItemEventTaskReleased       WorkItemEventType = "task.released"
+	WorkItemEventTaskRevoked        WorkItemEventType = "task.revoked"
+	WorkItemEventTaskSubmitted      WorkItemEventType = "task.submitted"
+	WorkItemEventTaskCompleted      WorkItemEventType = "task.completed"
+	WorkItemEventTaskSkipped        WorkItemEventType = "task.skipped"
+	WorkItemEventTaskFailed         WorkItemEventType = "task.failed"
+	WorkItemEventTaskRetryRequested WorkItemEventType = "task.retry_requested"
+	WorkItemEventTaskDecomposed     WorkItemEventType = "task.decomposed"
+	WorkItemEventTaskClaimExpired   WorkItemEventType = "task.claim_expired"
+	WorkItemEventRelationAdded      WorkItemEventType = "task_relation.added"
 
 	WorkItemEventReviewRequested WorkItemEventType = "review.requested"
 	WorkItemEventReviewApproved  WorkItemEventType = "review.approved"
@@ -45,7 +47,7 @@ func (t WorkItemEventType) Valid() bool {
 
 func (t WorkItemEventType) workItemScoped() (bool, bool) {
 	switch t {
-	case WorkItemEventWorkItemCreated,
+	case WorkItemEventWorkItemStartedOver, WorkItemEventWorkItemContinued, WorkItemEventWorkItemCreated,
 		WorkItemEventWorkItemCompleted,
 		WorkItemEventWorkItemCancelled,
 		WorkItemEventWorkItemFailed,
@@ -60,7 +62,7 @@ func (t WorkItemEventType) workItemScoped() (bool, bool) {
 		WorkItemEventTaskCompleted,
 		WorkItemEventTaskSkipped,
 		WorkItemEventTaskFailed,
-		WorkItemEventTaskReopened,
+		WorkItemEventTaskRetryRequested,
 		WorkItemEventTaskDecomposed,
 		WorkItemEventTaskClaimExpired,
 		WorkItemEventRelationAdded,

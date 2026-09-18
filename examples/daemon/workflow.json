@@ -13,6 +13,6 @@
       "review_policy": "none", "default_tags": [],
       "artifacts": [{"name": "result", "description": "A short managed text result."}]
     }],
-    "relations": [], "max_task_executions": 10
+    "relations": [], "max_task_instances_per_node": 10
   }
 }

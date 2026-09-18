@@ -131,6 +131,7 @@ export function TaskDetail({
           </div>
         )}
       </div>
+      {detailTask.retry_of_task_id && <div className="detail-block recovery-context"><span>{t('retrySource')}</span><a href={`/work-items/${detailTask.work_item_id}/tasks/${detailTask.retry_of_task_id}`}>{detailTask.retry_of_task_id}</a><p>{detailTask.retry_context}</p><p>{detailTask.retry_instructions}</p></div>}
       <dl className="spec-list">
         <div>
           <dt>{t("executor")}</dt>
@@ -212,9 +213,9 @@ export function TaskDetail({
               <div>
                 <strong>
                   {t(
-                    item.action === "reopen"
-                      ? "actionReopen"
-                      : "actionFailWorkItem",
+                    item.action === "retry"
+                      ? "actionRetryRequested"
+                      : item.action === "await_human" ? "awaitHuman" : "actionFailWorkItem",
                   )}
                 </strong>
                 <p>{item.reason}</p>

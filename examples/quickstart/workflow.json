@@ -59,6 +59,6 @@
         "agent_guidance": "Carry forward onboarding gaps and the proposed newcomer path."
       }
     ],
-    "max_task_executions": 10
+    "max_task_instances_per_node": 10
   }
 }

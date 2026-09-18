@@ -13,6 +13,7 @@ import (
 	"github.com/ScienJus/kairos/internal/application"
 	"github.com/ScienJus/kairos/internal/domain"
 	"github.com/ScienJus/kairos/internal/identity"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -22,11 +23,11 @@ const (
 	workItemCancelledErrorCode          = "work_item_cancelled"
 )
 
-const serverInstructions = "Use find_work to discover eligible work. Claim empty_blackboard, blackboard_completion, and work_item_acceptance with claim_work_candidate before inspecting and deciding them; heartbeat long decisions and end each coordination claim by creating the chosen follow-up Task, submitting or accepting completion, or releasing it. Read task context before claim_task; execute only after a successful task claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. End every task claim with submit_task, fail_task, or release_claim unless a tool returns work_item_cancelled. Resource-creating tools that accept operation_id replay an identical retry; use a new ID when their arguments change. Use get_work_item_context to inspect open or terminal WorkItems by ID. Identity comes from the MCP transport, never tool arguments. Trusted Actor IDs are trimmed, must be nonblank, and cannot equal dot (.) or dot-dot (..)."
+const serverInstructions = "Use find_work to discover eligible work. Claim empty_blackboard, blackboard_completion, and work_item_acceptance with claim_work_candidate before inspecting and deciding them; heartbeat long decisions and end each coordination claim by creating the chosen follow-up Task, submitting or accepting completion, or releasing it. Read task context before claim_task; execute only after a successful task claim. Follow expected_artifacts, create external deliverables with create_artifact or managed files with upload_artifact, and pass their IDs to submit_task. While its WorkItem is open, end each active Task Claim with submit_task, fail_task, or release_claim. Stop on work_item_cancelled. Resource-creating tools that accept operation_id replay an identical retry; use a new ID when their arguments change. Use get_work_item_context to inspect WorkItems in any lifecycle state by ID and read work_item.failure. Stop current work, heartbeats and mutations on failed, completed or cancelled WorkItems. A failed Workflow may be recovered by a Human using Continue or Start over. After recovery, discover and claim fresh work; ended Claims remain invalid. Identity comes from the MCP transport, never tool arguments. Trusted Actor IDs are trimmed, must be nonblank, and cannot equal dot (.) or dot-dot (..)."
 
-const taskExecutorInstructions = "You are executing an already claimed Task with a task_executor credential. Use get_task_context and get_work_item_context to read context and submitted Artifacts within the bound WorkItem. Follow expected_artifacts; use create_artifact for external deliverables or upload_artifact for managed files, using the bound Task and Claim IDs. For Blackboard work, extend the plan with create_blackboard_task, add_blackboard_relation, or add_blackboard_child_task when needed. Resource-creating tools that accept operation_id replay an identical retry; use a new ID when their arguments change. Return your outcome and Artifact IDs to the Agent Daemon. The Daemon manages discovery, Claim acquisition, renewal, and finalization. Stop using this credential when authentication fails; it is valid only while its Claim remains active. Identity and scope come from the MCP transport, never tool arguments."
+const taskExecutorInstructions = "You are executing an already claimed Task with a task_executor credential. Use get_task_context and get_work_item_context to read context and submitted Artifacts within the bound WorkItem. Follow expected_artifacts; use create_artifact for external deliverables or upload_artifact for managed files, using the bound Task and Claim IDs. For Blackboard work, extend the plan with create_blackboard_task, add_blackboard_relation, or add_blackboard_child_task when needed. Resource-creating tools that accept operation_id replay an identical retry; use a new ID when their arguments change. Return your outcome and Artifact IDs to the Agent Daemon. The Daemon manages discovery, Claim acquisition, renewal, and finalization. If the WorkItem is failed, completed or cancelled, stop current work; a failed Workflow may be recovered by a Human. Stop using this credential when authentication fails; it is valid only while its Claim remains active. Identity and scope come from the MCP transport, never tool arguments."
 
-const coordinationExecutorInstructions = "You are evaluating an already claimed coordination candidate with a coordination_executor credential. Use get_work_item_context and get_task_context to read context and submitted Artifacts within the bound WorkItem. This credential is read-only. Return your coordination decision to the Agent Daemon; the Daemon manages discovery, Claim acquisition, renewal, and applying the decision. Stop using this credential when authentication fails; it is valid only while its Claim remains active. Identity and scope come from the MCP transport, never tool arguments."
+const coordinationExecutorInstructions = "You are evaluating an already claimed coordination candidate with a coordination_executor credential. Use get_work_item_context and get_task_context to read context and submitted Artifacts within the bound WorkItem. This credential is read-only. Return your coordination decision to the Agent Daemon; the Daemon manages discovery, Claim acquisition, renewal, and applying the decision. If the WorkItem is failed, completed or cancelled, stop current work; a failed Workflow may be recovered by a Human. Stop using this credential when authentication fails; it is valid only while its Claim remains active. Identity and scope come from the MCP transport, never tool arguments."
 
 // Options configures MCP transport limits.
 type Options struct {
@@ -127,7 +128,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "find_work",
 		Title:       "Find Kairos work",
-		Description: "Find executable tasks and Blackboard planning, completion, or acceptance decisions for this actor, with an independent limit for each candidate kind.",
+		Description: "Find executable Tasks and Blackboard planning/completion/acceptance candidates for this actor; limit applies per kind.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input findWorkInput) (*mcp.CallToolResult, findWorkOutput, error) {
 		candidates, err := service.FindWork(ctx, application.FindWorkQuery{
@@ -166,7 +167,7 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_work_item_context",
 		Title:       "Get work item context",
-		Description: "Get an open or terminal WorkItem with its Definition, tasks, relations, result, and status.",
+		Description: "Read WorkItem context and failure.",
 		Annotations: readOnlyAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input workItemContextInput) (*mcp.CallToolResult, workItemContextOutput, error) {
 		result, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{
@@ -287,8 +288,9 @@ func newServer(service *application.Service, actor identity.Identity, schemaCach
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "fail_task",
+		InputSchema: failTaskSchema,
 		Title:       "Report task failure",
-		Description: "End an active claim by reopening the task for retry or failing the whole work item.",
+		Description: "End Claim: retry tries again; await_human waits (Workflow only); fail_work_item fails all.",
 		Annotations: mutationAnnotations(true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input failTaskInput) (*mcp.CallToolResult, failureOutput, error) {
 		failure, err := service.FailTask(ctx, application.FailTaskCommand{
@@ -417,14 +419,14 @@ type taskContextInput struct {
 }
 
 type workItemContextInput struct {
-	WorkItemID string `json:"work_item_id" jsonschema:"Concrete Kairos WorkItem ID, including a terminal WorkItem."`
+	WorkItemID string `json:"work_item_id" jsonschema:"WorkItem ID."`
 }
 
 type claimTaskInput struct {
 	ExecutorToken string `json:"executor_token,omitempty" jsonschema:"Optional krs_claim_ credential generated by a managed executor."`
 	TaskID        string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
 	OperationID   string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
-	LeaseSeconds  int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
+	LeaseSeconds  int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease seconds, clamped to server policy."`
 }
 
 type claimWorkCandidateInput struct {
@@ -432,13 +434,13 @@ type claimWorkCandidateInput struct {
 	WorkItemID    string `json:"work_item_id" jsonschema:"Concrete Blackboard WorkItem ID."`
 	Kind          string `json:"kind" jsonschema:"Candidate kind: empty_blackboard, blackboard_completion, or work_item_acceptance."`
 	OperationID   string `json:"operation_id" jsonschema:"Stable unique ID for idempotent retries of this mutation."`
-	LeaseSeconds  int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
+	LeaseSeconds  int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease seconds, clamped to server policy."`
 }
 
 type heartbeatClaimInput struct {
 	TaskID       string `json:"task_id" jsonschema:"Concrete Kairos task ID."`
 	ClaimID      string `json:"claim_id" jsonschema:"Active claim owned by the current actor."`
-	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease duration in seconds; the server clamps it to policy bounds."`
+	LeaseSeconds int64  `json:"lease_seconds,omitempty" jsonschema:"Requested lease seconds, clamped to server policy."`
 }
 
 type heartbeatCoordinationClaimInput struct {
@@ -479,10 +481,19 @@ type uploadArtifactInput struct {
 	ContentBase64 string `json:"content_base64" jsonschema:"Standard Base64 file bytes without a data URI prefix."`
 }
 
+var failTaskSchema = func() *jsonschema.Schema {
+	schema, err := jsonschema.For[failTaskInput](nil)
+	if err != nil {
+		panic(err) // Static Go input type must always produce a valid schema.
+	}
+	schema.Properties["action"].Enum = []any{string(domain.TaskFailureRetry), string(domain.TaskFailureAwaitHuman), string(domain.TaskFailureFailWorkItem)}
+	return schema
+}()
+
 type failTaskInput struct {
 	TaskID      string `json:"task_id"`
 	ClaimID     string `json:"claim_id"`
-	Action      string `json:"action" jsonschema:"Failure action: reopen or fail_work_item."`
+	Action      string `json:"action" jsonschema:"await_human is Workflow only."`
 	Reason      string `json:"reason"`
 	RetryPrompt string `json:"retry_prompt,omitempty"`
 }

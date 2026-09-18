@@ -128,15 +128,20 @@ Adapter 将 Harness 专用输出转换成 HarnessOutcome，分为 TaskOutcome �
 
 ### TaskOutcome
 
-除 `decomposed` 仅限 Blackboard 外，其余 Task outcome 均适用于 Workflow 和 Blackboard。
+`decomposed` 仅限 Blackboard，`human_intervention_required` 仅限 Workflow；其余 Task outcome 均适用于两种模式。
 
 | Outcome | 内容 | Daemon 调用 |
 | --- | --- | --- |
 | `completed` | Result、Artifact IDs、Review 请求、可选 Workflow transition | `submit_task` |
 | `decomposed` | 子 Task specs | `decompose_blackboard_task` |
-| `retryable_failure` | 业务原因、可选 retry prompt | `fail_task(action=reopen)` |
-| `terminal_failure` | 业务原因 | `fail_task(action=fail_work_item)` |
-| `abandoned` | 可选 release reason | `release_claim` |
+| `retryable_failure` | 业务原因、可选 retry prompt | `fail_task(action=retry)` |
+| `human_intervention_required` | 业务原因；仅 Workflow，retry prompt 为空 | `fail_task(action=await_human)` |
+| `work_item_failure` | 业务原因 | `fail_task(action=fail_work_item)` |
+| `candidate_declined` | 可选 release reason | `release_claim` |
+
+`human_intervention_required` 将当前 Workflow 尝试结束为 Failed，等待 Human 继续执行时创建替代实例；其他分支继续。Blackboard 在调用 Core 前拒绝此 outcome。
+
+Workflow 的 `retryable_failure` 在同一节点创建新 Task 并增加该节点任务实例数；Blackboard 复用原 Task。Daemon 在后续发现中认领替代实例。Failed Workflow 需 Human 继续执行或从头执行，旧 Claim 保持失效。
 
 `completed.transition` 只允许用于 Workflow Task。长日志、补丁和交付文件存入 Artifact，
 完成结果引用已有 Artifact IDs。
@@ -148,15 +153,15 @@ Adapter 将 Harness 专用输出转换成 HarnessOutcome，分为 TaskOutcome �
 | `create_task` | 三类候选均可 | `create_blackboard_task` |
 | `submit_completion` | `empty_blackboard`、`blackboard_completion` | `submit_blackboard_completion` |
 | `accept_completion` | `work_item_acceptance` | `accept_blackboard_completion` |
-| `abandoned` | 三类候选均可 | `release_coordination_claim` |
+| `candidate_declined` | 三类候选均可 | `release_coordination_claim` |
 
 `create_task` 在空 Blackboard 创建初始 Task，在 completion 候选创建后续 Task，在 acceptance
 候选创建后续 Task 并重新打开 WorkItem。`submit_completion` 携带完成结果；
-`accept_completion` 和 `abandoned` 无额外字段。
+`accept_completion` 和 `candidate_declined` 无额外字段。
 
-两个 `abandoned` 由 Dispatch 绑定的 Claim 类型区分，Harness 不选择 Claim 类型。
+两个 `candidate_declined` 由 Dispatch 绑定的 Claim 类型区分，Harness 不选择 Claim 类型。
 不符合 mode、Candidate kind 或 schema 的 outcome 属于输出协议错误，Daemon 在调用 Core
-前拒绝，不猜测替代意图。Core 保留最终领域校验。abandoned 的重复领取抑制见第 6 节。
+前拒绝，不猜测替代意图。Core 保留最终领域校验。candidate_declined 的重复领取抑制见第 6 节。
 
 ## 5. 运行状态与终态收敛
 
@@ -238,13 +243,13 @@ Start、Observe、Stop 的系统性故障均暂停新领取。明确未发送的
 
 - 基础设施重试耗尽：进入 cooldown；冷却结束、Probe 成功且跨 Claim 预算仍有剩余才重试。
   预算耗尽后 quarantine 当前代次。
-- `abandoned`：表示本 Daemon 拒绝当前代次，release 后直接 quarantine，不算成功 Dispatch，
+- `candidate_declined`：表示本 Daemon 拒绝当前代次，release 后直接 quarantine，不算成功 Dispatch，
   也不清除已有失败记录。
 
 新业务状态、执行上下文、计划或结果形成新候选代次时，旧 cooldown、预算和 quarantine 失效。
 单纯 Claim 创建、heartbeat、release 或 reaper 回收不是新代次。健康恢复只解除全局暂停，
 保留 cooldown、预算和 quarantine。quarantine 由业务代次变化或新建 Scheduler（通常为
-Daemon 重启）解除，因此部分候选在 Harness 恢复后仍需人工重启。同代次非 abandoned 的
+Daemon 重启）解除，因此部分候选在 Harness 恢复后仍需人工重启。同代次非 candidate_declined 的
 业务 outcome 成功写入 Core 后清除该候选的抑制记录。
 
 这些状态仅保存在 Daemon 内存，不写入 Core，也不阻止其他 Daemon 领取。多个 Daemon 或反复

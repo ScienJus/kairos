@@ -18,7 +18,7 @@ type ListWorkItemsQuery struct {
 	Page     PageRequest[WorkItemCursor]
 }
 
-// ListWorkItems returns durable WorkItems, including terminal items, newest first.
+// ListWorkItems returns durable WorkItems across all lifecycle states, newest first.
 func (s *Service) ListWorkItems(ctx context.Context, query ListWorkItemsQuery) (Page[domain.WorkItem], error) {
 	if err := query.Identity.Validate(); err != nil {
 		return Page[domain.WorkItem]{}, err
@@ -80,6 +80,7 @@ func boundedPage[T any](items []T, limit int) Page[T] {
 // WorkItemExecutionContext contains a durable WorkItem view that remains
 // addressable after it leaves the open candidate set.
 type WorkItemExecutionContext struct {
+	RecoveryTaskIDs         []domain.TaskID            `json:"recovery_task_ids"`
 	WorkItem                domain.WorkItem            `json:"work_item"`
 	Definition              DefinitionExecutionContext `json:"definition"`
 	Tasks                   []domain.Task              `json:"tasks"`
@@ -98,7 +99,7 @@ type GetWorkItemExecutionContextQuery struct {
 }
 
 // GetWorkItemExecutionContext returns the shared coordination state for one
-// open or terminal WorkItem.
+// WorkItem in any lifecycle state, subject to the requesting identity’s access.
 func (s *Service) GetWorkItemExecutionContext(
 	ctx context.Context,
 	query GetWorkItemExecutionContextQuery,
@@ -179,8 +180,12 @@ func (s *Service) GetWorkItemExecutionContext(
 				}
 			}
 		}
+		recoveryTaskIDs := make([]domain.TaskID, 0)
+		for _, task := range workflowRecoveryTasks(workItem, tasks, claims) {
+			recoveryTaskIDs = append(recoveryTaskIDs, task.ID)
+		}
 		result = WorkItemExecutionContext{
-			WorkItem: normalizeWorkItemCollections(workItem), Definition: normalizeDefinitionContext(definition),
+			RecoveryTaskIDs: recoveryTaskIDs, WorkItem: normalizeWorkItemCollections(workItem), Definition: normalizeDefinitionContext(definition),
 			Tasks: normalizeTasks(tasks), Relations: relations, Claims: claims, ActiveClaims: activeClaims,
 			CoordinationClaims: coordinationClaims, ActiveCoordinationClaim: activeCoordination, Artifacts: committedArtifacts,
 		}

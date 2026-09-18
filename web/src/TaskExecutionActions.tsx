@@ -14,6 +14,7 @@ import {
 } from "./TaskOperationPanel";
 import type {
   Identity,
+  TaskFailureAction,
   Task,
   TaskExecutionContext,
 } from "./types";
@@ -61,9 +62,7 @@ export function TaskExecutionActions({
   const [transitionID, setTransitionID] = useState("");
   const [failureReason, setFailureReason] = useState("");
   const [retryPrompt, setRetryPrompt] = useState("");
-  const [failureAction, setFailureAction] = useState<
-    "reopen" | "fail_work_item"
-  >("reopen");
+  const [failureAction, setFailureAction] = useState<TaskFailureAction>("retry");
 
   const refresh = () =>
     refreshTaskState(queryClient, identity, task.id, task.work_item_id);
@@ -88,7 +87,7 @@ export function TaskExecutionActions({
     setTransitionID("");
     setFailureReason("");
     setRetryPrompt("");
-    setFailureAction("reopen");
+    setFailureAction("retry");
   };
   useEffect(() => {
     resetClaimState();
@@ -166,7 +165,7 @@ export function TaskExecutionActions({
         claim_id: activeClaim!.id,
         action: failureAction,
         reason: failureReason,
-        retry_prompt: failureAction === "reopen" ? retryPrompt : "",
+        retry_prompt: failureAction === "retry" ? retryPrompt : "",
       }),
     onSuccess: () => {
       resetClaimState();
@@ -406,14 +405,15 @@ export function TaskExecutionActions({
               <input
                 type="radio"
                 name="failure-action"
-                checked={failureAction === "reopen"}
-                onChange={() => setFailureAction("reopen")}
+                checked={failureAction === "retry"}
+                onChange={() => setFailureAction("retry")}
               />
               <span>
-                <strong>{t("makeAvailableAgain")}</strong>
-                <small>{t("makeAvailableAgainBody")}</small>
+                <strong>{t("requestRetry")}</strong>
+                <small>{t("requestRetryBody")}</small>
               </span>
             </label>
+            {task.workflow_task_id && <label><input type="radio" name="failure-action" checked={failureAction === "await_human"} onChange={() => setFailureAction("await_human")} /><span><strong>{t('awaitHuman')}</strong><small>{t('awaitHumanBody')}</small></span></label>}
             <label>
               <input
                 type="radio"
@@ -427,7 +427,7 @@ export function TaskExecutionActions({
               </span>
             </label>
           </fieldset>
-          {failureAction === "reopen" && (
+          {failureAction === "retry" && (
             <label>
               {t("retryGuidance")}
               <textarea
@@ -444,9 +444,9 @@ export function TaskExecutionActions({
             onClick={() => fail.mutate()}
           >
             {t(
-              failureAction === "reopen"
-                ? "recordAndReopen"
-                : "confirmFailWorkItem",
+              failureAction === "retry"
+                ? "recordAndRetry"
+                : failureAction === "await_human" ? "awaitHuman" : "confirmFailWorkItem",
             )}
           </button>
         </div>

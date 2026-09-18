@@ -28,7 +28,7 @@ The workspace summarizes complete WorkItems. Coordination and execution remain i
 
 ## 2. Workspace
 
-The workspace separates work that is active from work that has reached a terminal state. It provides a direct path from a WorkItem's title, objective, and status into its coordination detail.
+The workspace groups ongoing work separately from completed, cancelled and failed WorkItems. It provides a direct path from a WorkItem's title, objective, and status into its coordination detail. A failed Workflow is recoverable: Human Continue returns the same WorkItem to Open when recovery is eligible, while Start over creates a new WorkItem and leaves the source Failed. This grouping does not make Failed an irreversible lifecycle state.
 
 The current Needs Human projection aggregates:
 
@@ -111,3 +111,5 @@ Task Detail     = responsibility, history, and actions for one execution unit
 ```
 
 > The workspace answers “Where am I needed?” WorkItem detail explains the overall progress, and Task detail provides the next action.
+
+Open Workflows also list unreplaced Failed Tasks in Human Attention, regardless of executor requirement. Continue execution on the WorkItem creates new attempts for all current failed Tasks; old Tasks remain history and leave the actionable list. Failed Workflow WorkItems offer Continue execution and Start over (new WorkItem), without arbitrary-stage selection. Start over carries current failure reasons and the submitted Human instructions; the console prompts Humans to list external outcomes to reuse because scoped executors cannot read source history.

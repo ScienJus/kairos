@@ -91,3 +91,16 @@ body { background: #f6f7f4; }
 .work-brief .brief { padding: 20px; }
 .brief > span { color: #587278; font-size: 11px; }
 .brief p { color: #536260; font-size: 13px; }
+
+.workflow-failure { display: flex; align-items: flex-start; gap: 12px; margin: 0 4px 24px; padding: 18px 20px; border: 1px solid var(--border); border-left: 3px solid #b75b39; border-radius: 8px; background: #fff8f2; }
+.workflow-failure > svg { flex-shrink: 0; margin-top: 2px; color: #a44d2d; }
+.workflow-failure strong { color: #813e28; }
+.workflow-failure p { margin: 8px 0; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.workflow-failure .quiet-button { margin-top: 6px; }
+@media (max-width: 640px) { .workflow-failure { margin-right: 16px; margin-left: 16px; padding: 14px; } }
+.recovery-help { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.recovery-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+.recovery-context p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.recovery-context a { color: var(--signal); font-size: 13px; overflow-wrap: anywhere; }
+.recovery-context > span { display: block; margin-bottom: 6px; }

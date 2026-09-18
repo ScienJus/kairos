@@ -140,15 +140,20 @@ TaskOutcome or a CoordinationDecision.
 
 ### TaskOutcome
 
-All Task outcomes apply to both Workflow and Blackboard except `decomposed`, which is Blackboard-only.
+`decomposed` is Blackboard-only; `human_intervention_required` is Workflow-only. All other Task outcomes apply to both modes.
 
 | Outcome | Content | Daemon operation |
 | --- | --- | --- |
 | `completed` | Result, Artifact IDs, Review request, optional Workflow transition | `submit_task` |
 | `decomposed` | Child Task specs | `decompose_blackboard_task` |
-| `retryable_failure` | Business reason, optional retry prompt | `fail_task(action=reopen)` |
-| `terminal_failure` | Business reason | `fail_task(action=fail_work_item)` |
-| `abandoned` | Optional release reason | `release_claim` |
+| `retryable_failure` | Business reason, optional retry prompt | `fail_task(action=retry)` |
+| `human_intervention_required` | Business reason; Workflow only, empty retry prompt | `fail_task(action=await_human)` |
+| `work_item_failure` | Business reason | `fail_task(action=fail_work_item)` |
+| `candidate_declined` | Optional release reason | `release_claim` |
+
+`human_intervention_required` ends the current Workflow attempt as Failed and waits for Human Continue to create a replacement; other branches continue. Blackboard rejects this outcome before calling Core.
+
+Workflow `retryable_failure` creates a new Task attempt at the same node and counts as another Task instance for that node; Blackboard reuses the Task. The Daemon discovers and claims the replacement on a subsequent poll. A Failed Workflow requires Human continue/start-over; old Claims stay invalid.
 
 `completed.transition` is allowed only for Workflow Tasks. Long logs, patches, and deliverable files
 belong in Artifacts; completion refers to existing Artifact IDs.
@@ -160,16 +165,16 @@ belong in Artifacts; completion refers to existing Artifact IDs.
 | `create_task` | All three kinds | `create_blackboard_task` |
 | `submit_completion` | `empty_blackboard`, `blackboard_completion` | `submit_blackboard_completion` |
 | `accept_completion` | `work_item_acceptance` | `accept_blackboard_completion` |
-| `abandoned` | All three kinds | `release_coordination_claim` |
+| `candidate_declined` | All three kinds | `release_coordination_claim` |
 
 `create_task` creates the initial Task for an empty Blackboard, a follow-up Task for completion, or a
 follow-up Task that reopens the WorkItem for acceptance. `submit_completion` carries the completion
-result; `accept_completion` and `abandoned` have no additional fields.
+result; `accept_completion` and `candidate_declined` have no additional fields.
 
-The Dispatch's Claim binding distinguishes the two `abandoned` variants; the Harness does not choose
+The Dispatch's Claim binding distinguishes the two `candidate_declined` variants; the Harness does not choose
 a Claim type. An outcome incompatible with mode, candidate kind, or schema is an output protocol error.
 The Daemon rejects it before calling Core without inferring an alternative intent. Core retains final
-domain validation. Section 6 defines suppression after abandonment.
+domain validation. Section 6 defines suppression after candidate decline.
 
 ## 5. Run state and terminal convergence
 
@@ -260,7 +265,7 @@ Suppression binds a Candidate's identity and current generation, surviving Claim
 
 - Exhausted infrastructure retries enter cooldown. Reclaiming requires cooldown expiry, a successful
   Probe, and remaining cross-Claim budget. Exhausting that budget quarantines the generation.
-- `abandoned` means this Daemon declines the generation. Release directly quarantines it; abandonment
+- `candidate_declined` means this Daemon declines the generation. Release directly quarantines it; candidate decline
   is not a successful Dispatch and does not clear existing failure records.
 
 Material changes to business state, execution context, plans, or results create a new Candidate
@@ -268,7 +273,7 @@ generation and invalidate old cooldown, budget, and quarantine. Claim creation, 
 and reaping alone do not. Health recovery only lifts the global pause, preserving cooldown,
 budgets, and quarantine. Quarantine ends on a new business generation or a new Scheduler instance,
 normally a Daemon restart; some recovered candidates therefore require operator intervention.
-Within a generation, a non-abandoned business outcome committed to Core clears its suppression.
+Within a generation, a non-candidate_declined business outcome committed to Core clears its suppression.
 
 These records live only in Daemon memory, not Core, and do not prevent another Daemon from claiming.
 Claim churn across multiple Daemons or repeated restarts may still trigger Core's Claim-history safety

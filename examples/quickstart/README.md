@@ -42,3 +42,7 @@ Use $kairos-agent to find and complete one available Task.
 Two sessions can Claim the two initial Tasks concurrently. A third attempt will find no eligible Task until one becomes available. After both initial results are submitted, Kairos opens the join Task with both upstream results in its execution context.
 
 Running a single session also works; it can complete the Tasks sequentially.
+
+`workflow.json` sets `max_task_instances_per_node` to 10 per Definition node. Each node counts independently; the Workflow has no total Task-instance limit.
+
+To try recovery, fail one branch and use **Continue execution** in the console; its replacement joins the successful branch. See the [API reference](../../docs/api-reference.md) for recovery and Start over.

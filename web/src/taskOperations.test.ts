@@ -8,7 +8,7 @@ const identity: Identity = { id: 'human-1', kind: 'human', role: '' }
 function task(status: Task['status']): Task {
   return {
     id: 'task-1', work_item_id: 'work-1', status: status, active_claim_id: null, parent_task_id: null,
-    workflow_task_id: null, workflow_activation_id: null, decomposed_at: null,
+    workflow_task_id: null, workflow_activation_id: null, retry_of_task_id: null, retry_context: '', retry_instructions: '', decomposed_at: null,
     title: 'Task', description: '', acceptance_criteria: '', executor: 'human', allowed_roles: [], tags: [],
     reviews: [], submissions: [], failures: [], transition_decisions: [], position: 0,
     created_at: '', updated_at: '', completed_at: null, skipped_by: null, skip_reason: '',

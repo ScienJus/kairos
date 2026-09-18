@@ -107,18 +107,20 @@ type WorkflowGraph struct {
 	Tasks     []WorkflowTaskDefinition     `json:"tasks"`
 	Relations []WorkflowRelationDefinition `json:"relations"`
 
-	// MaxTaskExecutions is a safety limit for one WorkItem. Zero uses the system default.
-	MaxTaskExecutions int `json:"max_task_executions"`
+	// MaxTaskInstancesPerNode limits Task instances per Definition node within one
+	// WorkItem, including start and skipped instances. Zero uses the default.
+	// There is no separate limit on the total instances across all nodes.
+	MaxTaskInstancesPerNode int `json:"max_task_instances_per_node"`
 }
 
 // Workflow resource limits bound the immutable graph shape and runtime
 // expansion budget. Graph-size limits are Definition invariants; runtime
-// expansion is limited by MaxTaskExecutions rather than a second graph budget.
+// expansion is limited per node by MaxTaskInstancesPerNode, not by a total Task budget.
 const (
-	DefaultWorkflowMaxTaskExecutions = 100
-	MaxWorkflowTaskExecutions        = 500
-	MaxWorkflowTasks                 = 100
-	MaxWorkflowRelations             = 1000
+	DefaultWorkflowMaxTaskInstancesPerNode = 100
+	MaxWorkflowTaskInstancesPerNode        = 500
+	MaxWorkflowTasks                       = 100
+	MaxWorkflowRelations                   = 1000
 )
 
 // WorkflowChoiceGroupKind describes a derived continuation or exit choice.
@@ -314,14 +316,11 @@ func (g WorkflowGraph) analyze() (workflowGraphAnalysis, error) {
 	if len(g.Relations) > MaxWorkflowRelations {
 		return workflowGraphAnalysis{}, invalid("workflow.relations", "must contain at most %d relations", MaxWorkflowRelations)
 	}
-	if g.MaxTaskExecutions < 0 {
-		return workflowGraphAnalysis{}, invalid("workflow.max_task_executions", "must not be negative")
+	if g.MaxTaskInstancesPerNode < 0 {
+		return workflowGraphAnalysis{}, invalid("workflow.max_task_instances_per_node", "must not be negative")
 	}
-	if g.MaxTaskExecutions > MaxWorkflowTaskExecutions {
-		return workflowGraphAnalysis{}, invalid("workflow.max_task_executions", "must not exceed %d", MaxWorkflowTaskExecutions)
-	}
-	if g.MaxTaskExecutions > 0 && g.MaxTaskExecutions < len(g.StartTaskIDs) {
-		return workflowGraphAnalysis{}, invalid("workflow.max_task_executions", "must cover all start tasks")
+	if g.MaxTaskInstancesPerNode > MaxWorkflowTaskInstancesPerNode {
+		return workflowGraphAnalysis{}, invalid("workflow.max_task_instances_per_node", "must not exceed %d", MaxWorkflowTaskInstancesPerNode)
 	}
 
 	tasks := make(map[WorkflowTaskID]WorkflowTaskDefinition, len(g.Tasks))

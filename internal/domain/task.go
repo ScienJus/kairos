@@ -74,6 +74,11 @@ type Task struct {
 	// ID uniquely identifies this concrete task execution. [Both]
 	ID TaskID `json:"id"`
 
+	// RetryOfTaskID links a fresh Workflow attempt to the retained old instance.
+	RetryOfTaskID     *TaskID `json:"retry_of_task_id"`
+	RetryContext      string  `json:"retry_context"`
+	RetryInstructions string  `json:"retry_instructions"`
+
 	// WorkItemID identifies the parent work item. [Both]
 	WorkItemID WorkItemID `json:"work_item_id"`
 
@@ -255,6 +260,11 @@ func (t Task) Validate(mode CoordinationMode) error {
 	if err := validateTaskFailureHistory(t.ID, t.Failures); err != nil {
 		return err
 	}
+	for _, failure := range t.Failures {
+		if failure.Action == TaskFailureAwaitHuman && mode != CoordinationModeWorkflow {
+			return invalid("failures", "await_human is only supported for Workflow")
+		}
+	}
 	submissions := make(map[SubmissionID]struct{}, len(t.Submissions))
 	for _, submission := range t.Submissions {
 		submissions[submission.ID] = struct{}{}
@@ -323,12 +333,22 @@ func (t Task) Validate(mode CoordinationMode) error {
 		}
 	}
 
+	if err := validateHistoryText("retry_instructions", t.RetryInstructions); err != nil {
+		return err
+	}
+	if err := validateHistoryText("retry_context", t.RetryContext); err != nil {
+		return err
+	}
+	if t.RetryOfTaskID != nil && (mode != CoordinationModeWorkflow || *t.RetryOfTaskID == t.ID || strings.TrimSpace(string(*t.RetryOfTaskID)) == "") {
+		return invalid("retry_of_task_id", "must reference another Workflow Task")
+	}
+
 	if t.Status == TaskStatusFailed {
-		if len(t.Failures) == 0 || t.Failures[len(t.Failures)-1].Action != TaskFailureFailWorkItem {
-			return invalid("failures", "a failed task requires a fail_work_item failure")
+		if len(t.Failures) == 0 || (t.Failures[len(t.Failures)-1].Action == TaskFailureRetry && mode != CoordinationModeWorkflow) {
+			return invalid("failures", "a failed task requires a terminal failure record")
 		}
-	} else if len(t.Failures) > 0 && t.Failures[len(t.Failures)-1].Action == TaskFailureFailWorkItem {
-		return invalid("status", "must be failed after a fail_work_item failure")
+	} else if len(t.Failures) > 0 && (t.Failures[len(t.Failures)-1].Action == TaskFailureFailWorkItem || t.Failures[len(t.Failures)-1].Action == TaskFailureAwaitHuman) {
+		return invalid("status", "must be failed after await_human or fail_work_item")
 	}
 
 	return nil
