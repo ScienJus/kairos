@@ -54,3 +54,5 @@ Use $kairos-agent to find and complete one available Task.
 - **下一步**：Workflow 依赖或 Blackboard 规划决定接下来开放什么工作。
 
 接入细节请参阅 <a href="{{ '/api-reference.zh-CN.html' | relative_url }}">API 参考</a>；完整的 Agent 执行过程请参阅 <a href="{{ '/whitepapers/07-agent-interaction-model.zh-CN.html' | relative_url }}">Agent 交互模型</a>。
+
+Trusted HTTP/MCP 的 Actor ID 去除首尾空白后不得为空，也不能等于 `.` 或 `..`。传输层在工具派发前拒绝非法身份头；修正 ID 后再重试。Authenticated MCP 从凭据解析 Actor ID，不接受工具参数覆盖。

@@ -165,7 +165,23 @@ Review 的目标不是逐项修补，而是识别产生这类问题的共同结�
 
 ## 登录会话
 
-Authenticated 登录框接受 Identity Token 或部署 Admin Token，完全使用 `/session` 返回的身份；Admin Token 返回普通 Human、空 role，前端不推导管理员权限。两者均使用当前标签页 sessionStorage。提交时清空密码输入；退出和当前凭据的 401 清除凭据与 Query 缓存，并使在途 session 请求失效。存储不可用时展示错误。覆盖恢复、失败、迟到响应、退出、中英文与键盘操作。 当前身份菜单优先展示服务端可选 `display_name`，Admin 为 `system admin`，缺省回落 actor ID；不根据 `admin-` 前缀推断身份，不用展示名称判断权限或 Claim 归属。Admin 配置仅接受至少 32 个可见 ASCII 字符（0x21–0x7E），确保可由浏览器 Authorization header 传输。
+Authenticated 登录框接受 Identity Token 或部署 Admin Token，完全使用 `/session` 返回的身份；Admin Token 返回普通 Human、空 role，前端只使用服务端 `can_manage_identities` 能力显示账户菜单中唯一的 Token 管理入口，不从 ID 或显示名称推导权限。两者均使用当前标签页 sessionStorage。提交时清空密码输入；退出和当前凭据的 401 清除凭据与 Query 缓存，并使在途 session 请求失效。存储不可用时展示错误。覆盖恢复、失败、迟到响应、退出、中英文与键盘操作。 当前身份菜单优先展示服务端可选 `display_name`，Admin 为 `system admin`，缺省回落 actor ID；不根据 `admin-` 前缀推断身份，不用展示名称判断权限或 Claim 归属。Admin 配置仅接受至少 32 个可见 ASCII 字符（0x21–0x7E），确保可由浏览器 Authorization header 传输。
+
+
+## Token 管理页面
+
+在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
+
+管理页面复用当前标签页 sessionStorage 中的登录凭据，不建立第二套管理员会话。退出和当前凭据的 401 清除登录及工作区缓存。新签发的 Token 仅保存在页面内存，不进入 URL、浏览器存储或 Query/Mutation 缓存。请在关闭结果、开始其他凭据操作、离开或刷新页面之前复制保存。复制身份 ID 会保留已签发的 Token 及其复制反馈。从浏览器前进／后退缓存返回时自动重新加载身份元数据，不恢复 Token 或重放写请求；剪贴板失败时可手动复制。列表和详情不会返回明文 Token。写请求失败时不自动重试，因为操作可能已成功；应先刷新元数据，再决定是否轮转新 Token。Trusted Mode 保留本地身份设置，不开放管理功能。
+
+页面进入时加载身份列表；操作后只刷新当前列表。新 Token 不交给通用缓存。在途请求在卸载、退出或 pagehide 时取消，并通过代次忽略迟到的签发和复制结果。缓存恢复不会重新挂载组件，因此需要在 `pageshow.persisted` 时重新加载元数据；普通 `pageshow` 不重复请求。覆盖 Human/Agent 创建、字段校验、重复 ID、轮转前确认、撤销 204、管理员只读身份、网络结果不确定、普通身份无入口、深链接认证、刷新和前进后退的敏感状态清理。
+
+### 身份管理布局与 Actor ID
+身份管理沿用工作台资料架布局，以已有身份列表为主体，页头提供“创建身份”和“刷新”。创建及轮转／撤销确认使用共享弹窗。列表分为身份、类型／角色、Token 状态和操作；部署管理身份显示 **system admin**，ID 以次级单行信息展示。其他身份只显示一行 ID；长 ID 单行省略，可悬停查看完整值或使用固定位置的复制图标。复制成功原位显示勾号，不改变行高。创建使用紧凑的单列表单弹窗，常驻提示提供示例，非法输入时显示字段校验说明。新 Token 显示在列表上方的一次性结果区域，创建或轮转成功后在弹窗关闭时自动聚焦并滚动到该区域；页面级错误也显示在列表上方。覆盖至少 80 条身份的长列表创建、末行轮转和刷新失败。身份列表 DTO 不包含会话专用的 display_name、can_manage_identities 字段。退出登录仅保留在账户菜单。
+
+前端 ID 校验和 Agent role 去除首尾空白使用 Unicode White_Space，与 Go strings.TrimSpace 一致；不能直接使用 JS trim()（U+0085、U+FEFF 的行为不同）。Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`（保留的 URL 路径段）。继续支持 Unicode 和有意义的首尾空白；HTTP 创建身份保留原值，Trusted HTTP/MCP 身份头先去除首尾空白，再执行相同领域校验。详情、轮转和撤销 URL 中应将完整 Actor ID 编码为单一路径参数。非法输入在写入身份或签发凭据前被拒绝，修正后再重试。MCP 身份来自凭据／Trusted 请求头，不来自工具参数。服务端生成的 Admin ID 已满足规则。
+
+兼容性：此限制以尚未发布、没有既有用户的新安装为前提。旧版本接受 `.` 和 `..`；登录会校验已存身份，因此使用这两个 ID 的已有身份将无法认证。本次不提供自动 ID 迁移。若可丢弃的开发数据包含这些 ID，应使用新数据库并创建合法 ID 的身份；这会重置身份和工作历史，如需保留旧数据，请使用独立的数据库和 Artifact 目录。若必须继续使用原有历史，应在升级前安排同时迁移身份及所有历史 actor 引用；仅修改身份行或轮转其 Token 并不足够。
 
 Workflow 的执行限制应显示为“单节点最大任务实例数”，说明统一配置、各节点分别计数。编辑器接受 0–500 的整数；0 使用默认值 100，详情页显示有效值 100。
 

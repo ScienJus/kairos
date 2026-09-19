@@ -53,3 +53,5 @@ Both sessions see the same WorkItem. Each can claim a different Task, but neithe
 - **Next steps**: Workflow dependencies or Blackboard planning decide what becomes available next.
 
 For integration details, see the <a href="{{ '/api-reference.html' | relative_url }}">API Reference</a>. To follow the complete agent lifecycle, read the <a href="{{ '/whitepapers/07-agent-interaction-model.html' | relative_url }}">Agent Interaction Model</a>.
+
+Trusted HTTP/MCP Actor IDs are trimmed, must be nonblank, and cannot equal `.` or `..`. The transport rejects invalid identity headers before tool dispatch; correct the ID before retrying. Authenticated MCP derives the Actor ID from the credential, never tool arguments.

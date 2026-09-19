@@ -166,6 +166,15 @@ make build
 
 默认使用 SQLite 与 Trusted Mode；设置 `KAIROS_POSTGRES_DSN` 后，同一服务改用 PostgreSQL。同一可信协作群体内的共享部署应使用 Authenticated Mode；此时控制台支持使用已签发的 Identity Token 或部署 Admin Token（稳定的普通 Human 身份）登录，在当前浏览器会话中使用该 Token，并支持退出登录。Authenticated Mode 不提供租户、项目或对象级数据隔离，互不信任的群体应分别部署 Kairos 实例。仅用于开发的服务启动方式、数据库与身份配置、HTTP 路由、MCP 传输与响应契约见 [API 参考](docs/api-reference.zh-CN.md)。 Admin 会话显示 `system admin`，保留稳定 actor ID；Admin Token 配置要求至少 32 个可见 ASCII 字符，不允许空白或控制字符。
 
+在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
+
+### 身份管理布局与 Actor ID
+身份管理沿用工作台资料架布局，以已有身份列表为主体，页头提供“创建身份”和“刷新”。创建及轮转／撤销确认使用共享弹窗。列表分为身份、类型／角色、Token 状态和操作；部署管理身份显示 **system admin**，ID 以次级单行信息展示。其他身份只显示一行 ID；长 ID 单行省略，可悬停查看完整值或使用固定位置的复制图标。复制成功原位显示勾号，不改变行高。创建使用紧凑的单列表单弹窗，常驻提示提供示例，非法输入时显示字段校验说明。新 Token 显示在列表上方的一次性结果区域，创建或轮转成功后自动滚动到该区域并聚焦；页面级错误也显示在列表上方。复制身份 ID 时仍会保留 Token。离开页面会清除 Token；从浏览器前进／后退缓存返回时自动重新加载元数据，不恢复 Token。退出登录仅保留在账户菜单。
+
+Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`（保留的 URL 路径段）。继续支持 Unicode 和有意义的首尾空白；HTTP 创建身份保留原值，Trusted HTTP/MCP 身份头先去除首尾空白，再执行相同领域校验。详情、轮转和撤销 URL 中应将完整 Actor ID 编码为单一路径参数。非法输入在写入身份或签发凭据前被拒绝，修正后再重试。MCP 身份来自凭据／Trusted 请求头，不来自工具参数。服务端生成的 Admin ID 已满足规则。
+
+兼容性：此限制以尚未发布、没有既有用户的新安装为前提。旧版本接受 `.` 和 `..`；登录会校验已存身份，因此使用这两个 ID 的已有身份将无法认证。本次不提供自动 ID 迁移。若可丢弃的开发数据包含这些 ID，应使用新数据库并创建合法 ID 的身份；这会重置身份和工作历史，如需保留旧数据，请使用独立的数据库和 Artifact 目录。若必须继续使用原有历史，应在升级前安排同时迁移身份及所有历史 actor 引用；仅修改身份行或轮转其 Token 并不足够。
+
 ## MCP 与 Agent 集成
 
 Kairos 提供面向执行的 MCP 接入面，并在 `.agents/skills/kairos-agent` 提供仓库级 Codex Skill。Skill 为兼容 Harness 提供持久的“发现 → Claim → heartbeat → 提交”执行循环。集成与配置细节见 [API 参考](docs/api-reference.zh-CN.md)。

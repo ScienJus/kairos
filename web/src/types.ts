@@ -38,6 +38,7 @@ export interface Task {
   position: number; created_at: string; updated_at: string; completed_at: string | null
   execution: 'required' | 'optional' | null; review_policy: 'none' | 'executor_decides' | 'required' | null; version: number
 }
+// Actor IDs are nonblank and cannot equal "." or ".."; meaningful whitespace is preserved.
 export interface ActorRef { kind: 'human' | 'agent'; id: string }
 export interface Claim {
   id: string; task_id: string; executor: ActorRef; claimed_at: string; last_heartbeat_at: string
@@ -90,9 +91,9 @@ export interface WorkflowDefinition extends Definition {
   graph: { start_task_ids: string[]; tasks: WorkflowTaskDefinition[]; relations: WorkflowRelationDefinition[]; max_task_instances_per_node: number }
 }
 export interface AuthenticationConfig { mode: AuthenticationMode }
-export interface Identity { id: string; kind: 'human' | 'agent'; role: string; display_name?: string }
+export interface Identity { id: string; kind: 'human' | 'agent'; role: string; display_name?: string; can_manage_identities?: boolean }
 // Deployment-managed Humans have no issued Identity Token (token_active is false).
-export interface IdentityRecord extends Identity { credential_source: 'identity' | 'admin'; token_active: boolean; version: number; created_at: string; updated_at: string }
+export interface IdentityRecord { id: string; kind: 'human' | 'agent'; role: string; credential_source: 'identity' | 'admin'; token_active: boolean; version: number; created_at: string; updated_at: string }
 // human_task includes unclaimed Human Tasks and the current Human’s actively claimed Tasks (including either).
 export interface HumanAttentionItem { kind: 'review' | 'human_task' | 'work_item_acceptance'; work_item: WorkItem; task: Task | null }
 
@@ -128,4 +129,15 @@ export interface CreateWorkflowDefinitionInput extends CreateDefinitionInput {
 export interface CreateWorkItemInput {
   definition_id: string; mode: Mode; title: string; goal: string
   context: string; constraints: string; acceptance_criteria: string; acceptance_mode: 'none' | 'agent' | 'human'; tags: string[]
+}
+
+// Admin issuance is separate from the console's business identity session.
+// Uses the same Actor ID contract as ActorRef.
+export interface CreateIdentityInput {
+  id: string
+  kind: 'human' | 'agent'
+  role: string
+}
+export interface IssuedIdentityToken extends CreateIdentityInput {
+  token: string
 }
