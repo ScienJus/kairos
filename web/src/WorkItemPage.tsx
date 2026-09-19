@@ -150,7 +150,9 @@ function WorkflowFailureNotice({ identity, workItem, tasks, recoveryTasks, faile
   const failure = workItem.failure
   const isLimit = failure?.kind === 'workflow_task_instance_limit'
   const recoverable = workItem.definition.mode === 'workflow'
-  const currentLimit = workItem.workflow_max_task_instances_per_node || definitionLimit || failure?.limit || 100
+  const currentLimit = workItem.workflow_max_task_instances_per_node || (definitionLimit !== undefined
+    ? definitionLimit || 100
+    : isLimit && failure.limit > 0 ? failure.limit : undefined)
   const nodeCounts = new Map<string | null, number>()
   for (const task of tasks) nodeCounts.set(task.workflow_task_id, (nodeCounts.get(task.workflow_task_id) ?? 0) + 1)
   let recoveryNodeMinimum = 1
@@ -159,10 +161,11 @@ function WorkflowFailureNotice({ identity, workItem, tasks, recoveryTasks, faile
     nodeCounts.set(task.workflow_task_id, count)
     recoveryNodeMinimum = Math.max(recoveryNodeMinimum, count)
   }
-  const minimum = Math.max(currentLimit, isLimit ? failure.task_instances + 1 : 1, recoveryNodeMinimum)
+  const minimum = Math.max(currentLimit ?? 1, isLimit ? failure.task_instances + 1 : 1, recoveryNodeMinimum)
   const [action, setAction] = useState<'continue' | 'start-over' | null>(null)
   const [limit, setLimit] = useState('')
   const [instructions, setInstructions] = useState('')
+  const canContinue = currentLimit !== undefined && Number.isInteger(Number(limit)) && Number(limit) >= minimum && Number(limit) <= 500
   const invalidate = () => {
     for (const key of ['work-item', 'work-items', 'human-attention', 'task-detail', 'task-context']) client.invalidateQueries({ queryKey: [key, identity] })
   }
@@ -184,18 +187,18 @@ function WorkflowFailureNotice({ identity, workItem, tasks, recoveryTasks, faile
       {failedTasks.map(task => <p key={task.id}>{task.title}: {task.failures.at(-1)?.reason || t('failureReasonUnavailable')}</p>)}
       {recoverable && <p>{t('workflowRecoveryPreservesHistory')}</p>}
       {recoverable && identity.kind === 'human' && <div className="recovery-actions">
-        {minimum <= 500 ? <button type="button" className="quiet-button" onClick={() => show('continue')}>{t('continueWorkflow')}</button> : <p>{t('workflowRecoveryMaximum')}</p>}
+        {minimum > 500 ? <p>{t('workflowRecoveryMaximum')}</p> : currentLimit !== undefined && <button type="button" className="quiet-button" onClick={() => show('continue')}>{t('continueWorkflow')}</button>}
         <button type="button" className="quiet-button" onClick={() => show('start-over')}>{t('startOverWorkflow')}</button>
       </div>}
       {recoverable && identity.kind !== 'human' && <p>{t('workflowRecoveryHumanOnly')}</p>}
     </div>
     <Modal open={action !== null} onOpenChange={open => { if (!open) setAction(null) }} eyebrow={t('workItemManagement')} title={t(action === 'start-over' ? 'startOverWorkflow' : 'continueWorkflow')}>
-      <form className="form-grid" onSubmit={event => { event.preventDefault(); if (action === 'start-over') startOver.mutate(); else continueExecution.mutate() }}>
+      <form className="form-grid" onSubmit={event => { event.preventDefault(); if (action === 'start-over') startOver.mutate(); else if (action === 'continue' && canContinue) continueExecution.mutate() }}>
         <p className="wide recovery-help">{t(action === 'start-over' ? 'startOverWorkflowScope' : 'workflowRecoveryScope')}</p>
         {action === 'continue' && <><label className="wide">{t('taskInstanceLimit')}<input autoFocus type="number" min={minimum} max={500} step={1} required value={limit} onChange={event => setLimit(event.target.value)} /></label><p className="wide recovery-help">{t('workflowRecoveryRange', { min: minimum })}</p></>}
         <label className="wide">{t('recoveryInstructions')}<textarea rows={3} value={instructions} onChange={event => setInstructions(event.target.value)} /></label>
         {(continueExecution.error || startOver.error) && <FormError error={(action === 'start-over' ? startOver.error : continueExecution.error)!} />}
-        <div className="form-actions"><button type="submit" className="primary-button" disabled={continueExecution.isPending || startOver.isPending || (action === 'continue' && (!Number.isInteger(Number(limit)) || Number(limit) < minimum || Number(limit) > 500))}>{t(action === 'start-over' ? 'confirmWorkflowStartOver' : 'confirmWorkflowContinue')}</button></div>
+        <div className="form-actions"><button type="submit" className="primary-button" disabled={continueExecution.isPending || startOver.isPending || (action === 'continue' && !canContinue)}>{t(action === 'start-over' ? 'confirmWorkflowStartOver' : 'confirmWorkflowContinue')}</button></div>
       </form>
     </Modal>
   </section>
