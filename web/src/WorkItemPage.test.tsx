@@ -183,13 +183,58 @@ function failedWorkflow(kind: 'workflow_task_instance_limit' | 'execution_failur
 }
 
 describe('Workflow failure recovery', () => {
+  it.each(['override', 'limit failure'] as const)('allows Continue before Definition loads when the %s gives the limit', async source => {
+    const value = failedWorkflow(source === 'override' ? 'execution_failure' : 'workflow_task_instance_limit', 20)
+    if (source === 'override') value.workflow_max_task_instances_per_node = 30
+    vi.mocked(api.getWorkflowDefinition).mockReturnValue(new Promise(() => {}))
+    const continueExecution = vi.spyOn(api, 'continueWorkflow').mockResolvedValue({ ...value, status: 'open', failure: null })
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Continue execution' }))
+    const expectedLimit = source === 'override' ? 30 : 21
+    expect(screen.getByRole('spinbutton')).toHaveValue(expectedLimit)
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Continue execution' }))
+    await waitFor(() => expect(continueExecution).toHaveBeenCalledWith(identity, 'work-1', 1, expectedLimit, ''))
+  })
+
+  it.each([
+    ['failed', 20, 20],
+    ['failed', 0, 100],
+    ['open', 20, 20],
+    ['open', 0, 100],
+  ] as const)('waits for the inherited limit for %s Workflow with Definition limit %i', async (status, definitionLimit, expectedLimit) => {
+    const source = failedWorkflow('execution_failure', definitionLimit)
+    const definition = await api.getWorkflowDefinition(identity, 'delivery', 3)
+    let resolveDefinition!: (value: typeof definition) => void
+    vi.mocked(api.getWorkflowDefinition).mockReturnValue(new Promise(resolve => { resolveDefinition = resolve }))
+    const value = { ...source, status, failure: status === 'open' ? null : source.failure }
+    vi.mocked(api.getWorkItem).mockResolvedValue(context(value, [failedTask('dev')]))
+    const continueExecution = vi.spyOn(api, 'continueWorkflow').mockResolvedValue({ ...value, status: 'open', failure: null })
+    renderPage()
+    const user = userEvent.setup()
+
+    const startOver = await screen.findByRole('button', { name: 'Start over' })
+    expect(screen.queryByRole('button', { name: 'Continue execution' })).not.toBeInTheDocument()
+    await user.click(startOver)
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Create new WorkItem' })).toBeEnabled()
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(continueExecution).not.toHaveBeenCalled()
+
+    resolveDefinition(definition)
+    await user.click(await screen.findByRole('button', { name: 'Continue execution' }))
+    expect(screen.getByRole('spinbutton')).toHaveValue(expectedLimit)
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Continue execution' }))
+    await waitFor(() => expect(continueExecution).toHaveBeenCalledWith(identity, 'work-1', 1, expectedLimit, ''))
+  })
+
   it('explains the blocked node and retains input on a recovery error', async () => {
     failedWorkflow()
     const continueExecution = vi.spyOn(api, 'continueWorkflow').mockRejectedValue(new Error('Recovery could not be recorded'))
     renderPage()
     expect(await screen.findByText(/Node “Development” has created 10 task instances/)).toBeInTheDocument()
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Continue execution' }))
+    await user.click(await screen.findByRole('button', { name: 'Continue execution' }))
     const input = screen.getByRole('spinbutton', { name: 'Max task instances per node' })
     expect(input).toHaveValue(11)
     expect(input).toHaveAttribute('min', '11')
@@ -207,8 +252,9 @@ describe('Workflow failure recovery', () => {
     const continueExecution = vi.spyOn(api, 'continueWorkflow').mockResolvedValue({ ...value, status: 'open', failure: null })
     renderPage()
     expect(await screen.findByText('Guard reached')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start over' })).toBeInTheDocument()
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Continue execution' }))
+    await user.click(await screen.findByRole('button', { name: 'Continue execution' }))
     expect(screen.getByRole('spinbutton')).toHaveValue(10)
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Continue execution' }))
     await waitFor(() => expect(continueExecution).toHaveBeenCalledWith(identity, 'work-1', 1, 10, ''))
@@ -229,7 +275,7 @@ describe('Workflow failure recovery', () => {
     expect(screen.queryByRole('button', { name: 'Continue execution' })).not.toBeInTheDocument()
   })
 
-  it('shows ordinary failure reasons without offering task-instance-limit recovery', async () => {
+  it('shows Blackboard failure reasons without Workflow recovery controls', async () => {
     vi.spyOn(api, 'getWorkItem').mockResolvedValue(context(workItem({ status: 'failed', failure: { kind: 'execution_failure', message: '部署配置缺失', workflow_task_id: '', task_instances: 0, limit: 0 } })))
     renderPage()
     expect(await screen.findByText('部署配置缺失')).toBeInTheDocument()
@@ -254,14 +300,6 @@ describe('Workflow Start over', () => {
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ workItemID: 'new-work', taskID: null, homeView: 'human' }))
   })
 
-  it('offers both actions for an ordinary Workflow failure', async () => {
-    const source = failedWorkflow()
-    vi.mocked(api.getWorkItem).mockResolvedValue(context({ ...source, failure: { kind: 'execution_failure', message: 'Missing configuration', workflow_task_id: '', task_instances: 0, limit: 0 } }))
-    renderPage()
-    expect(await screen.findByText('Missing configuration')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue execution' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Start over' })).toBeInTheDocument()
-  })
 })
 
 function failedTask(id: string, node = id): Task {
@@ -290,7 +328,7 @@ describe('Unified Continue execution', () => {
     expect(screen.queryByRole('button', { name: 'Retry Task' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start over' })).toBeInTheDocument()
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Continue execution' }))
+    await user.click(await screen.findByRole('button', { name: 'Continue execution' }))
     await user.type(screen.getByRole('textbox', { name: 'Additional instructions (optional)' }), 'Configuration fixed')
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Continue execution' }))
     await waitFor(() => expect(continueExecution).toHaveBeenCalledWith(identity, value.id, value.version, 10, 'Configuration fixed'))
