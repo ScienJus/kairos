@@ -6,6 +6,7 @@
 再启动单 slot 的 Codex Daemon。原生 MCP [quickstart](https://github.com/ScienJus/kairos/tree/main/examples/quickstart) 保持独立。
 
 需要 Linux/macOS、curl、jq、openssl、Perl（自带 POSIX 模块）、Codex CLI 0.146.0+ 和专用的 Codex 登录目录。
+支持高于该最低版本的预发布构建（如 0.154.0-alpha.6.2），仍须通过相同的执行参数和登录状态预检。
 源码构建还需要 Go/Node。发布包同时提供 `kairos-server`、`kairos-daemon`，不打包 Codex
 或模型凭据。先按正常 Codex 登录流程配置专用目录，然后：
 

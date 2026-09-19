@@ -202,6 +202,7 @@ Run，并发或再次调用均报错；取消表示停机。单次 Dispatch 的�
 ## 阶段 4：本地 Codex Adapter
 
 实现位于 `internal/daemon/codexadapter`，支持 Linux/macOS 和 Codex CLI 0.146.0+。
+版本识别接受高于最低版本的预发布构建及构建元数据；这些构建仍须通过执行参数和登录预检。
 已核实本机 0.146.0 CLI 参数及 MCP 配置解析；使用 `codex exec`、结构化结果文件、独立
 attempt workspace、环境变量 Executor Token、MCP 初始化指令与简短启动 prompt。Provider 登录
 使用显式指定的专用 Codex home，模型由操作者指定。workspace-write 允许网络访问，以读取

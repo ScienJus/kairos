@@ -1107,6 +1107,15 @@ func (s *sqlStore) CreateWorkItem(value domain.WorkItem) error {
 	if err := value.Validate(); err != nil {
 		return err
 	}
+	if value.StartedOverFromWorkItemID != nil {
+		var sourceBinding domain.DefinitionBinding
+		if err := s.queryRow("SELECT definition_id, definition_version, mode FROM work_items WHERE id = ?", *value.StartedOverFromWorkItemID).Scan(&sourceBinding.ID, &sourceBinding.Version, &sourceBinding.Mode); err != nil {
+			return normalizeError(err)
+		}
+		if sourceBinding.Mode != domain.CoordinationModeWorkflow || sourceBinding != value.Definition {
+			return fmt.Errorf("%w: start-over source must use the same Workflow Definition binding", application.ErrConflict)
+		}
+	}
 	payload, err := encodeJSON(value)
 	if err != nil {
 		return err
@@ -1144,6 +1153,17 @@ func (s *sqlStore) SaveWorkItem(value domain.WorkItem) error {
 	}
 	if value.Version <= 0 {
 		return fmt.Errorf("%w: work item %q has no previous version", application.ErrConflict, value.ID)
+	}
+	var storedSource sql.NullString
+	var storedBinding domain.DefinitionBinding
+	if err := s.queryRow("SELECT started_over_from_work_item_id, definition_id, definition_version, mode FROM work_items WHERE id = ?", value.ID).Scan(&storedSource, &storedBinding.ID, &storedBinding.Version, &storedBinding.Mode); err != nil {
+		return normalizeError(err)
+	}
+	if storedSource.Valid != (value.StartedOverFromWorkItemID != nil) || (storedSource.Valid && storedSource.String != string(*value.StartedOverFromWorkItemID)) {
+		return fmt.Errorf("%w: work item start-over source is immutable", application.ErrConflict)
+	}
+	if storedBinding != value.Definition {
+		return fmt.Errorf("%w: work item definition binding is immutable", application.ErrConflict)
 	}
 	payload, err := encodeJSON(value)
 	if err != nil {

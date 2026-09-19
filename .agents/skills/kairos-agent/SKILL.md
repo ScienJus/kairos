@@ -60,7 +60,7 @@ An MCP transport `403` containing `invalid Host header` indicates the loopback/r
 
 ## Failure and recovery
 
-- Workflow `retry` creates a new Task; Blackboard `retry` reuses the Task. After Workflow retry, rediscover and claim the replacement. Blackboard rejects action `await_human` without changing state, even at the history limit; correct the action.
+- Workflow `retry` creates a new Task; Blackboard `retry` reuses the Task. After Workflow retry, the old Task remains Failed permanently; rediscover and claim the replacement instead of trying to reactivate the old Task. Blackboard rejects action `await_human` without changing state, even at the history limit; correct the action.
 - On a failed WorkItem, read `work_item.failure` and wait for Human recovery. For `workflow_task_instance_limit`, use `failure.workflow_task_id`, `failure.task_instances` and `failure.limit` when the message abbreviates them. The limit counts Task instances per node, including start and skipped instances; never reuse an ended Claim.
 - After recovery, read WorkItem context and Task description for current instructions, failure summaries and review feedback. `find_work` does not include generated recovery summaries; use the context tools before executing.
 - After Start over, only the current failure summary and current Human instructions are provided; old URLs, results, reviews and instructions remain on the source WorkItem. Scoped executor credentials cannot read that source. Use the external outcomes the Human lists in the new instructions, and revalidate them before reuse. See the [API reference](../../../docs/api-reference.md) for Human recovery operations.

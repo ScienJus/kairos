@@ -250,3 +250,5 @@ Workflow 完成是结构性结果，不会自动合成 WorkItem 级 Result。完
 > Workflow 划定边界；执行者只在流程明确留下的决策点作出选择。
 
 WorkItem 失败或仍有当前失败 Task 的 Workflow 提供两个 Human 操作：**继续执行**保留当前 WorkItem、成功分支、等待汇合和待人工评审，为失败或中断的执行创建新 Task，并仅补发已提交决策中尚未送达的输入；**从头执行**创建新的 WorkItem，从起点执行，复制原始目标和绑定的 Workflow 版本，并携带有长度限制的失败摘要及操作人补充说明。原 WorkItem 以 Failed 状态结束并保留执行历史，剩余 Claim 在同一事务中结束。A 的重试与同一轮成功的 B 汇合；A、B 都失败时，必须等二者的新尝试都成功才触发 C。不提供任意阶段重跑。继续执行保留各节点计数，重试的新 Task 也计数，必要时提高上限（最高 500）；从头执行的新 WorkItem 独立计数。已结束 Claim 不复活，恢复后重新发现并认领。从头执行保留来源 WorkItem 引用和当前失败摘要，不扫描或复制旧 URL、Artifact、Review、Submission 或恢复摘要。受限执行者不能读取其他 WorkItem，人类应在当前补充说明中列出需复用的外部成果；已有外部操作不会撤销。迁移将历史失败归一为普通执行失败并保留原始消息，不自动恢复。API 详见 `/continue` 和 `/start-over`。
+
+Workflow 重试保留失败的来源 Task，只有替代实例继续推进。从头执行的来源必须是绑定相同 Workflow Definition ID 和版本的另一个 WorkItem；来源关系和 Definition 绑定在创建后不可修改。
