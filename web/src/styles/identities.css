@@ -31,7 +31,7 @@
 .identity-status.active { color: #42756c; background: #e9f2ed; }
 .identity-status.managed { color: #557580; background: #eaf0f3; }
 .identity-readonly { color: #7c8c88; font-size: 12px; }
-.identity-result { margin-top: 24px; padding: 24px; border: 1px solid #c5d8d2; border-radius: 9px; background: #f0f6f2; overflow-wrap: anywhere; }
+.identity-result { margin-bottom: 24px; scroll-margin-top: 24px; padding: 24px; border: 1px solid #c5d8d2; border-radius: 9px; background: #f0f6f2; overflow-wrap: anywhere; }
 .identity-result h2 { margin: 0; font-size: 18px; color: #284143; }
 .identity-result p, .identity-confirm p { font-size: 13px; color: #607471; line-height: 1.65; }
 .identity-result .identity-once { color: #365c58; font-weight: 550; }

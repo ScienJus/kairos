@@ -23,6 +23,7 @@ beforeEach(() => {
   sessionStorage.setItem('kairos-console-token', adminToken)
   fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => response())
   vi.stubGlobal('fetch', fetchMock)
+  Element.prototype.scrollIntoView = vi.fn()
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear() })
 
@@ -103,7 +104,6 @@ describe('administrator session', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('copy it manually')
     fireEvent(window, new Event('pagehide'))
     expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
   })
 
   it.each(['pagehide', 'unmount'])('discards late creation responses after %s', async action => {
@@ -119,7 +119,6 @@ describe('administrator session', () => {
     expect(signal.aborted).toBe(true)
     await act(async () => { resolve(response(201, issued)) })
     expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
-    if (action !== 'unmount') expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
   })
 
   it('clears the previous result when starting another creation and clears results on 401', async () => {
@@ -134,7 +133,6 @@ describe('administrator session', () => {
     fetchMock.mockResolvedValueOnce(response(401))
     await user.click(screen.getByRole('button', { name: 'Create and issue Token' }))
     await waitFor(() => expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument())
-    expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
     expect(sessionStorage.getItem('kairos-console-token')).toBe(adminToken)
   })
 })
@@ -230,16 +228,16 @@ it('does not let delayed copy feedback or list responses restore dismissed state
   expect(screen.queryByRole('button', { name: 'Revoke Token' })).not.toBeInTheDocument()
  })
 
-it('shows an ID once unless the identity has a distinct display name and copies the full value', async () => {
+it('shows ordinary IDs once and copies the full value', async () => {
   const records = [
-    { id: 'local-human', display_name: 'local-human', kind: 'human', credential_source: 'identity', token_active: true },
-    { id: 'named-human-with-a-long-internal-id', display_name: 'Alice', kind: 'human', credential_source: 'identity', token_active: true },
+    { id: 'local-human', kind: 'human', credential_source: 'identity', token_active: true },
+    { id: 'named-human-with-a-long-internal-id', kind: 'human', credential_source: 'identity', token_active: true },
   ]
   fetchMock.mockResolvedValue(response(200, records))
   renderPage()
   const user = userEvent.setup()
   expect(await screen.findAllByText('local-human')).toHaveLength(1)
-  expect(screen.getByText('Alice')).toBeInTheDocument()
+  expect(screen.getAllByText(records[1].id)).toHaveLength(1)
   expect(screen.getByText(records[1].id).closest('[title]')).toHaveAttribute('title', records[1].id)
   const copy = screen.getByRole('button', { name: `Copy ID: ${records[1].id}` })
   const clipboard = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
@@ -357,4 +355,62 @@ it('keeps pre-navigation responses cancelled and permits retry after a failed ca
   await user.click(screen.getByRole('button', { name: 'Refresh' }))
   expect(await screen.findByText('current-human')).toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+
+it.each(['create', 'rotate'])('brings the %s result above an 80-row list and focuses it after closing the dialog', async operation => {
+  const records = Array.from({ length: 80 }, (_, i) => ({ id: `person-${i}`, kind: 'human', role: '', credential_source: 'identity', token_active: true }))
+  fetchMock.mockImplementation(async () => response(200, records))
+  renderPage()
+  const user = userEvent.setup()
+  const table = await screen.findByRole('table')
+  if (operation === 'create') {
+    await user.click(screen.getByRole('button', { name: 'Create identity' }))
+    await user.type(screen.getByLabelText('Identity ID'), issued.id)
+  } else {
+    await user.click(within(screen.getByText('person-79').closest('tr')!).getByRole('button', { name: 'Rotate Token' }))
+  }
+  fetchMock.mockResolvedValueOnce(response(201, issued))
+  // A failed follow-up refresh must not hide the successfully issued Token.
+  fetchMock.mockResolvedValueOnce(response(500))
+  await user.click(screen.getByRole('button', { name: operation === 'create' ? 'Create and issue Token' : 'Confirm change' }))
+  const result = await screen.findByRole('region', { name: 'Token issued' })
+  await waitFor(() => expect(result).toHaveFocus())
+  expect(result.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByRole('alert').compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByLabelText('Identity Token')).toHaveValue(issued.token)
+  expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+  expect(within(table).getAllByRole('row')).toHaveLength(81)
+})
+
+it.each([
+  ['\u0085', false], ['\ufeff', true], ['\u2007\u202f\u3000', false], ['\u0085person\u0085', true],
+])('uses Go whitespace semantics for ID %j (valid=%s)', async (id, valid) => {
+  renderPage()
+  const user = await connect()
+  fireEvent.change(screen.getByLabelText('Identity ID'), { target: { value: id } })
+  const create = screen.getByRole('button', { name: 'Create and issue Token' })
+  if (valid) expect(create).toBeEnabled()
+  else expect(create).toBeDisabled()
+  if (valid) {
+    fetchMock.mockResolvedValueOnce(response(201, { ...issued, id }))
+    await user.click(create)
+    expect(JSON.parse(fetchMock.mock.calls[1][1]!.body as string).id).toBe(id)
+  } else {
+    fireEvent.submit(screen.getByLabelText('Identity ID').closest('form')!)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  }
+})
+
+it('trims Agent roles using the server whitespace rules', async () => {
+  renderPage()
+  const user = await connect()
+  await user.type(screen.getByLabelText('Identity ID'), 'agent')
+  await user.selectOptions(screen.getByLabelText('Identity type'), 'agent')
+  fireEvent.change(screen.getByLabelText('Agent role'), { target: { value: '\u0085' } })
+  expect(screen.getByRole('button', { name: 'Create and issue Token' })).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('Agent role'), { target: { value: '\u0085\ufeffdeveloper\u0085' } })
+  fetchMock.mockResolvedValueOnce(response(201, { ...issued, kind: 'agent' }))
+  await user.click(screen.getByRole('button', { name: 'Create and issue Token' }))
+  expect(JSON.parse(fetchMock.mock.calls[1][1]!.body as string).role).toBe('\ufeffdeveloper')
 })
