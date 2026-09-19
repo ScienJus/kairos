@@ -27,7 +27,7 @@ const executorEnv = "KAIROS_EXECUTOR_TOKEN"
 const maxOutcomeBytes = 1 << 20
 const maxRuntimeFailureReasonBytes = 4096
 
-var cliVersion = regexp.MustCompile(`^codex-cli ([0-9]+)\.([0-9]+)\.([0-9]+)\s*$`)
+var cliVersion = regexp.MustCompile(`^codex-cli ([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?\s*$`)
 
 func supportedVersion(version string) bool {
 	parts := cliVersion.FindStringSubmatch(version)
@@ -42,7 +42,7 @@ func supportedVersion(version string) bool {
 		}
 		numbers[i] = n
 	}
-	return numbers[0] > 0 || numbers[1] >= 146
+	return numbers[0] > 0 || numbers[1] > 146 || (numbers[1] == 146 && (numbers[2] > 0 || parts[4] == ""))
 }
 
 // Share the behavioral flags between the no-model parser probe and real runs.

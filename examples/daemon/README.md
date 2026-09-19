@@ -7,7 +7,9 @@ and Blackboard WorkItems, then starts a single-slot Codex Daemon. The native MCP
 [quickstart](https://github.com/ScienJus/kairos/tree/main/examples/quickstart) remains available separately.
 
 Requirements: Linux/macOS, Go/Node for source builds, curl, jq, openssl, Perl (core POSIX module), Codex CLI
-0.146.0+, and a dedicated authenticated Codex home. Release archives contain both
+0.146.0+, and a dedicated authenticated Codex home. Newer prerelease builds such as
+0.154.0-alpha.6.2 are accepted, but must pass the same execution-option and login probes.
+Release archives contain both
 `kairos-server` and `kairos-daemon`; Codex itself and model authentication are not bundled.
 
 ```sh
