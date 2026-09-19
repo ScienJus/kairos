@@ -9,6 +9,7 @@ import type { CreateIdentityInput, IdentityRecord, IssuedIdentityToken } from '.
 
 export function AdminIdentitiesPage() {
   const { t } = useI18n()
+  const resultRegion = useRef<HTMLElement | null>(null)
   const request = useRef<AbortController | null>(null)
   const generation = useRef(0)
   const resultGeneration = useRef(0)
@@ -75,8 +76,8 @@ export function AdminIdentitiesPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!idIsValid(id) || (kind === 'agent' && !role.trim())) return
-    await mutate(() => createIdentity({ id, kind, role: kind === 'agent' ? role.trim() : '' }, request.current!.signal))
+    if (!idIsValid(id) || (kind === 'agent' && !trimSpace(role))) return
+    await mutate(() => createIdentity({ id, kind, role: kind === 'agent' ? trimSpace(role) : '' }, request.current!.signal))
   }
 
   async function mutate(operation: () => Promise<IssuedIdentityToken | null>) {
@@ -147,11 +148,19 @@ export function AdminIdentitiesPage() {
         <button className="primary-button" type="button" disabled={busy || !loaded} onClick={openCreate}><Plus size={16} />{t('adminNew')}</button>
       </div>
     </header>
+    {!creating && !selection && errorMessage}
+    {issued && <section ref={resultRegion} tabIndex={-1} className="identity-result" aria-label={t('adminIssued')}>
+      <h2>{t('adminIssued')}</h2><p>{issued.id} · {issued.kind}{issued.role && ` · ${issued.role}`}</p>
+      <p>{t(issued.kind === 'human' ? 'adminHumanUse' : 'adminAgentUse')}</p><p className="identity-once">{t('adminOnce')}</p>
+      <label htmlFor="issued-token">{t('identityToken')}</label><textarea id="issued-token" readOnly value={issued.token} spellCheck={false} />
+      <div className="identity-actions"><button className="primary-button" type="button" onClick={() => void copyToken()}><Copy size={15} />{t('adminCopy')}</button><button className="quiet-button" type="button" onClick={dismissResult}>{t('close')}</button></div>
+      {copyStatus && <p role="status">{t(copyStatus)}</p>}
+    </section>}
     <section aria-label={t('adminExisting')}>
       {!loaded ? <p className="library-empty">{error ? t('adminUnavailable') : t('adminLoading')}</p> : identities.length === 0 ? <p className="library-empty">{t('adminEmpty')}</p> : <table className="identity-table">
         <thead><tr><th>{t('adminIdentity')}</th><th>{t('adminTypeRole')}</th><th>{t('adminStatus')}</th><th>{t('adminActions')}</th></tr></thead>
         <tbody>{identities.map(record => {
-          const name = record.display_name || (record.credential_source === 'admin' ? 'system admin' : record.id)
+          const name = record.credential_source === 'admin' ? 'system admin' : record.id
           const hasName = name !== record.id
           const copied = copiedID === `${record.kind}:${record.id}`
           return <tr key={`${record.kind}:${record.id}`} className={hasName || record.role ? 'identity-row-two-lines' : undefined}>
@@ -175,21 +184,19 @@ export function AdminIdentitiesPage() {
       </table>}
       {copiedID === 'failed' && <p role="status">{t('adminIDCopyFailed')}</p>}
     </section>
-    {!creating && !selection && errorMessage}
-    {issued && <section className="identity-result" aria-label={t('adminIssued')}>
-      <h2>{t('adminIssued')}</h2><p>{issued.id} · {issued.kind}{issued.role && ` · ${issued.role}`}</p>
-      <p>{t(issued.kind === 'human' ? 'adminHumanUse' : 'adminAgentUse')}</p><p className="identity-once">{t('adminOnce')}</p>
-      <label htmlFor="issued-token">{t('identityToken')}</label><textarea id="issued-token" readOnly value={issued.token} spellCheck={false} />
-      <div className="identity-actions"><button className="primary-button" type="button" onClick={() => void copyToken()}><Copy size={15} />{t('adminCopy')}</button><button className="quiet-button" type="button" onClick={dismissResult}>{t('close')}</button></div>
-      {copyStatus && <p role="status">{t(copyStatus)}</p>}
-    </section>}
-    <Modal className="identity-dialog" open={creating || selection !== null} onOpenChange={open => { if (!open) closeDialog() }} title={t(creating ? 'adminNew' : selection?.action === 'revoke' ? 'adminRevoke' : 'adminRotate')} eyebrow={t('adminIdentities')}>
+    <Modal onCloseAutoFocus={event => {
+      if (resultRegion.current) {
+        event.preventDefault()
+        resultRegion.current.focus({ preventScroll: true })
+        resultRegion.current.scrollIntoView({ block: 'start' })
+      }
+    }} className="identity-dialog" open={creating || selection !== null} onOpenChange={open => { if (!open) closeDialog() }} title={t(creating ? 'adminNew' : selection?.action === 'revoke' ? 'adminRevoke' : 'adminRotate')} eyebrow={t('adminIdentities')}>
       {creating ? <form className="form-grid identity-form" onSubmit={submit}>
         <label className="wide" htmlFor="new-identity-id">{t('adminID')}<input id="new-identity-id" value={id} disabled={busy} autoComplete="off" aria-describedby="identity-id-hint" aria-invalid={id.length > 0 && !idIsValid(id)} onChange={event => setID(event.target.value)} /></label><p className="wide identity-field-hint" id="identity-id-hint">{t(id.length > 0 && !idIsValid(id) ? 'adminIDInvalid' : 'adminIDHint')}</p>
         <label htmlFor="new-identity-kind">{t('adminKind')}<select id="new-identity-kind" value={kind} disabled={busy} onChange={event => { setKind(event.target.value as CreateIdentityInput['kind']); setRole('') }}><option value="human">Human</option><option value="agent">Agent</option></select></label>
         {kind === 'agent' && <label htmlFor="new-identity-role">{t('adminRole')}<input id="new-identity-role" value={role} disabled={busy} placeholder="developer" onChange={event => setRole(event.target.value)} /></label>}
         {errorMessage}
-        <div className="form-actions"><button type="button" className="quiet-button" disabled={busy} onClick={closeDialog}>{t('cancel')}</button><button className="primary-button" disabled={busy || !loaded || !idIsValid(id) || (kind === 'agent' && !role.trim())}>{t(busy ? 'adminWorking' : 'adminCreate')}</button></div>
+        <div className="form-actions"><button type="button" className="quiet-button" disabled={busy} onClick={closeDialog}>{t('cancel')}</button><button className="primary-button" disabled={busy || !loaded || !idIsValid(id) || (kind === 'agent' && !trimSpace(role))}>{t(busy ? 'adminWorking' : 'adminCreate')}</button></div>
       </form> : selection && <div className="identity-confirm">
         <p className="identity-confirm-id">{selection.identity.id}</p><p>{t(selection.action === 'rotate' ? 'adminRotateWarning' : 'adminRevokeWarning')}</p>
         {errorMessage}
@@ -199,5 +206,7 @@ export function AdminIdentitiesPage() {
   </section>
 }
 
-// Matches ActorRef.Validate; preserve meaningful whitespace and Unicode IDs.
-function idIsValid(id: string) { return Boolean(id.trim()) && id !== '.' && id !== '..' }
+// Go strings.TrimSpace uses Unicode White_Space (unlike JS trim, which
+// excludes U+0085 and includes U+FEFF). Preserve the original ID in requests.
+function trimSpace(value: string) { return value.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '') }
+function idIsValid(id: string) { return Boolean(trimSpace(id)) && id !== '.' && id !== '..' }

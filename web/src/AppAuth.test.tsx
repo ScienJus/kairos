@@ -247,9 +247,11 @@ it.each([
   expect(screen.queryAllByRole('button', { name: 'Token management' })).toHaveLength(identity.can_manage_identities ? 1 : 0)
 })
 
-it('denies direct management access to ordinary and Trusted Mode users', async () => {
+it.each(['authenticated', 'trusted'] as const)('denies direct management access in %s mode without the capability', async mode => {
+  sessionStorage.setItem('kairos-console-token', 'synthetic-ordinary')
+  vi.spyOn(api, 'getSession').mockResolvedValue({ id: 'ordinary', kind: 'human', role: '', can_manage_identities: false })
   window.history.replaceState({}, '', '/admin/identities')
-  vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode: 'trusted' })
+  vi.spyOn(api, 'getAuthenticationConfig').mockResolvedValue({ mode })
   renderApp()
   expect(await screen.findByText(/Admin Token rejected/)).toBeInTheDocument()
   expect(screen.queryByLabelText('Identity ID')).not.toBeInTheDocument()
