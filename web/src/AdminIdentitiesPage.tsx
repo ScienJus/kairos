@@ -41,16 +41,6 @@ export function AdminIdentitiesPage() {
     setCreating(false); setCopiedID(null); setID(''); setKind('human'); setRole(''); setIssued(null); setCopyStatus(null); setError(null)
   }, [invalidateRequests])
 
-  useEffect(() => {
-    // pagehide also clears a document restored from the browser back/forward cache.
-    const onPageHide = () => flushSync(clearSession)
-    window.addEventListener('pagehide', onPageHide)
-    return () => {
-      window.removeEventListener('pagehide', onPageHide)
-      invalidateRequests()
-    }
-  }, [clearSession, invalidateRequests])
-
   const refresh = useCallback(async (controller: AbortController) => {
     loading.current?.abort()
     loading.current = controller
@@ -68,8 +58,20 @@ export function AdminIdentitiesPage() {
   useEffect(() => {
     const controller = new AbortController()
     void refresh(controller)
-    return () => controller.abort()
-  }, [refresh])
+    // A cached document is restored without remounting this component. Clear
+    // secrets before it is frozen, then reload only metadata on restoration.
+    const onPageHide = () => flushSync(clearSession)
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) void refresh(new AbortController())
+    }
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('pageshow', onPageShow)
+      invalidateRequests()
+    }
+  }, [clearSession, invalidateRequests, refresh])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -118,7 +120,6 @@ export function AdminIdentitiesPage() {
   }
 
   async function copyID(record: IdentityRecord) {
-    dismissResult()
     const current = generation.current
     try {
       await navigator.clipboard.writeText(record.id)

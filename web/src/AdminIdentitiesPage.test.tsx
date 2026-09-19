@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminIdentitiesPage } from './AdminIdentitiesPage'
@@ -282,4 +282,79 @@ it('shows an example normally and a field-specific explanation for reserved IDs'
   await user.type(input, 'alice')
   expect(input).toHaveAttribute('aria-invalid', 'false')
   expect(input).toHaveAccessibleDescription('For example, alice or backend-agent.')
+})
+
+it.each(['create', 'rotate'])('preserves the %s result and Token copy feedback when copying an ID succeeds or fails', async operation => {
+  const record = { id: issued.id, kind: 'human', role: '', credential_source: 'identity', token_active: true }
+  fetchMock.mockImplementation(async () => response(200, [record]))
+  renderPage()
+  const user = userEvent.setup()
+  await screen.findByRole('table')
+  if (operation === 'create') {
+    await user.click(screen.getByRole('button', { name: 'Create identity' }))
+    await user.type(screen.getByLabelText('Identity ID'), issued.id)
+  } else {
+    await user.click(screen.getByRole('button', { name: 'Rotate Token' }))
+  }
+  fetchMock.mockResolvedValueOnce(response(operation === 'create' ? 201 : 200, issued))
+  await user.click(screen.getByRole('button', { name: operation === 'create' ? 'Create and issue Token' : 'Confirm change' }))
+  await screen.findByLabelText('Identity Token')
+  const clipboard = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  await user.click(screen.getByRole('button', { name: 'Copy Token' }))
+  const result = screen.getByLabelText('Identity Token').closest('section')!
+  expect(within(result).getByRole('status')).toHaveTextContent('Token copied')
+  await user.click(screen.getByRole('button', { name: `Copy ID: ${issued.id}` }))
+  expect(clipboard).toHaveBeenLastCalledWith(issued.id)
+  expect(screen.getByLabelText('Identity Token')).toHaveValue(issued.token)
+  expect(within(result).getByRole('status')).toHaveTextContent('Token copied')
+  clipboard.mockRejectedValueOnce(new Error('denied'))
+  await user.click(screen.getByRole('button', { name: `Copy ID: ${issued.id}` }))
+  expect(screen.getByLabelText('Identity Token')).toHaveValue(issued.token)
+  expect(screen.getByText(/Copy failed. Select the ID/)).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Close' }))
+  expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
+})
+
+it('reloads metadata after a persisted pageshow without restoring issued Tokens or replaying creation', async () => {
+  const page = renderPage()
+  const user = await connect()
+  await user.type(screen.getByLabelText('Identity ID'), issued.id)
+  fetchMock.mockResolvedValueOnce(response(201, issued))
+  await user.click(screen.getByRole('button', { name: 'Create and issue Token' }))
+  await screen.findByLabelText('Identity Token')
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
+  const before = fetchMock.mock.calls.length
+  fireEvent(window, new PageTransitionEvent('pageshow', { persisted: false }))
+  expect(fetchMock).toHaveBeenCalledTimes(before)
+  fireEvent(window, new PageTransitionEvent('pagehide', { persisted: true }))
+  expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
+  fetchMock.mockResolvedValueOnce(response(200, [{ id: 'restored-human', kind: 'human' }]))
+  fireEvent(window, new PageTransitionEvent('pageshow', { persisted: true }))
+  expect(await screen.findByText('restored-human')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Identity Token')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Create identity' })).toBeEnabled()
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+  const after = fetchMock.mock.calls.length
+  page.unmount()
+  fireEvent(window, new PageTransitionEvent('pageshow', { persisted: true }))
+  expect(fetchMock).toHaveBeenCalledTimes(after)
+})
+
+it('keeps pre-navigation responses cancelled and permits retry after a failed cache restoration', async () => {
+  let stale!: (value: Response) => void
+  fetchMock.mockImplementationOnce(() => new Promise(resolve => { stale = resolve }))
+  renderPage()
+  const signal = fetchMock.mock.calls[0][1]!.signal!
+  fireEvent(window, new PageTransitionEvent('pagehide', { persisted: true }))
+  expect(signal.aborted).toBe(true)
+  fetchMock.mockResolvedValueOnce(response(500))
+  fireEvent(window, new PageTransitionEvent('pageshow', { persisted: true }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load identities')
+  await act(async () => stale(response(200, [{ id: 'stale-human', kind: 'human' }])))
+  expect(screen.queryByText('stale-human')).not.toBeInTheDocument()
+  fetchMock.mockResolvedValueOnce(response(200, [{ id: 'current-human', kind: 'human' }]))
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: 'Refresh' }))
+  expect(await screen.findByText('current-human')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
