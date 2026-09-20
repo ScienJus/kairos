@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { I18nProvider } from './i18n'
 import { WorkItemPage } from './WorkItemPage'
+import * as taskMap from './TaskMap'
 import type { Identity, Task, WorkItem, WorkItemContext } from './types'
 
 const identity: Identity = { id: 'human-1', kind: 'human', role: '' }
@@ -364,6 +365,12 @@ describe('Unified Continue execution', () => {
 
 
 describe('Interrupted Workflow recovery capacity', () => {
+  beforeEach(() => {
+    // Keep all history for capacity checks without rendering hundreds of graph
+    // nodes while the Definition query is loading. Graph layout is tested separately.
+    vi.spyOn(taskMap, 'TaskMap').mockReturnValue(null)
+  })
+
   it.each([2, 498, 499])('counts both failed attempts of a node with %i instances', async count => {
     const source = failedWorkflow('execution_failure', count)
     const tasks: Task[] = Array.from({ length: count }, (_, index) => ({
