@@ -1481,7 +1481,7 @@ components:
         cancelled_at: { $ref: '#/components/schemas/NullableDateTime' }
         cancelled_by: { $ref: '#/components/schemas/NullableActorRef' }
         cancellation_reason: { $ref: '#/components/schemas/HistoryText' }
-        started_over_from_work_item_id: { $ref: '#/components/schemas/NullableString' }
+        started_over_from_work_item_id: { $ref: '#/components/schemas/NullableString', description: 'Immutable source reference to another Workflow WorkItem with the same Definition ID and version; null when not started over.' }
         start_over_context: { $ref: '#/components/schemas/HistoryText', description: Current failure reasons and source ID for a Workflow created by Start over, bounded to 32768 UTF-8 bytes; old execution history is not copied. Empty otherwise. }
         recovery_instructions: { $ref: '#/components/schemas/HistoryText', description: Operator guidance for the current continue/start-over; empty by default. }
         workflow_max_task_instances_per_node:
@@ -1499,7 +1499,7 @@ components:
       required: [kind, message, workflow_task_id, task_instances, limit]
       properties:
         kind: { type: string, enum: [execution_failure, workflow_task_instance_limit] }
-        message: { $ref: '#/components/schemas/HistoryText', description: 'Generated node-limit messages use a brief explanation if full detail would exceed 32768 UTF-8 bytes. The complete blocked node ID remains in workflow_task_id.' }
+        message: { $ref: '#/components/schemas/HistoryText', description: 'Required nonblank failure explanation (not only whitespace). Generated node-limit messages use a brief explanation if full detail would exceed 32768 UTF-8 bytes. The complete blocked node ID remains in workflow_task_id.' }
         workflow_task_id: { type: string, description: Complete blocked Definition node ID for a per-node guard even when message is abbreviated; empty for ordinary or legacy failures. }
         task_instances: { type: integer, minimum: 0, description: Materialized instance count at a per-node failure; zero otherwise. }
         limit: { type: integer, minimum: 0, maximum: 500, description: Limit that triggered the guard; zero for ordinary failures. }

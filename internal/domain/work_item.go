@@ -68,7 +68,8 @@ const FailureExecution = "execution_failure"
 // WorkItem represents one concrete unit of work.
 type WorkItem struct {
 	// ID uniquely identifies this concrete work item. [Both]
-	ID                        WorkItemID  `json:"id"`
+	ID WorkItemID `json:"id"`
+	// StartedOverFromWorkItemID is immutable and refers to another Workflow WorkItem with the same Definition binding.
 	StartedOverFromWorkItemID *WorkItemID `json:"started_over_from_work_item_id"`
 	StartOverContext          string      `json:"start_over_context"`
 	RecoveryInstructions      string      `json:"recovery_instructions"`
@@ -151,6 +152,9 @@ func (w WorkItem) Validate() error {
 	if w.Failure != nil {
 		if w.Status != WorkItemStatusFailed {
 			return invalid("failure", "requires failed status")
+		}
+		if strings.TrimSpace(w.Failure.Message) == "" {
+			return invalid("failure.message", "is required")
 		}
 		if err := validateHistoryText("failure.message", w.Failure.Message); err != nil {
 			return err
