@@ -27,7 +27,7 @@ const executorEnv = "KAIROS_EXECUTOR_TOKEN"
 const maxOutcomeBytes = 1 << 20
 const maxRuntimeFailureReasonBytes = 4096
 
-var cliVersion = regexp.MustCompile(`^codex-cli ([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?\s*$`)
+var cliVersion = regexp.MustCompile(`^codex-cli ([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\s*$`)
 
 func supportedVersion(version string) bool {
 	parts := cliVersion.FindStringSubmatch(version)
