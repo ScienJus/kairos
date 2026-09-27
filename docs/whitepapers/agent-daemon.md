@@ -36,6 +36,13 @@ authorized Blackboard collaboration. Daemon and Core have independent process li
 process startup cannot be exactly-once with a database transaction; Core state correctness relies on
 Claims, fencing, and terminal reconciliation.
 
+The CLI also reports process-instance health, active Dispatch snapshots, counters, and typed lifecycle
+events to Core through a separate, best-effort HTTP path. Human operators can inspect them in the
+console's Daemons page. Core computes reporting/stale status from its own receive time; a missing report
+does not release a Claim or change business state. Graceful shutdown makes one bounded, best-effort
+final report after Dispatch reconciliation. The
+[observability design](../daemon-observability-design.zh-CN.md) defines this surface and its limits.
+
 ## 2. Dispatch and lifecycle ownership
 
 A Dispatch associates one Claim with controlled Harness execution:

@@ -2,11 +2,12 @@
 .brand { color: inherit; text-align: left; background: transparent; border-top: 0; border-bottom: 0; border-left: 0; cursor: pointer; }
 .library-link, .language-button { min-height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; color: #607471; background: transparent; border: 1px solid transparent; border-radius: 7px; font-size: 11px; cursor: pointer; }
 .library-link:hover, .library-link.active { color: #336774; background: #edf3f1; }
-.blackboards-page { grid-column: 1 / -1; height: 100%; overflow-y: auto; padding: 46px max(24px, calc((100vw - 1120px) / 2)) 70px; background: #f7f8f5; }
+.blackboards-page { grid-column: 1 / -1; height: 100%; overflow-y: auto; padding: 52px max(24px, calc((100vw - var(--page-content-width)) / 2)) 70px; background: #f7f8f5; }
 .library-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 34px; }
 .library-heading > div > span, .definition-title > div > span, .definition-editor-heading > span { color: #648087; font-size: 10px; font-weight: 600; text-transform: uppercase; }
-.library-heading h1 { margin: 8px 0 0; color: #284143; font-size: 32px; font-weight: 580; }
-.library-heading p { max-width: 580px; margin: 10px 0 0; color: #71817f; font-size: 13px; line-height: 1.65; }
+.library-heading > div > span { display: block; font-size: 11px; line-height: 16px; }
+.library-heading h1 { margin: 10px 0 0; color: #284143; font-size: 32px; font-weight: 570; line-height: 1.25; }
+.library-heading p { max-width: 580px; margin: 14px 0 0; color: #71817f; font-size: 14px; line-height: 1.7; }
 .library-layout { min-height: 570px; display: grid; grid-template-columns: 310px minmax(0, 1fr); gap: 38px; }
 .definition-shelf { display: flex; flex-direction: column; gap: 9px; }
 .definition-shelf > button { width: 100%; min-height: 112px; display: flex; flex-direction: column; align-items: flex-start; padding: 17px 18px; color: #364c4c; text-align: left; background: #fff; border: 1px solid #e1e7e3; border-radius: 9px; cursor: pointer; }
@@ -80,15 +81,17 @@
 .workflow-task-definition > div:not(.definition-tags) > strong { color: #5b7374; font-size: 10px; }
 .workflow-task-definition > div:not(.definition-tags) > p { margin: 7px 0 0; color: #697b78; font-size: 12px; line-height: 1.65; }
 .workflow-task-definition .definition-tags { margin-top: 17px; }
-.workflow-editor-page { width: min(1380px, calc(100% - 32px)); height: 100%; display: flex; flex-direction: column; margin: 0 auto; overflow: hidden; }
-.workflow-editor-header { min-height: 94px; display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; align-items: center; gap: 20px; border-bottom: 1px solid #dfe5e1; }
-.workflow-editor-header .back-button { margin: 0; }
+.workflow-editor-page { width: min(var(--page-content-width), calc(100% - 48px)); height: 100%; display: flex; flex-direction: column; margin: 0 auto; overflow: hidden; }
+.workflow-editor-header { min-height: 124px; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 32px auto; align-items: center; gap: 4px 20px; padding: 12px 0 16px; border-bottom: 1px solid #dfe5e1; }
+.workflow-editor-header .back-button { grid-column: 1 / -1; grid-row: 1; justify-self: start; margin: 0; }
+.workflow-editor-header > div:nth-child(2) { min-width: 0; grid-column: 1; grid-row: 2; }
+.workflow-editor-header .editor-publish { grid-column: 2; grid-row: 2; }
 .workflow-editor-header > div:nth-child(2) > span { color: #668087; font-size: 9px; text-transform: uppercase; }
 .workflow-editor-header h1 { margin: 6px 0 0; overflow: hidden; color: #2d4849; font-size: 21px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .editor-publish { display: flex; align-items: center; gap: 9px; }
 .editor-publish small { display: inline-flex; align-items: center; gap: 5px; margin-right: 5px; color: #788985; font-size: 10px; }
 .editor-discard-trigger { display: inline-flex; align-items: center; gap: 6px; }
-.workflow-editor-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; padding: 12px 0 16px; }
+.workflow-editor-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) min(360px, 38%); gap: 12px; padding: 12px 0 16px; }
 .editor-canvas, .editor-properties { min-width: 0; min-height: 0; overflow: hidden; background: #fff; border: 1px solid #dfe5e1; border-radius: 9px; }
 .editor-canvas { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .editor-toolbar { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid #e3e8e4; }

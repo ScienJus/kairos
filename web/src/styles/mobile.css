@@ -2,11 +2,12 @@
   .topbar { height: 56px; margin: 0 auto; }
   .language-button { width: 34px; padding: 0; justify-content: center; }
   .language-button span { display: none; }
-  .workspace { padding-top: 18px; }
-  .welcome { padding: 20px 3px 30px; }
-  .welcome h1 { font-size: 26px; }
+  .workspace { width: calc(100% - 32px); padding-top: 18px; }
+  .welcome { padding: 20px 0 30px; }
+  .welcome h1 { font-size: 27px; }
   .welcome p { font-size: 13px; }
-  .home-tabs { margin-inline: 3px; }
+  .home-tabs { margin-inline: 0; }
+  .blackboards-page { padding-top: 38px; }
   .work-list { grid-template-columns: 1fr; gap: 10px; }
   .attention-entry { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding-inline: 8px; }
   .attention-entry > svg { display: none; }

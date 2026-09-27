@@ -13,9 +13,11 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/ScienJus/kairos/internal/daemon"
 	"github.com/ScienJus/kairos/internal/daemon/codexadapter"
+	"github.com/ScienJus/kairos/internal/daemonobs"
 )
 
 var version = "dev"
@@ -44,6 +46,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 	codexHome := flags.String("codex-home", "", "dedicated authenticated Codex home (required with --adapter=codex)")
 	codexModel := flags.String("codex-model", "", "explicit model for Codex (required with --adapter=codex)")
 	tags := flags.String("tags", "", "comma-separated discovery tags")
+	instanceName := flags.String("instance-name", "", "optional Daemon display name (128 UTF-8 bytes max)")
 	flags.StringVar(&options.WorkspaceRoot, "workspace-root", options.WorkspaceRoot, "private per-Dispatch workspace root (retained after exit)")
 	flags.IntVar(&options.Slots, "slots", options.Slots, "maximum concurrent Dispatches")
 	flags.IntVar(&options.DiscoveryLimit, "discovery-limit", options.DiscoveryLimit, "Core per-kind candidate limit (1..50)")
@@ -73,6 +76,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 	if *adapter != "unavailable" && *adapter != "fake-decline" && *adapter != "codex" {
 		return errors.New("unsupported adapter")
 	}
+	*instanceName = strings.TrimSpace(*instanceName)
+	if len(*instanceName) > 128 {
+		return errors.New("instance name exceeds 128 UTF-8 bytes")
+	}
 	core, err := daemon.NewHTTPClient(*coreURL, daemon.NewSecret(getenv("KAIROS_DAEMON_TOKEN")), nil)
 	if err != nil {
 		return err
@@ -86,6 +93,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 		options.Tags = strings.Split(*tags, ",")
 	}
 	options.Logger = slog.New(slog.NewJSONHandler(out, nil))
+	telemetry, err := daemon.NewTelemetry()
+	if err != nil {
+		return err
+	}
+	options.Telemetry = telemetry
 	var harness daemon.Adapter = &diagnosticAdapter{enabled: *adapter == "fake-decline", runs: make(map[string]daemon.Candidate)}
 	if *adapter == "codex" {
 		harness, err = codexadapter.New(codexadapter.Options{Executable: *codexExecutable, Home: *codexHome, Model: *codexModel})
@@ -98,7 +110,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, out, st
 		return err
 	}
 	options.Logger.Info("daemon_started", "adapter", *adapter, "slots", options.Slots)
-	return scheduler.Run(ctx)
+	reporter := daemon.NewReporter(core, telemetry, *instanceName, version, *adapter, options.Slots, options.Tags)
+	reportContext, stopReporter := context.WithCancel(context.Background())
+	reporterDone := make(chan struct{})
+	go func() { defer close(reporterDone); reporter.Run(reportContext, scheduler) }()
+	runErr := scheduler.Run(ctx)
+	stopReporter()
+	<-reporterDone
+	telemetry.Emit(daemonobs.Event{Kind: "daemon_stopped"})
+	finalContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := reporter.FlushStopped(finalContext, scheduler); err != nil {
+		options.Logger.Warn("daemon_report_failed", "category", daemon.ReportErrorCategory(err), "final", true)
+	}
+	return runErr
 }
 
 // The opt-in fake Adapter releases and quarantines work; it never calls a model.

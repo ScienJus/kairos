@@ -135,7 +135,7 @@ Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最
 - 并发保护，以及面向 API 资源创建和托管上传的重放保护；
 - 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
 - 绑定 Claim 的 Executor 凭据，以及受限的 HTTP/MCP 上下文读取、Artifact 和 Blackboard 规划权限；
-- Agent Daemon 连续调度与[本地 Codex Adapter](internal/daemon/codexadapter/README.md)，支持共享 slots、健康探测、按候选代次的抑制和受限执行；通过真实进程与 HTTP/MCP 测试，不调用模型；
+- Agent Daemon 连续调度与[本地 Codex Adapter](internal/daemon/codexadapter/README.md)，支持共享 slots、健康探测、按候选代次的抑制、受限执行，以及平台上的实例/调度/事件可见性；通过真实进程与 HTTP/MCP 测试，不调用模型；
 - 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
 - 包含 workspace 总览、人工关注、Workflow 图、Blackboard Task 层级和 Definition 编辑器的 operations console；
 - 记录操作者、时间和原因的人工 WorkItem 取消能力；

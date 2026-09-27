@@ -136,7 +136,7 @@ Available in this repository:
 - concurrency guards plus replay protection for resource-creating API calls and managed uploads;
 - persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
 - Claim-bound Executor credentials with scoped HTTP/MCP read, Artifact, and Blackboard-planning permissions;
-- an Agent Daemon scheduler and [local Codex Adapter](internal/daemon/codexadapter/README.md), with shared slots, health probes, candidate-generation suppression, scoped managed execution, and real-process HTTP/MCP tests without model calls;
+- an Agent Daemon scheduler and [local Codex Adapter](internal/daemon/codexadapter/README.md), with shared slots, health probes, candidate-generation suppression, scoped managed execution, platform instance/dispatch/event visibility, and real-process HTTP/MCP tests without model calls;
 - stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
 - an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
 - human-operated WorkItem cancellation with durable actor, time, and reason metadata;

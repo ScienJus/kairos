@@ -32,6 +32,11 @@ Daemon 通过 HTTP 控制执行，Harness 通过 MCP 动态读取上下文、管
 Blackboard 协作。Daemon 与 Core 的进程生命周期独立；外部进程启动不能与数据库事务组成
 exactly-once，Core 状态正确性依赖 Claim、fencing 和终态 reconcile。
 
+CLI 另通过尽力而为的 HTTP 上报进程实例健康态、当前 Dispatch 快照、计数器和有类型的生命周期
+事件，Human 可在控制台 Daemon 页面查看。Core 以服务端接收时间判断上报中断；缺少报告不会
+释放 Claim 或改变业务状态。优雅退出在 Dispatch 收尾后尽力发送一次有界最终报告。
+接口边界见[平台可观测性详细设计](../daemon-observability-design.zh-CN.md)。
+
 ## 2. Dispatch 与生命周期所有权
 
 Dispatch 将一个 Claim 与一次受控的 Harness 执行关联起来，分为两类：

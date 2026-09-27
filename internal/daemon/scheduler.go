@@ -19,6 +19,7 @@ type SchedulerOptions struct {
 	WorkspaceRoot                                               string
 	Tags                                                        []string
 	Logger                                                      *slog.Logger
+	Telemetry                                                   *Telemetry
 }
 
 func DefaultSchedulerOptions() SchedulerOptions {
@@ -41,6 +42,7 @@ type suppression struct {
 }
 
 type scheduledRun struct {
+	id       string
 	dispatch *Dispatch
 	work     DiscoveredCandidate
 	started  time.Time
@@ -49,19 +51,21 @@ type scheduledRun struct {
 // Scheduler owns process-local admissions for one Run. Unresolved Dispatches
 // remain in Active after shutdown; they are never declared ended locally.
 type Scheduler struct {
-	core         DiscoveryCore
-	adapter      Adapter
-	options      SchedulerOptions
-	runStarted   bool
-	probeGate    chan struct{}
-	mu           sync.Mutex
-	stats        SchedulerStats
-	active       map[Candidate]*scheduledRun
-	records      map[Candidate]suppression
-	cursor       int
-	nextProbe    time.Time
-	probeBackoff time.Duration
-	healthSerial uint64
+	core          DiscoveryCore
+	adapter       Adapter
+	options       SchedulerOptions
+	runStarted    bool
+	probeGate     chan struct{}
+	mu            sync.Mutex
+	stats         SchedulerStats
+	active        map[Candidate]*scheduledRun
+	records       map[Candidate]suppression
+	cursor        int
+	nextProbe     time.Time
+	probeBackoff  time.Duration
+	healthSerial  uint64
+	probeObserved bool
+	stopping      bool
 }
 
 func NewScheduler(core DiscoveryCore, adapter Adapter, options SchedulerOptions) (*Scheduler, error) {
@@ -105,6 +109,7 @@ func (s *Scheduler) signalSystemFailure() {
 		s.stats.Paused = true
 		s.nextProbe = s.options.Dispatch.Clock.Now().Add(s.options.DiscoveryInterval)
 		s.options.Logger.Warn("harness_paused")
+		s.options.Telemetry.Emit(eventFor("admission_paused", Candidate{}, ""))
 	}
 }
 
@@ -144,21 +149,31 @@ func (s *Scheduler) probe(ctx context.Context, force bool) bool {
 	}
 	now = s.options.Dispatch.Clock.Now()
 	if err != nil {
+		wasPaused := s.stats.Paused
+		s.probeObserved = true
 		s.stats.ProbeFailures++
 		s.stats.Paused = true
 		s.probeBackoff = min(max(s.options.DiscoveryInterval, s.probeBackoff*2), time.Minute)
 		// Jitter only delays retries; it never bypasses the minimum backoff.
 		s.nextProbe = now.Add(s.probeBackoff + time.Duration(rand.Int64N(max(1, int64(s.probeBackoff/4)))))
 		s.options.Logger.Warn("probe_failed", "retry_after", s.nextProbe)
+		if !wasPaused {
+			s.options.Telemetry.Emit(eventFor("admission_paused", Candidate{}, ""))
+		}
 		return false
 	}
 	if serial != s.healthSerial {
 		return false
 	}
+	wasPaused := s.stats.Paused
+	s.probeObserved = true
 	s.stats.Paused = false
 	s.probeBackoff = 0
 	s.nextProbe = now.Add(s.options.ProbeInterval)
 	s.options.Logger.Info("probe_healthy")
+	if wasPaused {
+		s.options.Telemetry.Emit(eventFor("admission_resumed", Candidate{}, ""))
+	}
 	return true
 }
 
@@ -234,6 +249,29 @@ func (s *Scheduler) finish(run *scheduledRun) {
 		}
 	}
 	record := s.records[run.work.Candidate]
+	ended := eventFor("dispatch_ended", result.Candidate, result.ClaimID)
+	ended.DispatchID = &run.id
+	ended.Details.State = string(result.State)
+	ended.Details.Reason = string(result.StopReason)
+	ended.Details.Outcome = string(result.Outcome)
+	applied := result.OutcomeApplied
+	attempts := result.Attempts
+	durationMS := s.options.Dispatch.Clock.Now().Sub(run.started).Milliseconds()
+	ended.Details.Applied = &applied
+	ended.Details.Attempts = &attempts
+	ended.Details.DurationMS = &durationMS
+	if result.OutcomeApplied {
+		applied := eventFor("outcome_applied", result.Candidate, result.ClaimID)
+		applied.DispatchID = &run.id
+		applied.Details.Outcome = string(result.Outcome)
+		s.options.Telemetry.Emit(applied)
+	}
+	s.options.Telemetry.Emit(ended)
+	if record.quarantined {
+		quarantined := eventFor("candidate_quarantined", result.Candidate, result.ClaimID)
+		quarantined.DispatchID = &run.id
+		s.options.Telemetry.Emit(quarantined)
+	}
 	s.options.Logger.Info("dispatch_ended", "kind", result.Candidate.Kind, "work_item_id", result.Candidate.WorkItemID,
 		"task_id", result.Candidate.TaskID, "claim_id", result.ClaimID, "state", result.State, "reason", result.StopReason,
 		"outcome", result.Outcome, "applied", result.OutcomeApplied, "attempts", result.Attempts,
@@ -268,10 +306,12 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			s.mu.Lock()
+			s.stopping = true
 			for _, run := range s.active {
 				run.dispatch.RequestStop(StopRequested)
 			}
 			s.mu.Unlock()
+			s.options.Telemetry.Emit(eventFor("shutdown_started", Candidate{}, ""))
 			deadline := s.options.Dispatch.Clock.After(s.options.ShutdownTimeout)
 			for s.Stats().Active > 0 {
 				select {
@@ -336,7 +376,13 @@ func (s *Scheduler) admit(ctx context.Context, launch func(*scheduledRun)) {
 			s.options.Logger.Warn("dispatch_prepare_failed")
 			return
 		}
-		run := &scheduledRun{dispatch: dispatch, work: row, started: options.Clock.Now()}
+		dispatchID, err := newUUID()
+		if err != nil {
+			_ = os.Remove(workspace)
+			s.options.Logger.Warn("dispatch_prepare_failed")
+			return
+		}
+		run := &scheduledRun{id: dispatchID, dispatch: dispatch, work: row, started: options.Clock.Now()}
 		dispatch.claimAdmission = func(ctx context.Context) bool { return s.probe(ctx, true) }
 		s.mu.Lock()
 		s.active[row.Candidate] = run
@@ -377,6 +423,11 @@ func (c *schedulerCore) Claim(ctx context.Context, candidate Candidate, op strin
 				}
 			}
 			s.options.Logger.Info("claim_acquired", "kind", candidate.Kind, "work_item_id", candidate.WorkItemID, "task_id", candidate.TaskID, "claim_id", claim.ID)
+			event := eventFor("claim_acquired", candidate, claim.ID)
+			if run := s.active[candidate]; run != nil {
+				event.DispatchID = &run.id
+			}
+			s.options.Telemetry.Emit(event)
 		})
 	}
 	return claim, err
@@ -407,6 +458,21 @@ func (a *schedulerAdapter) Forget(ref RunRef) {
 
 func (a *schedulerAdapter) Start(ctx context.Context, r StartRequest) (RunRef, error) {
 	ref, err := a.Adapter.Start(ctx, r)
+	if err == nil && ref.ID != "" {
+		kind := "harness_started"
+		if r.Attempt > 1 {
+			kind = "harness_retry"
+		}
+		event := eventFor(kind, r.Candidate, r.ClaimID)
+		attempt := r.Attempt
+		event.Details.Attempts = &attempt
+		a.scheduler.mu.Lock()
+		if run := a.scheduler.active[r.Candidate]; run != nil {
+			event.DispatchID = &run.id
+		}
+		a.scheduler.mu.Unlock()
+		a.scheduler.options.Telemetry.Emit(event)
+	}
 	var system *SystemError
 	if errors.As(err, &system) {
 		a.scheduler.signalSystemFailure()

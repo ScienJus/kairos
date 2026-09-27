@@ -63,9 +63,9 @@ Database timestamps are normalized at the application boundary to UTC with micro
 
 ## HTTP response contract
 
-The machine-readable <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 document</a> is the exact contract for all 46 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
+The machine-readable <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 document</a> is the exact contract for all 53 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
 
-All API JSON field names use `snake_case`. JSON request objects are closed contracts; an unknown field is rejected with `400 invalid_request`, including unknown fields inside nested objects. JSON success responses use `{ "data": ... }`; JSON errors use `{ "error": { "code": string, "message": string } }`. Release and token-revocation operations return `204` without a body, `/healthz` returns `{ "status": "ok" }`, and Artifact content is returned as `application/octet-stream`.
+All API JSON field names use `snake_case`. JSON request objects are closed contracts; an unknown field is rejected with `400 invalid_request`, including unknown fields inside nested objects. JSON success responses use `{ "data": ... }`; JSON errors use `{ "error": { "code": string, "message": string } }`. Release, Daemon report, and token-revocation operations return `204` without a body, `/healthz` returns `{ "status": "ok" }`, and Artifact content is returned as `application/octet-stream`.
 
 Collection fields and list responses are always arrays, including when empty. Optional single values such as `active_claim_id`, `parent_task_id`, `current_review`, `workflow`, `blackboard`, completion timestamps, and cancellation actor/time are `null` when absent. Repeated `status`, `mode`, and `tag` query parameters are represented as repeated query keys. Common error codes are:
 
@@ -79,6 +79,16 @@ Collection fields and list responses are always arrays, including when empty. Op
 | `409` | `work_item_cancelled` |
 | `413` | `artifact_too_large` |
 | `500` | `internal_error` |
+
+## Daemon observations
+
+`kairos-daemon` registers a fresh process ID at startup and sends a snapshot and bounded event batch to Core about every 15 seconds. Its Agent Identity Token owns the instance; a different Agent cannot report to it. Telemetry failures do not change Claim, heartbeat, or outcome handling; the Daemon logs bounded failure categories and recovery without response bodies or credentials. During shutdown it reports `stopping` while active Dispatches reconcile, then makes one best-effort `stopped` report with a two-second timeout. The final report uses the normal event and body limits and may leave queued events unsent. `--instance-name` sets an optional display name (128 UTF-8 bytes maximum); surrounding whitespace is removed. No host name, path, credential, model output, or raw log is uploaded.
+
+The console's **Daemons** page and the read APIs are Human-only. `GET /api/v1/daemon-instances` lists instances with a report in the last 30 days by default; `include_history=true` includes older retained instances, and `agent_id` narrows the list. `GET /api/v1/daemon-instances/{id}` gives the latest snapshot; `GET /api/v1/daemon-instances/{id}/events` gives a descending, paginated event history. All three use Core receive time for `last_report_at`. `reporting` means a report arrived within 45 seconds, `stale` means no recent report, and `stopped` requires an explicit final report. A stale instance does not imply its Claim has ended. The page polls every 15 seconds and links dispatches and events to WorkItems.
+
+Agent-only `POST /api/v1/daemon-instances` registers an instance (`201` new, `200` matching replay). `POST /api/v1/daemon-instances/{id}/reports` accepts a 64 KiB maximum body with a monotonic snapshot revision, up to 100 active dispatch details and 50 typed events. Daemon-generated candidate events carry the relevant WorkItem, Task, Dispatch, and Claim references; process events leave them null. Core validates known event kinds, non-empty supplied references, shared enums, and non-negative values. Explicit `false` and `0` facts are retained. A `204` response accepts the whole submitted batch. Duplicate `(instance_id, sequence)` events keep the first stored event and do not create another row, so a Daemon can resend after losing a response. An old revision can deliver missing events but cannot refresh online status. Event references are navigation hints and are not checked against mutable Claim state during ingestion. Event history is retained for 30 days and inactive instances for 90 days, with daily cleanup. There are no new MCP tools.
+
+The [detailed design](daemon-observability-design.zh-CN.md) records the status model and planned extensions.
 
 ## Choose an identity mode
 

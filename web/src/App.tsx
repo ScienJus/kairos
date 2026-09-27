@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { GitBranch, KeyRound, Languages, Library, LoaderCircle, LogOut, Plus, RefreshCw, UserRound } from 'lucide-react'
+import { GitBranch, KeyRound, Languages, Library, LoaderCircle, LogOut, Plus, RadioTower, RefreshCw, UserRound } from 'lucide-react'
 import { APIError, api, authenticationRequiredEvent, clearBearerToken, configureAuthenticationMode, loadBearerToken, loadIdentity, saveBearerToken, saveIdentity, tokenStorageUnavailableEvent, TokenStorageError } from './api'
 import { CreateWorkModal, IdentityModal, type WorkDefinitionTarget } from './AppModals'
 import { HomePage } from './HomePage'
@@ -12,6 +12,7 @@ const BlackboardsPage = lazy(() => import('./BlackboardsPage').then(module => ({
 const WorkItemPage = lazy(() => import('./WorkItemPage').then(module => ({ default: module.WorkItemPage })))
 const WorkflowsPage = lazy(() => import('./WorkflowsPage').then(module => ({ default: module.WorkflowsPage })))
 const WorkflowEditorPage = lazy(() => import('./WorkflowEditorPage').then(module => ({ default: module.WorkflowEditorPage })))
+const DaemonsPage = lazy(() => import('./DaemonsPage').then(module => ({ default: module.DaemonsPage })))
 
 type AuthenticationState =
   | { status: 'loading' }
@@ -268,16 +269,19 @@ function ConsoleApp({ identity: initialIdentity, authenticationMode, onLogout }:
         <button className={`library-link ${route.workflowID !== undefined ? 'active' : ''}`} title={t('workflows')} onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', workflowID: null })}><GitBranch size={16} />{t('workflows')}</button>
       </nav>
       <div className="top-actions">
+        {identity.kind === 'human' && <button className={`library-link daemon-nav-link ${route.daemonID !== undefined ? 'active' : ''}`} title={t('daemons')} onClick={() => navigate({ workItemID: null, taskID: null, homeView: 'all', daemonID: null })}><RadioTower size={16} />{t('daemons')}</button>}
         <button className="language-button" onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')} aria-label={locale === 'en' ? '切换到中文' : 'Switch to English'}><Languages size={16} /><span>{locale === 'en' ? '中文' : 'EN'}</span></button>
         {authenticationMode === 'trusted'
           ? <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label={t('identitySettings')} title={`${t('identity')}: ${identity.id}`}><UserRound size={17} /></button>
           : <div className="account-menu" ref={accountMenuRef}><button ref={accountTriggerRef} className="icon-button account-trigger" aria-label={`${t('authenticatedAs')}: ${identity.display_name || identity.id}`} title={`${t('authenticatedAs')}: ${identity.display_name || identity.id}`} aria-controls={accountOpen ? 'account-popover' : undefined} aria-expanded={accountOpen} onClick={() => setAccountOpen(open => !open)}><UserRound size={17} /></button>{accountOpen && <div id="account-popover" className="account-popover"><div className="account-identity"><span>{t('authenticatedAs')}</span><strong>{identity.display_name || identity.id}</strong>{identity.role && <small>{identity.role}</small>}</div><button onClick={onLogout}><LogOut size={15} />{t('logout')}</button></div>}</div>}
-        {!route.workItemID && route.blackboardID === undefined && route.workflowID === undefined && <button className="primary-button" onClick={() => setCreateOpen(true)}><Plus size={17} />{t('startSomething')}</button>}
+        {!route.workItemID && route.blackboardID === undefined && route.workflowID === undefined && route.daemonID === undefined && <button className="primary-button" onClick={() => setCreateOpen(true)}><Plus size={17} />{t('startSomething')}</button>}
       </div>
     </header>
 
-    <main className={`workspace ${route.blackboardID !== undefined || route.workflowID !== undefined ? 'library-workspace' : ''} ${route.workItemID ? 'show-work' : 'show-queue'} ${route.taskID ? 'task-open' : ''}`}><Suspense fallback={<div className="panel-placeholder"><strong>{t('acquiring')}</strong></div>}>
-      {route.workflowID !== undefined
+    <main className={`workspace ${route.blackboardID !== undefined || route.workflowID !== undefined ? 'library-workspace' : ''} ${route.daemonID !== undefined ? 'daemon-workspace' : ''} ${route.workItemID ? 'show-work' : 'show-queue'} ${route.taskID ? 'task-open' : ''}`}><Suspense fallback={<div className="panel-placeholder"><strong>{t('acquiring')}</strong></div>}>
+      {route.daemonID !== undefined
+        ? <DaemonsPage identity={identity} daemonID={route.daemonID} navigate={navigate} />
+        : route.workflowID !== undefined
         ? route.workflowEditing
           ? <WorkflowEditorPage identity={identity} workflowID={route.workflowID ?? null} workflowVersion={route.workflowVersion ?? null} navigate={navigate} />
           : <WorkflowsPage identity={identity} workflowID={route.workflowID ?? null} workflowVersion={route.workflowVersion ?? null} navigate={navigate} onStartWork={definition => { setCreateDefinition(definition); setCreateOpen(true) }} />
