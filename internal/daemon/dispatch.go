@@ -17,6 +17,7 @@ type Snapshot struct {
 	State          DispatchState
 	RunState       RunState
 	ClaimID        string
+	UncertainClaim bool
 	RunRef         RunRef
 	Attempts       int
 	StopReason     StopReason
@@ -103,7 +104,8 @@ func (d *Dispatch) Snapshot() Snapshot {
 	return Snapshot{
 		Candidate: d.candidate, State: d.state, RunState: d.runState,
 		ClaimID: d.claim.ID, ClaimEnded: d.claim.ID != "" && !d.claim.Active,
-		EndReason: d.claim.EndReason, RunRef: d.runRef, Attempts: d.attempts,
+		UncertainClaim: d.uncertainClaim,
+		EndReason:      d.claim.EndReason, RunRef: d.runRef, Attempts: d.attempts,
 		StopReason: d.stopReason, OutcomeApplied: d.outcomeApplied, Outcome: outcome,
 	}
 }

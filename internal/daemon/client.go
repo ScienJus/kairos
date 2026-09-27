@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/ScienJus/kairos/internal/daemonobs"
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
@@ -98,6 +99,15 @@ func (c *HTTPClient) request(ctx context.Context, method, path, operation string
 		}
 	}
 	return nil
+}
+
+func (c *HTTPClient) RegisterDaemon(ctx context.Context, value daemonobs.Registration) error {
+	var result daemonobs.Instance
+	return c.request(ctx, http.MethodPost, "/daemon-instances", "", value, &result)
+}
+
+func (c *HTTPClient) ReportDaemon(ctx context.Context, id string, value daemonobs.Report) error {
+	return c.request(ctx, http.MethodPost, "/daemon-instances/"+url.PathEscape(id)+"/reports", "", value, nil)
 }
 
 func taskPath(c Candidate) string { return "/tasks/" + url.PathEscape(string(c.TaskID)) }

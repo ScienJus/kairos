@@ -32,6 +32,7 @@ const messages = {
     authenticatedAs: "Authenticated as",
     startSomething: "Start something",
     blackboards: "Blackboards",
+    daemons: "Daemons",
     blackboardLibrary: "Definition library",
     blackboardsTitle: "Blackboards",
     blackboardsBody:
@@ -400,6 +401,7 @@ const messages = {
     authenticatedAs: "当前身份",
     startSomething: "开始一件事",
     blackboards: "Blackboard",
+    daemons: "Daemon",
     blackboardLibrary: "Definition 资料架",
     blackboardsTitle: "Blackboards",
     blackboardsBody:

@@ -63,9 +63,9 @@ location = /mcp {
 
 ## HTTP 响应约定
 
-机器可读的 <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 文档</a>是当前全部 46 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
+机器可读的 <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 文档</a>是当前全部 53 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
 
-所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim 和撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
+所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim、上报 Daemon 以及撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
 
 集合字段和列表响应即使为空也始终编码为数组。`active_claim_id`、`parent_task_id`、`current_review`、`workflow`、`blackboard`、完成时间以及取消操作者和时间等可选单值在不存在时使用 `null`。重复的 `status`、`mode` 与 `tag` 查询参数通过重复 query key 传递。通用错误码如下：
 
@@ -79,6 +79,16 @@ location = /mcp {
 | `409` | `work_item_cancelled` |
 | `413` | `artifact_too_large` |
 | `500` | `internal_error` |
+
+## Daemon 平台可观测性
+
+`kairos-daemon` 每次启动生成新的实例 ID，使用 Agent Identity Token 注册，并约每 15 秒向 Core 上报运行快照和有类型的事件。遥测失败不改变 Claim、续租和业务结果处理；Daemon 只在首次失败、类别变化、最大退避和恢复时记录安全的错误类别，不记录响应正文或凭据。退出期间先上报 `stopping`，等待活跃 Dispatch 收尾后使用 2 秒超时尽力发送一次 `stopped` 报告。最终报告沿用普通批次和请求体上限，可能留下未发送的内存事件。`--instance-name` 可以设置展示名称（最多 128 UTF-8 字节），首尾空白会被移除。不会上传主机名、工作目录、凭据、模型输出或原始日志。
+
+控制台的 **Daemon** 页面及读取 API 只允许 Human 使用。`GET /api/v1/daemon-instances` 默认列出近 30 天有上报的实例；`include_history=true` 包含仍保留的历史实例，`agent_id` 可筛选。`GET /api/v1/daemon-instances/{id}` 返回最后快照，`GET /api/v1/daemon-instances/{id}/events` 按实例事件序号倒序分页。`last_report_at` 使用 Core 接收时间。45 秒内收到上报为 `reporting`，超时为 `stale`，只有明确收到退出报告才是 `stopped`；实例失联不意味着 Claim 已结束。页面每 15 秒轮询，并可从 Dispatch 与事件跳转到 WorkItem。
+
+`POST /api/v1/daemon-instances` 仅允许 Agent 注册自己的实例，首次返回 `201`，配置完全相同的重放返回 `200`。`POST /api/v1/daemon-instances/{id}/reports` 请求体上限 64 KiB；快照 revision 单调递增，单次最多 100 个活跃详情和 50 个事件。Daemon 生成的候选事件携带相关 WorkItem、Task、Dispatch 和 Claim 引用，进程级事件将这些引用留空。Core 校验已知事件类型、传入引用非空、共享枚举和非负数值，并保留显式的 `false` 和 `0`。`204` 表示整批上报成功；同一 `(instance_id, sequence)` 重送时保留首次写入的事件且不产生重复行，因此 Daemon 在响应丢失后可以安全重送。旧 revision 可以补交事件，却不能刷新在线时间。事件引用只用于导航，上报时不与可能变化的 Claim 状态同步核对。事件保留 30 天，停止上报的实例保留 90 天，Core 每日清理。没有新增 MCP 工具。
+
+状态含义与后续扩展见[详细设计](daemon-observability-design.zh-CN.md)。
 
 ## 选择身份模式
 

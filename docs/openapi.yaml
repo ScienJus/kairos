@@ -354,6 +354,106 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/daemon-instances:
+    parameters:
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: listDaemonInstances
+      summary: List Daemon instances (Human only)
+      description: Default scope is instances with a report in the last 30 days. Connectivity is computed from Core receive time; reporting means a report arrived within 45 seconds.
+      parameters:
+        - $ref: '#/components/parameters/PageLimitQuery'
+        - $ref: '#/components/parameters/PageCursorQuery'
+        - name: agent_id
+          in: query
+          schema: { type: string }
+        - name: include_history
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200': { description: Daemon instances, content: { application/json: { schema: { $ref: '#/components/schemas/DaemonInstanceListResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: registerDaemonInstance
+      summary: Register a process instance (Agent only)
+      description: Same ID, actor, and immutable configuration is idempotent and returns 200 without refreshing last_report_at.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DaemonRegistration' } } }
+      responses:
+        '201': { description: Registered, content: { application/json: { schema: { $ref: '#/components/schemas/DaemonInstanceResponse' } } } }
+        '200': { description: Matching registration replay, content: { application/json: { schema: { $ref: '#/components/schemas/DaemonInstanceResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/daemon-instances/{instance_id}:
+    parameters:
+      - name: instance_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: getDaemonInstance
+      summary: Get a Daemon instance (Human only)
+      responses:
+        '200': { description: Instance snapshot, content: { application/json: { schema: { $ref: '#/components/schemas/DaemonInstanceResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/daemon-instances/{instance_id}/reports:
+    parameters:
+      - name: instance_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    post:
+      operationId: reportDaemonInstance
+      summary: Send snapshot and events (owning Agent only)
+      description: Body limit 64 KiB. Events are deduplicated by sequence; only a newer revision replaces the snapshot and refreshes last_report_at. A successful response accepts the entire submitted batch.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DaemonReport' } } }
+      responses:
+        '204': { description: Report accepted }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/daemon-instances/{instance_id}/events:
+    parameters:
+      - name: instance_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/TrustedActorKindHeader'
+      - $ref: '#/components/parameters/TrustedActorRoleHeader'
+    get:
+      operationId: listDaemonEvents
+      summary: List Daemon events (Human only)
+      parameters:
+        - $ref: '#/components/parameters/PageLimitQuery'
+        - $ref: '#/components/parameters/PageCursorQuery'
+      responses:
+        '200': { description: Events in descending sequence, content: { application/json: { schema: { $ref: '#/components/schemas/DaemonEventListResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/work-items:
     parameters:
       - $ref: '#/components/parameters/TrustedActorKindHeader'
@@ -1212,6 +1312,123 @@ components:
     NullableString: { type: [string, 'null'] }
     NullableCursor: { type: [string, 'null'], minLength: 1, maxLength: 2048 }
     StringArray: { type: array, items: { type: string } }
+    DaemonRegistration:
+      type: object
+      additionalProperties: false
+      required: [id, process_started_at, daemon_version, adapter, slots]
+      properties:
+        id: { type: string, format: uuid, description: Lowercase random process ID. }
+        name: { type: string, description: Optional display name after surrounding whitespace is removed; at most 128 UTF-8 bytes., x-maxBytes: 128 }
+        process_started_at: { $ref: '#/components/schemas/DateTime' }
+        daemon_version: { type: string, x-maxBytes: 64 }
+        adapter: { type: string, x-maxBytes: 32 }
+        slots: { type: integer, minimum: 1 }
+        tags: { type: array, maxItems: 50, items: { type: string, x-maxBytes: 128 } }
+    DaemonDispatch:
+      type: object
+      additionalProperties: false
+      required: [id, candidate_kind, work_item_id, claim_status, state, attempts, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        candidate_kind: { type: string, enum: [task, empty_blackboard, blackboard_completion, work_item_acceptance] }
+        work_item_id: { type: string }
+        task_id: { $ref: '#/components/schemas/NullableString', description: Required and non-empty for task candidates; null for coordination candidates. }
+        claim_id: { $ref: '#/components/schemas/NullableString', description: Required and non-empty for active or ended Claims; null before a Claim is known. }
+        claim_status: { type: string, enum: [not_attempted, uncertain, active, ended], description: active and ended require claim_id; not_attempted and uncertain require claim_id to be null. }
+        state: { type: string, enum: [prepared, claimed, starting, running, finalizing, stopping, finished, lost] }
+        attempts: { type: integer, minimum: 0 }
+        started_at: { $ref: '#/components/schemas/DateTime' }
+    DaemonEventDetails:
+      type: object
+      additionalProperties: false
+      description: Optional bounded facts for candidate-scoped events. Values use the shared lifecycle enums; process-level events use an empty object.
+      properties:
+        reason: { type: string, enum: [requested, lease_lost, authority_lost, runtime_failure, protocol_error, core_rejected] }
+        state: { type: string, enum: [finished, lost] }
+        outcome: { type: string, enum: [completed, decomposed, retryable_failure, work_item_failure, human_intervention_required, candidate_declined, create_task, submit_completion, accept_completion] }
+        applied: { type: boolean, description: On dispatch_ended, false means the outcome was not confirmed as applied. }
+        attempts: { type: integer, minimum: 0 }
+        duration_ms: { type: integer, format: int64, minimum: 0 }
+    DaemonEvent:
+      type: object
+      additionalProperties: false
+      description: Daemon-generated candidate events include relevant navigation references. Core validates supplied references as non-empty strings but does not use them as business-state constraints.
+      required: [sequence, kind, candidate_kind, occurred_at, dispatch_id, work_item_id, task_id, claim_id, details]
+      properties:
+        sequence: { type: integer, format: int64, minimum: 1 }
+        kind: { type: string, enum: [admission_paused, admission_resumed, claim_acquired, harness_started, harness_retry, outcome_applied, dispatch_ended, candidate_quarantined, shutdown_started, daemon_stopped] }
+        candidate_kind:
+          oneOf:
+            - { type: string, enum: [task, empty_blackboard, blackboard_completion, work_item_acceptance] }
+            - { type: 'null' }
+          description: Candidate kind when the event concerns a Dispatch.
+        occurred_at: { $ref: '#/components/schemas/DateTime' }
+        received_at: { type: string, format: date-time, readOnly: true, description: Core receive time; present in read responses. }
+        dispatch_id: { $ref: '#/components/schemas/NullableString', description: Dispatch navigation reference when available. }
+        work_item_id: { $ref: '#/components/schemas/NullableString', description: WorkItem navigation reference when available. }
+        task_id: { $ref: '#/components/schemas/NullableString', description: Task navigation reference when available. }
+        claim_id: { $ref: '#/components/schemas/NullableString', description: Claim navigation reference when available. }
+        details: { $ref: '#/components/schemas/DaemonEventDetails' }
+    DaemonReport:
+      type: object
+      additionalProperties: false
+      required: [revision, lifecycle, health]
+      properties:
+        revision: { type: integer, format: int64, minimum: 1 }
+        lifecycle: { type: string, enum: [running, stopping, stopped], description: Daemon process lifecycle; stopping is reported throughout graceful shutdown before the final stopped report. }
+        health: { type: string, enum: [unknown, healthy, paused] }
+        active_count: { type: integer, minimum: 0 }
+        active_dispatches: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/DaemonDispatch' } }
+        omitted_active_count: { type: integer, minimum: 0 }
+        dropped_events: { type: integer, minimum: 0 }
+        events: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/DaemonEvent' } }
+    DaemonInstance:
+      type: object
+      additionalProperties: false
+      required: [id, name, agent_id, process_started_at, registered_at, last_report_at, stopped_at, daemon_version, adapter, slots, tags, last_revision, lifecycle, health, active_count, active_dispatches, omitted_active_count, dropped_events, connectivity, as_of]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        agent_id: { type: string }
+        process_started_at: { $ref: '#/components/schemas/DateTime' }
+        registered_at: { $ref: '#/components/schemas/DateTime' }
+        last_report_at: { $ref: '#/components/schemas/DateTime' }
+        stopped_at: { $ref: '#/components/schemas/NullableDateTime' }
+        daemon_version: { type: string }
+        adapter: { type: string }
+        slots: { type: integer, minimum: 1 }
+        tags: { type: array, items: { type: string } }
+        last_revision: { type: integer, format: int64 }
+        lifecycle: { type: string, enum: [running, stopping, stopped], description: Last reported Daemon process lifecycle. }
+        health: { type: string, enum: [unknown, healthy, paused] }
+        active_count: { type: integer }
+        active_dispatches: { type: array, items: { $ref: '#/components/schemas/DaemonDispatch' } }
+        omitted_active_count: { type: integer }
+        dropped_events: { type: integer, minimum: 0 }
+        connectivity: { type: string, enum: [reporting, stale, stopped] }
+        as_of: { $ref: '#/components/schemas/DateTime' }
+    DaemonInstanceResponse:
+      type: object
+      required: [data]
+      properties: { data: { $ref: '#/components/schemas/DaemonInstance' } }
+    DaemonInstanceListResponse:
+      type: object
+      required: [data, next_cursor, as_of]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/DaemonInstance' } }
+        next_cursor: { $ref: '#/components/schemas/NullableCursor' }
+        as_of: { $ref: '#/components/schemas/DateTime' }
+    DaemonEventListResponse:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/DaemonEventResponse' } }
+        next_cursor: { $ref: '#/components/schemas/NullableCursor' }
+    DaemonEventResponse:
+      allOf:
+        - $ref: '#/components/schemas/DaemonEvent'
+        - type: object
+          required: [received_at, dispatch_id, work_item_id, task_id, claim_id, details]
     HistoryText:
       type: string
       description: Text retained in history or copied into the event log; limited to 32 KiB of UTF-8 encoded bytes.
