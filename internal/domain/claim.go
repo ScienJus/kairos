@@ -32,6 +32,9 @@ func (a ActorRef) Validate() error {
 	if strings.TrimSpace(string(a.ID)) == "" {
 		return invalid("executor.id", "is required")
 	}
+	if a.ID == "." || a.ID == ".." {
+		return invalid("executor.id", "must not be a reserved URL path segment (dot or dot-dot)")
+	}
 	return nil
 }
 

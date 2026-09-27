@@ -19,14 +19,14 @@ export function Status({ value }: { value: string }) {
   return <span className={`status status-${value}`}><i />{key ? t(key) : value.toUpperCase()}</span>
 }
 
-export function Modal({ open, onOpenChange, title, eyebrow, children }: {
-  open: boolean; onOpenChange: (open: boolean) => void; title: string; eyebrow: string; children: ReactNode
+export function Modal({ open, onOpenChange, title, eyebrow, children, onCloseAutoFocus, className = '' }: {
+  open: boolean; onOpenChange: (open: boolean) => void; title: string; eyebrow: string; children: ReactNode; className?: string; onCloseAutoFocus?: (event: Event) => void
 }) {
   const { t } = useI18n()
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
       <Dialog.Overlay className="dialog-overlay" />
-      <Dialog.Content className="dialog-content">
+      <Dialog.Content onCloseAutoFocus={onCloseAutoFocus} className={`dialog-content ${className}`}>
         <div className="dialog-heading"><div><span className="eyebrow">{eyebrow}</span><Dialog.Title>{title}</Dialog.Title></div>
           <Dialog.Close className="icon-button" aria-label={t('close')}><X size={17} /></Dialog.Close></div>
         {children}
