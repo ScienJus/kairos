@@ -22,6 +22,19 @@ The default `unavailable` Adapter always fails Probe and never claims work.
 The Identity Token is read only from `KAIROS_DAEMON_TOKEN`; it is not a CLI flag
 or passed to the Harness. `--help` lists all configuration.
 
+Each CLI process registers a new instance with Core and reports its health,
+active Dispatches and typed lifecycle events independently of work
+coordination. Use `--instance-name` for an optional display name. Humans can
+inspect these reports in the console's **Daemons** page. A missed report becomes
+`stale` after 45 seconds; it does not change a Claim or prove the process has
+exited. If Core is unavailable, the Reporter retries with bounded backoff while
+the Scheduler follows its existing Core error handling. Reporter failures and
+recovery are logged with bounded categories and no response body or credential.
+Shutdown reports `stopping` while Dispatches reconcile, then makes one
+best-effort `stopped` report with a two-second timeout. Normal batch and body
+limits still apply, so queued events may remain unsent. See the
+[API Reference](../../docs/api-reference.md).
+
 For model-backed work, use `--adapter codex` with an explicit `--codex-home` and
 `--codex-model`; see the Adapter guide for supported versions, network policy,
 authentication setup, and process cleanup boundaries.

@@ -1,4 +1,4 @@
-import type { Artifact, AuthenticationConfig, BlackboardTaskDecomposition, Claim, CreateDefinitionInput, CreateWorkflowDefinitionInput, CreateWorkItemInput, DecomposeTaskInput, Definition, FailTaskInput, HumanAttentionItem, Identity, ReviewDecisionInput, Submission, SubmitTaskInput, Task, TaskDetailView, TaskDraftInput, TaskExecutionContext, WorkflowDefinition, WorkItem, WorkItemContext } from './types'
+import type { Artifact, AuthenticationConfig, BlackboardTaskDecomposition, Claim, CreateDefinitionInput, CreateWorkflowDefinitionInput, CreateWorkItemInput, DaemonEvent, DaemonInstance, DecomposeTaskInput, Definition, FailTaskInput, HumanAttentionItem, Identity, ReviewDecisionInput, Submission, SubmitTaskInput, Task, TaskDetailView, TaskDraftInput, TaskExecutionContext, WorkflowDefinition, WorkItem, WorkItemContext } from './types'
 
 const identityKey = 'kairos-console-identity'
 const bearerTokenKey = 'kairos-console-token'
@@ -65,6 +65,10 @@ export class APIError extends Error {
 export interface Page<T> {
   data: T[]
   next_cursor: string | null
+}
+
+export interface DaemonPage extends Page<DaemonInstance> {
+  as_of: string
 }
 
 function authenticationHeaders(identity?: Identity) {
@@ -150,6 +154,9 @@ export const api = {
     return body.data
   },
   getSession: (identity?: Identity) => request<Identity>('/api/v1/session', identity, { cache: 'no-store' }),
+  listDaemons: (identity: Identity, cursor?: string, includeHistory = false) => requestJSON<DaemonPage>(pagePath('/api/v1/daemon-instances', cursor, { include_history: String(includeHistory) }), identity),
+  getDaemon: (identity: Identity, id: string) => request<DaemonInstance>(`/api/v1/daemon-instances/${encodeURIComponent(id)}`, identity, { cache: 'no-store' }),
+  listDaemonEvents: (identity: Identity, id: string, cursor?: string) => requestPage<DaemonEvent>(`/api/v1/daemon-instances/${encodeURIComponent(id)}/events`, identity, cursor),
   listWorkItems: (identity: Identity, cursor?: string, options?: { statuses?: WorkItem['status'][] }) => requestPage<WorkItem>('/api/v1/work-items', identity, cursor, { status: options?.statuses }),
   listHumanAttention: (identity: Identity, cursor?: string) => requestPage<HumanAttentionItem>('/api/v1/human-attention', identity, cursor),
   getWorkItem: (identity: Identity, id: string) => request<WorkItemContext>(`/api/v1/work-items/${id}/context`, identity),

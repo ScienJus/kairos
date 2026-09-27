@@ -3,6 +3,29 @@ export type TaskStatus = 'pending' | 'working' | 'waiting_children' | 'in_review
 export type Mode = 'blackboard' | 'workflow'
 export type AuthenticationMode = 'trusted' | 'authenticated'
 
+export type DaemonConnectivity = 'reporting' | 'stale' | 'stopped'
+export type DaemonHealth = 'unknown' | 'healthy' | 'paused'
+export interface DaemonDispatch {
+  id: string; candidate_kind: 'task' | 'empty_blackboard' | 'blackboard_completion' | 'work_item_acceptance'
+  work_item_id: string; task_id: string | null; claim_id: string | null
+  claim_status: 'not_attempted' | 'uncertain' | 'active' | 'ended'
+  state: 'prepared' | 'claimed' | 'starting' | 'running' | 'finalizing' | 'stopping' | 'finished' | 'lost'
+  attempts: number; started_at: string
+}
+export interface DaemonInstance {
+  id: string; name: string; agent_id: string; process_started_at: string; registered_at: string
+  last_report_at: string; stopped_at: string | null; daemon_version: string; adapter: string
+  slots: number; tags: string[]; lifecycle: 'running' | 'stopping' | 'stopped'
+  health: DaemonHealth; connectivity: DaemonConnectivity; as_of: string
+  active_count: number; active_dispatches: DaemonDispatch[]; omitted_active_count: number
+  dropped_events: number; last_revision: number
+}
+export interface DaemonEvent {
+  sequence: number; kind: string; candidate_kind: DaemonDispatch['candidate_kind'] | null; occurred_at: string; received_at: string
+  dispatch_id: string | null; work_item_id: string | null; task_id: string | null; claim_id: string | null
+  details: { reason?: string; state?: string; outcome?: string; applied?: boolean; attempts?: number; duration_ms?: number }
+}
+
 export interface DefinitionBinding { id: string; version: number; mode: Mode }
 export interface WorkItemFailure {
   kind: 'execution_failure' | 'workflow_task_instance_limit'
