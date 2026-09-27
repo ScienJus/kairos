@@ -1,5 +1,6 @@
 export type HomeView = 'all' | 'human'
 export type RouteState = {
+  adminIdentities?: boolean
   workItemID: string | null
   taskID: string | null
   homeView: HomeView
@@ -18,6 +19,7 @@ export function readRoute(pathname: string): RouteState {
   } catch {
     return { workItemID: null, taskID: null, homeView: 'all' }
   }
+  if (parts[0] === 'admin' && parts[1] === 'identities' && parts.length === 2) return { workItemID: null, taskID: null, homeView: 'all', adminIdentities: true }
   if (parts[0] === 'blackboards') {
     const version = parts[2] === 'versions' ? Number(parts[3]) : null
     return { workItemID: null, taskID: null, homeView: 'all', blackboardID: parts[1] ?? null, blackboardVersion: Number.isInteger(version) && version! > 0 ? version : null }
@@ -37,6 +39,7 @@ export function readRoute(pathname: string): RouteState {
 }
 
 export function routePath(route: RouteState) {
+  if (route.adminIdentities) return '/admin/identities'
   if (route.daemonID !== undefined) return route.daemonID ? `/daemons/${encodeURIComponent(route.daemonID)}` : '/daemons'
   if (route.blackboardID !== undefined) {
     const base = route.blackboardID ? `/blackboards/${encodeURIComponent(route.blackboardID)}` : '/blackboards'

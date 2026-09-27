@@ -40,3 +40,7 @@ describe('route state', () => {
     expect(readRoute('/workflows/new')).toEqual({ workItemID: null, taskID: null, homeView: 'all', workflowID: null, workflowVersion: null, workflowEditing: true })
   })
 })
+
+it('round trips the independent administrator page', () => {
+  expect(routePath(readRoute('/admin/identities'))).toBe('/admin/identities')
+})

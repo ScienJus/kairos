@@ -725,3 +725,21 @@ func TestMCPRecoveryContextPreservesOperatorInstructions(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPRejectsReservedActorIDBeforeDispatch(t *testing.T) {
+	service, _ := newMCPFixture(t)
+	handler, err := New(service, identity.TrustedResolver{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{".", ".."} {
+		request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+		request.Header.Set(identity.HeaderActorID, id)
+		request.Header.Set(identity.HeaderActorRole, "developer")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("reserved actor ID accepted: status %d", response.Code)
+		}
+	}
+}

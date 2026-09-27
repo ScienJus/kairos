@@ -134,3 +134,15 @@ func TestAuthenticatedResolverRoutesExecutorFormat(t *testing.T) {
 		t.Fatalf("missing Claim authenticator must not fall back: err=%v identity calls=%d", err, regular.calls)
 	}
 }
+
+func TestTrustedResolverRejectsReservedActorIDs(t *testing.T) {
+	for _, id := range []string{".", "..", " .. "} {
+		request := httptest.NewRequest("GET", "/", nil)
+		request.Header.Set(HeaderActorID, id)
+		request.Header.Set(HeaderActorRole, "developer")
+		_, err := (TrustedResolver{}).Resolve(request)
+		if err == nil || !strings.Contains(err.Error(), "reserved URL path segment") {
+			t.Fatalf("expected Actor ID validation, got %v", err)
+		}
+	}
+}
