@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ScienJus/kairos/internal/application"
+	"github.com/ScienJus/kairos/internal/daemonobs"
 	"github.com/ScienJus/kairos/internal/domain"
 	"github.com/ScienJus/kairos/internal/identity"
 )
@@ -34,11 +36,13 @@ const (
 type Options struct {
 	MaxArtifactUploadBytes int64
 	AuthenticationMode     AuthenticationMode
+	DaemonStore            daemonobs.Store
 }
 
 // Handler serves the versioned Kairos HTTP API.
 type Handler struct {
 	service                *application.Service
+	daemonObs              *daemonobs.Service
 	identity               identity.Resolver
 	identityManagement     *identity.Service
 	adminTokenHash         [32]byte
@@ -63,6 +67,9 @@ func New(service *application.Service, resolver identity.Resolver, options ...Op
 	handler := &Handler{
 		service: service, identity: identity.WithExecutorAuthenticator(resolver, service), maxArtifactUploadBytes: configured.MaxArtifactUploadBytes,
 		authenticationMode: configured.AuthenticationMode, mux: http.NewServeMux(),
+	}
+	if configured.DaemonStore != nil {
+		handler.daemonObs = daemonobs.New(configured.DaemonStore, time.Now)
 	}
 	handler.routes()
 	return handler, nil
@@ -92,6 +99,9 @@ func NewWithIdentityManagement(
 		adminTokenHash: sha256.Sum256([]byte(adminToken)), hasAdminToken: true,
 		maxArtifactUploadBytes: configured.MaxArtifactUploadBytes,
 		authenticationMode:     configured.AuthenticationMode, mux: http.NewServeMux(),
+	}
+	if configured.DaemonStore != nil {
+		handler.daemonObs = daemonobs.New(configured.DaemonStore, time.Now)
 	}
 	handler.routes()
 	return handler, nil
@@ -128,6 +138,11 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /healthz", h.health)
 	h.mux.HandleFunc("GET /api/v1/auth/config", h.getAuthenticationConfig)
 	h.mux.HandleFunc("GET /api/v1/session", h.getSession)
+	h.mux.HandleFunc("GET /api/v1/daemon-instances", h.listDaemonInstances)
+	h.mux.HandleFunc("POST /api/v1/daemon-instances", h.registerDaemonInstance)
+	h.mux.HandleFunc("GET /api/v1/daemon-instances/{instance_id}", h.getDaemonInstance)
+	h.mux.HandleFunc("POST /api/v1/daemon-instances/{instance_id}/reports", h.reportDaemonInstance)
+	h.mux.HandleFunc("GET /api/v1/daemon-instances/{instance_id}/events", h.listDaemonEvents)
 	if h.identityManagement != nil {
 		h.mux.HandleFunc("GET /api/v1/identities", h.listIdentities)
 		h.mux.HandleFunc("POST /api/v1/identities", h.createIdentity)

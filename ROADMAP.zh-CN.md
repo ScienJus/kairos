@@ -21,7 +21,7 @@ Kairos 正在积极开发中。本 Roadmap 用于说明方向，不代表交付�
 2. **Agent Daemon 加固**：扩展实际 CLI/平台及 Provider 故障验证，同时保持 Kairos 与模型及沙箱管理解耦。详见[分阶段实现规划](docs/agent-daemon-implementation-plan.zh-CN.md)。
 3. **运营流程**：完成剩余控制台操作，改善失败恢复的可见性，并提供实用的备份恢复指南。
 4. **集成示例**：记录真实的多 Agent 工作流，并提供可复用的 Workflow 与 Blackboard 模板。
-5. **可观测性**：提供有用的结构化日志和运行指标，同时不让遥测成为协调依赖。
+5. **可观测性**：Daemon 实例、调度和事件的 MVP 已接入 Core 与控制台。后续扩展运行指标与聚合视图，同时不让遥测成为协调依赖。见 [Daemon 平台可观测性详细设计](docs/daemon-observability-design.zh-CN.md)。
 
 ## 后续探索
 

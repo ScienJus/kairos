@@ -97,6 +97,20 @@ func run() error {
 		return err
 	}
 	defer stopArtifactGC()
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			if err := repo.PruneDaemonObservations(ctx, time.Now().UTC()); err != nil && ctx.Err() == nil {
+				log.Printf("daemon observation cleanup failed: %v", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 	maxArtifactUploadBytes, err := strconv.ParseInt(environment("KAIROS_ARTIFACT_MAX_UPLOAD_BYTES", strconv.FormatInt(httpapi.DefaultMaxArtifactUploadBytes, 10)), 10, 64)
 	if err != nil || maxArtifactUploadBytes <= 0 {
 		return fmt.Errorf("KAIROS_ARTIFACT_MAX_UPLOAD_BYTES must be a positive integer")
@@ -125,6 +139,7 @@ func run() error {
 	httpOptions := httpapi.Options{
 		MaxArtifactUploadBytes: maxArtifactUploadBytes,
 		AuthenticationMode:     httpapi.AuthenticationMode(authMode),
+		DaemonStore:            repo,
 	}
 
 	var apiHandler *httpapi.Handler

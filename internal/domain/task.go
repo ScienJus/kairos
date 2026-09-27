@@ -347,8 +347,14 @@ func (t Task) Validate(mode CoordinationMode) error {
 		if len(t.Failures) == 0 || (t.Failures[len(t.Failures)-1].Action == TaskFailureRetry && mode != CoordinationModeWorkflow) {
 			return invalid("failures", "a failed task requires a terminal failure record")
 		}
-	} else if len(t.Failures) > 0 && (t.Failures[len(t.Failures)-1].Action == TaskFailureFailWorkItem || t.Failures[len(t.Failures)-1].Action == TaskFailureAwaitHuman) {
-		return invalid("status", "must be failed after await_human or fail_work_item")
+	} else if len(t.Failures) > 0 {
+		latestAction := t.Failures[len(t.Failures)-1].Action
+		if latestAction == TaskFailureRetry && mode == CoordinationModeWorkflow {
+			return invalid("status", "must remain failed after retry in Workflow")
+		}
+		if latestAction == TaskFailureFailWorkItem || latestAction == TaskFailureAwaitHuman {
+			return invalid("status", "must be failed after await_human or fail_work_item")
+		}
 	}
 
 	return nil

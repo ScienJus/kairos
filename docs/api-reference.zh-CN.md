@@ -63,9 +63,9 @@ location = /mcp {
 
 ## HTTP 响应约定
 
-机器可读的 <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 文档</a>是当前全部 46 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
+机器可读的 <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 文档</a>是当前全部 53 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
 
-所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim 和撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
+所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim、上报 Daemon 以及撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
 
 集合字段和列表响应即使为空也始终编码为数组。`active_claim_id`、`parent_task_id`、`current_review`、`workflow`、`blackboard`、完成时间以及取消操作者和时间等可选单值在不存在时使用 `null`。重复的 `status`、`mode` 与 `tag` 查询参数通过重复 query key 传递。通用错误码如下：
 
@@ -79,6 +79,16 @@ location = /mcp {
 | `409` | `work_item_cancelled` |
 | `413` | `artifact_too_large` |
 | `500` | `internal_error` |
+
+## Daemon 平台可观测性
+
+`kairos-daemon` 每次启动生成新的实例 ID，使用 Agent Identity Token 注册，并约每 15 秒向 Core 上报运行快照和有类型的事件。遥测失败不改变 Claim、续租和业务结果处理；Daemon 只在首次失败、类别变化、最大退避和恢复时记录安全的错误类别，不记录响应正文或凭据。退出期间先上报 `stopping`，等待活跃 Dispatch 收尾后使用 2 秒超时尽力发送一次 `stopped` 报告。最终报告沿用普通批次和请求体上限，可能留下未发送的内存事件。`--instance-name` 可以设置展示名称（最多 128 UTF-8 字节），首尾空白会被移除。不会上传主机名、工作目录、凭据、模型输出或原始日志。
+
+控制台的 **Daemon** 页面及读取 API 只允许 Human 使用。`GET /api/v1/daemon-instances` 默认列出近 30 天有上报的实例；`include_history=true` 包含仍保留的历史实例，`agent_id` 可筛选。`GET /api/v1/daemon-instances/{id}` 返回最后快照，`GET /api/v1/daemon-instances/{id}/events` 按实例事件序号倒序分页。`last_report_at` 使用 Core 接收时间。45 秒内收到上报为 `reporting`，超时为 `stale`，只有明确收到退出报告才是 `stopped`；实例失联不意味着 Claim 已结束。页面每 15 秒轮询，并可从 Dispatch 与事件跳转到 WorkItem。
+
+`POST /api/v1/daemon-instances` 仅允许 Agent 注册自己的实例，首次返回 `201`，配置完全相同的重放返回 `200`。`POST /api/v1/daemon-instances/{id}/reports` 请求体上限 64 KiB；快照 revision 单调递增，单次最多 100 个活跃详情和 50 个事件。Daemon 生成的候选事件携带相关 WorkItem、Task、Dispatch 和 Claim 引用，进程级事件将这些引用留空。Core 校验已知事件类型、传入引用非空、共享枚举和非负数值，并保留显式的 `false` 和 `0`。`204` 表示整批上报成功；同一 `(instance_id, sequence)` 重送时保留首次写入的事件且不产生重复行，因此 Daemon 在响应丢失后可以安全重送。旧 revision 可以补交事件，却不能刷新在线时间。事件引用只用于导航，上报时不与可能变化的 Claim 状态同步核对。事件保留 30 天，停止上报的实例保留 90 天，Core 每日清理。没有新增 MCP 工具。
+
+状态含义与后续扩展见[详细设计](daemon-observability-design.zh-CN.md)。
 
 ## 选择身份模式
 
@@ -167,7 +177,7 @@ Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation 
 
 WorkItem 失败或仍有当前失败 Task 的 Workflow 提供两个 Human 操作：**继续执行**保留当前 WorkItem、成功分支、等待汇合和待人工评审，为失败或中断的执行创建新 Task，并仅补发已提交决策中尚未送达的输入；**从头执行**创建新的 WorkItem，从起点执行，复制原始目标和绑定的 Workflow 版本，并携带有长度限制的失败摘要及操作人补充说明。原 WorkItem 以 Failed 状态结束并保留执行历史，剩余 Claim 在同一事务中结束。A 的重试与同一轮成功的 B 汇合；A、B 都失败时，必须等二者的新尝试都成功才触发 C。不提供任意阶段重跑。继续执行保留各节点计数，重试的新 Task 也计数，必要时提高上限（最高 500）；从头执行的新 WorkItem 独立计数。已结束 Claim 不复活，恢复后重新发现并认领。从头执行保留来源 WorkItem 引用和当前失败摘要，不扫描或复制旧 URL、Artifact、Review、Submission 或恢复摘要。受限执行者不能读取其他 WorkItem，人类应在当前补充说明中列出需复用的外部成果；已有外部操作不会撤销。API 详见 `/continue` 和 `/start-over`。
 
-WorkItem 响应包含 `failure`（失败前及继续执行后为 null）、`workflow_max_task_instances_per_node`（0 继承绑定版本，Blackboard 恒为 0）、`started_over_from_work_item_id`（未复制时为 null）、`start_over_context` 和 `recovery_instructions`（默认为空字符串）。失败快照包含 `kind`、`message`、`workflow_task_id`、`task_instances`、`limit`。Task 增加 `retry_of_task_id`（非重试实例为 null）、`retry_context`、`retry_instructions`（默认为空字符串）。恢复统一为 WorkItem 操作，不提供独立 Task 重试能力或接口。增量迁移 `007_workflow_attempts` 以独立列保存重试/来源关系，唯一索引保证每个 Task 至多一个直接替代实例。 HTTP WorkItem 上下文增加 `recovery_task_ids`（没有待重建任务或 Blackboard 时为 `[]`），与继续执行共用任务选择逻辑。控制台据此计算包含中断任务在内的单节点建议上限，超过 500 时仅提供从头执行；服务端提交时仍重新校验。该投影不持久化，也不进入 Agent MCP 视图。
+WorkItem 响应包含 `failure`（失败前及继续执行后为 null）、`workflow_max_task_instances_per_node`（0 继承绑定版本，Blackboard 恒为 0）、`started_over_from_work_item_id`（未复制时为 null）、`start_over_context` 和 `recovery_instructions`（默认为空字符串）。失败快照包含 `kind`、`message`、`workflow_task_id`、`task_instances`、`limit`；快照存在时，message 不能为空或纯空白。从头执行的来源必须是另一个绑定相同 Definition ID 和版本的 Workflow WorkItem，来源引用和 Definition 绑定创建后不可修改。Task 增加 `retry_of_task_id`（非重试实例为 null）、`retry_context`、`retry_instructions`（默认为空字符串）。恢复统一为 WorkItem 操作，不提供独立 Task 重试能力或接口。增量迁移 `007_workflow_attempts` 以独立列保存重试/来源关系，唯一索引保证每个 Task 至多一个直接替代实例。 HTTP WorkItem 上下文增加 `recovery_task_ids`（没有待重建任务或 Blackboard 时为 `[]`），与继续执行共用任务选择逻辑。控制台据此计算包含中断任务在内的单节点建议上限，超过 500 时仅提供从头执行；服务端提交时仍重新校验。该投影不持久化，也不进入 Agent MCP 视图。
 
 Human 管理接口：
 - `POST /api/v1/work-items/{id}/continue`：`{ "version": <当前 WorkItem version>, "max_task_instances_per_node": 0, "instructions": "..." }`。有未完成工作的 Failed Workflow 或含尚未替代失败 Task 的 Open Workflow 均可继续执行。一次事务替换所有当前失败实例，保留仍在执行的分支；Pending 实例仅在 Claim 被整个流程失败撤销时视为中断，正常释放、租约过期和评审驳回保持原实例（已耗尽 Claim 历史容量的实例除外）。上限省略或 0 保留当前值；显式值不可降低、最高 500，且必须容纳所有待重试和被阻止节点。成功返回 200，记录 `work_item.continued`，清除当前失败快照，保留历史失败事件。

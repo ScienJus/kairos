@@ -9,6 +9,7 @@ export type RouteState = {
   workflowID?: string | null
   workflowVersion?: number | null
   workflowEditing?: boolean
+  daemonID?: string | null
 }
 
 export function readRoute(pathname: string): RouteState {
@@ -23,6 +24,9 @@ export function readRoute(pathname: string): RouteState {
     const version = parts[2] === 'versions' ? Number(parts[3]) : null
     return { workItemID: null, taskID: null, homeView: 'all', blackboardID: parts[1] ?? null, blackboardVersion: Number.isInteger(version) && version! > 0 ? version : null }
   }
+  if (parts[0] === 'daemons') {
+    return { workItemID: null, taskID: null, homeView: 'all', daemonID: parts[1] ?? null }
+  }
   if (parts[0] === 'workflows') {
     if (parts[1] === 'new') return { workItemID: null, taskID: null, homeView: 'all', workflowID: null, workflowVersion: null, workflowEditing: true }
     const version = parts[2] === 'versions' ? Number(parts[3]) : null
@@ -36,6 +40,7 @@ export function readRoute(pathname: string): RouteState {
 
 export function routePath(route: RouteState) {
   if (route.adminIdentities) return '/admin/identities'
+  if (route.daemonID !== undefined) return route.daemonID ? `/daemons/${encodeURIComponent(route.daemonID)}` : '/daemons'
   if (route.blackboardID !== undefined) {
     const base = route.blackboardID ? `/blackboards/${encodeURIComponent(route.blackboardID)}` : '/blackboards'
     return route.blackboardID && route.blackboardVersion ? `${base}/versions/${route.blackboardVersion}` : base

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,26 @@ func TestWorkItemFailureAndRecoveryLimitValidation(t *testing.T) {
 		w.WorkflowMaxTaskInstancesPerNode = limit
 		if err := w.Validate(); err == nil || !strings.Contains(err.Error(), "workflow_max_task_instances_per_node") {
 			t.Fatalf("override %d: %v", limit, err)
+		}
+	}
+	withoutSnapshot := fixture()
+	withoutSnapshot.Failure = nil
+	if err := withoutSnapshot.Validate(); err != nil {
+		t.Fatalf("a failed WorkItem may have no failure snapshot: %v", err)
+	}
+	for _, kind := range []string{FailureExecution, FailureWorkflowTaskInstanceLimit} {
+		for _, message := range []string{"", " \t\r\n", "\u00a0\u3000"} {
+			w := fixture()
+			if kind == FailureExecution {
+				w.Failure = &WorkItemFailure{Kind: kind, Message: "Execution failed"}
+			}
+			if err := w.Validate(); err != nil {
+				t.Fatalf("invalid fixture: %v", err)
+			}
+			w.Failure.Message = message
+			if err := w.Validate(); !errors.Is(err, ErrInvalidModel) || !strings.Contains(err.Error(), "failure.message: is required") {
+				t.Errorf("%s with blank message %q: %v", kind, message, err)
+			}
 		}
 	}
 	for _, mutate := range []func(*WorkItem){
