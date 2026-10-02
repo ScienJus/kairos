@@ -1,40 +1,48 @@
-# Artifact Model and Store
+# Kairos Artifact Model
 
-> How Tasks declare, attach, retain, and clean up files, commits, reports, and other deliverables
+A result such as “implementation completed” is useful, but it is not the implementation. Reviewers and later executors also need a durable way to find the commit, document, report, archive, or uploaded file that was actually produced.
 
-## Why Artifacts exist
+Kairos calls that concrete deliverable an Artifact. A Submission explains the outcome; its Artifacts make the outcome inspectable after the original session is gone.
 
-A Result tells the team what an executor accomplished. An Artifact points to what it actually delivered: a Git commit, branch, document, report, archive, or uploaded file. Keeping that reference with the Task means the deliverable remains findable after the agent session ends and can be used by later Tasks in the same WorkItem.
+## Declaring the Expected Deliverable
 
-## Declare what a Task must deliver
+A Workflow Task Definition may declare named Artifact requirements. The name is the stable contract key and the description tells the executor what to deliver. Every declared name must appear once in a successful Submission; additional Artifacts are allowed.
 
-A Workflow Task Definition may declare named Artifacts:
+Blackboard Tasks express expected deliverables in their description rather than a structured Artifact contract.
 
-```json
-{
-  "artifacts": [
-    { "name": "commit", "description": "Provide the immutable Git commit containing the implementation and tests." },
-    { "name": "branch", "description": "Provide the remote integration branch containing that commit." }
-  ]
-}
-```
+Kairos deliberately does not encode media type, file format, count range, or storage policy in a Task Definition. Those details belong to the work instructions or deployment.
 
-`name` is both the stable contract key and the displayed name. `description` guides the executor. Kairos does not define media types, file kinds, count ranges, or Store policies in the contract. Every declared Workflow name is required once; extra Artifacts are allowed. Blackboard relies on its Task prompt and has no structured Artifact contract.
+## From Creation to Submission
 
-## From upload to submission
+An executor may create an Artifact only under an active Task Claim. It can either:
 
-An executor creates an Artifact only while owning an active Claim. An external Artifact records an absolute URI. A managed Artifact uploads content to the configured Store through HTTP multipart or the MCP `upload_artifact` Base64 transport. Before writing managed content to the Store, Kairos persists an operation-keyed pending upload with its stable managed URI. The Store streams the bytes and returns the digest and size; Kairos records those values in the pending state before one database transaction records Blob metadata, creates the staged Artifact, and marks the upload completed. A pending retry rewrites that URI and checks the recorded digest and size. A failed Store write leaves pending state that identifies the file for GC. Both external and managed Artifacts remain staged until `submit_task` supplies their IDs. Submission validates ownership and Workflow requirements, creates the immutable Submission, binds the Artifacts, and ends the Claim in one transaction.
+- register an absolute URI for a deliverable stored elsewhere; or
+- upload small content to the deployment's managed Artifact Store.
 
-Staged Artifacts are available only to their creating Claim. Submitted Artifacts are visible throughout the WorkItem, including Artifacts retained under rejected Submission history. Context responses expose Artifact manifests, not file content.
+The Artifact remains staged to its creating Claim until `submit_task` includes its ID. Submission atomically validates Claim ownership and Workflow requirements, creates the immutable Submission, binds the Artifacts, and ends responsibility.
 
-An active Claim protects all of its staged Artifacts regardless of age. After the Claim ends, an unsubmitted Artifact is eligible for background garbage collection once its age exceeds the configured retention period; an Artifact already older than that period may therefore be collected on the next pass. Submitted Artifacts are never collected by this lifecycle. GC removes managed Blob content only after no Artifact references its URI; stale pending uploads are removed by their registered URI.
+## What Later Collaborators Can See
 
-Pending managed-upload records and completed replay records for both external registration and managed upload use the same retention window. Within that window, a completed record can replay the staged Artifact result after a lost response; after it expires, the current Artifact and Claim state governs any later request.
+A staged Artifact is visible only inside its creating Claim. A submitted Artifact is visible throughout the WorkItem and remains attached to its Submission even when Review rejects that result.
 
-## Storage and cleanup
+Context responses expose Artifact metadata, not file bytes. Managed content is downloaded through its dedicated authenticated endpoint.
 
-The Artifact row contains provenance, name, and URI. Managed Blob metadata contains URI, digest, and size. The built-in Store writes to a stable upload URI registered before the write and flushes the file and its directory chain before the database marks the upload completed. Its root and hash directories use mode `0700`, and managed files use `0600`, including existing paths tightened during a retry. The digest is retained as integrity metadata and is not used to choose the URI. Duplicate content may occupy separate managed locations.
+Retries never overwrite submitted Artifacts. A later attempt creates new Artifacts and a new Submission, preserving the earlier evidence.
 
-Agents cannot select a Store. The server uses one configured managed Store for this deployment. The bundled implementation supports `kairos://`; large external deliverables should use `create_artifact` with their durable URI.
+If Review rejects a report, the rejected file remains attached to that Submission. The next executor uploads a revised report and submits it separately, allowing the reviewer to compare attempts instead of seeing one mutable file whose history has disappeared.
 
-Deployments configure the Artifact upload limit shared by HTTP and MCP, staged Artifact retention, and GC interval. The bundled defaults are 16 MiB, 24 hours, and 15 minutes respectively. Bundled managed uploads intentionally target small files; large content belongs in durable external storage such as S3 and is registered as an external Artifact URI. MCP Base64 transport expands content by roughly one third and buffers the request in memory.
+## Artifact Storage and Retention
+
+The deployment owns one managed Store and the upload, retention, and garbage-collection policy. Managed Artifacts use stable `kairos://` URIs plus digest and size metadata. Large deliverables should live in durable external storage and be registered by absolute URI.
+
+An active Claim protects its staged Artifacts. After the Claim ends, old unsubmitted Artifacts and incomplete upload records may be collected. Submitted Artifacts are retained as work history.
+
+Exact upload transports, limits, replay behavior, permissions, and defaults are defined in the [API Reference](../api-reference.md) and [OpenAPI](../openapi.yaml).
+
+## Artifact Invariants
+
+- Artifacts belong to one WorkItem and originate from one Task Claim.
+- Staged content cannot be submitted by another Claim.
+- Submission binds Artifacts immutably; Review does not erase them.
+- Artifact content is not copied into ordinary context or result fields.
+- Storage cleanup never changes accepted business history.

@@ -1,40 +1,48 @@
-# Artifact 模型与存储
+# Kairos Artifact 模型
 
-> Task 如何声明、关联、保留并清理文件、Commit、报告或其他交付物
+“实现已经完成”这样的结果有价值，但它并不是实现本身。审核者和后续执行者还需要一种持久方式，找到真正产出的 Commit、文档、报告、归档包或上传文件。
 
-## 为什么需要 Artifact
+Kairos 把这种具体交付物称为 Artifact。Submission 解释结果，Artifact 则让结果在原会话消失后仍然可以被检查。
 
-Result 告诉团队执行者完成了什么，Artifact 则指向真正交付的内容，例如 Git Commit、分支、文档、报告、归档包或上传文件。把这条引用留在 Task 上，交付物就不会随着 Agent 会话结束而失去踪迹，同一 WorkItem 中的后续 Task 也能继续使用它。
+## 声明预期交付物
 
-## 声明 Task 必须交付什么
+Workflow Task Definition 可以声明具名 Artifact 要求。名称是稳定契约标识，描述用于说明应交付什么。成功 Submission 必须为每个声明名称提交一次 Artifact，也可以附加额外交付物。
 
-Workflow Task Definition 可以声明具名 Artifact：
+Blackboard Task 通过描述说明预期交付物，不使用结构化 Artifact 契约。
 
-```json
-{
-  "artifacts": [
-    { "name": "commit", "description": "提交包含实现和测试的不可变 Git commit。" },
-    { "name": "branch", "description": "提交包含该 commit 的远程集成分支。" }
-  ]
-}
-```
+Kairos 不在 Task Definition 中编码媒体类型、文件格式、数量范围或存储策略；这些内容属于工作说明或部署配置。
 
-`name` 同时是稳定契约标识和展示名称，`description` 用于指导执行者。Kairos 不在契约中定义媒体类型、文件种类、数量范围或 Store 策略。Workflow 声明的每个名称都必须提交一次，同时允许额外交付物。Blackboard 依赖 Task 提示词，不使用结构化 Artifact 契约。
+## 从创建到提交
 
-## 从上传到提交
+执行者只有在持有 Active Task Claim 时才能创建 Artifact，可以：
 
-执行者只有在持有 Active Claim 时才能创建 Artifact。外部 Artifact 保存绝对 URI；托管 Artifact 通过 HTTP multipart 或 MCP `upload_artifact` Base64 传输把内容上传到配置好的 Store。向 Store 写入托管内容前，Kairos 会先按 operation key 把稳定上传 URI 和 pending 状态持久化到数据库。Store 流式写入并返回 Digest 和大小；Kairos 随后把这些值更新到 pending 记录，再通过一个数据库事务登记 Blob 元数据、创建暂存 Artifact，并把上传更新为 completed。Pending 重试会覆盖该 URI，并校验已记录的 Digest 和大小。Store 写入失败时，pending 状态仍能定位文件并由 GC 清理。外部和托管 Artifact 在 `submit_task` 携带其 ID 前都处于暂存状态。提交操作在一个事务中校验归属和 Workflow 要求、创建不可变 Submission、绑定 Artifact 并结束 Claim。
+- 登记位于其他系统中的绝对 URI；或
+- 把小体积内容上传到当前部署的托管 Artifact Store。
 
-暂存 Artifact 只对创建它的 Claim 可用。提交后 Artifact 对整个 WorkItem 可见；被驳回 Submission 下的 Artifact 也作为历史保留。上下文返回 Artifact Manifest，不直接注入文件内容。
+Artifact 在 `submit_task` 携带其 ID 前只暂存于创建它的 Claim。提交会原子校验 Claim 归属和 Workflow 要求、创建不可变 Submission、绑定 Artifact，并结束执行责任。
 
-Active Claim 会保护其全部暂存 Artifact，不受创建时间影响。Claim 结束后，未提交 Artifact 在自身创建时间超过配置的保留期时进入后台 GC；如果结束 Claim 时 Artifact 已超过保留期，它可能在下一轮立即被回收。已提交 Artifact 不参与这种生命周期回收。托管 Blob 只有在其 URI 不再被任何 Artifact 引用时才会删除；过期 pending 上传按登记的 URI 清理。
+## 后续协作者能看到什么
 
-Pending 托管上传记录，以及外部登记与托管上传的 completed 重放记录，都使用同一保留时间。窗口内 completed 记录可以在响应丢失后重放暂存 Artifact 结果；窗口过期后，后续请求以当前 Artifact 与 Claim 状态为准。
+暂存 Artifact 只在创建它的 Claim 内可见。提交后 Artifact 对整个 WorkItem 可见；即使 Review 驳回结果，它仍保留在对应 Submission 历史中。
 
-## 存储与清理
+Context 只返回 Artifact 元数据，不直接注入文件内容。托管内容通过独立的认证端点下载。
 
-Artifact 记录来源链路、名称和 URI；托管 Blob 元数据记录 URI、Digest 和大小。内置 Store 在数据库先登记稳定上传 URI 后再写入文件，并在数据库把上传标记为 completed 前同步文件及其目录链。其根目录和散列子目录使用 `0700`，托管文件使用 `0600`，重试时也会收紧已有路径的权限。Digest 只作为完整性元数据，不参与 URI 生成，相同内容可以占用不同的托管位置。
+重试不会覆盖已提交 Artifact。新的执行尝试会创建新的 Artifact 和 Submission，保留之前的证据。
 
-Agent 不能选择 Store。服务端在本次部署中只使用一个配置好的托管 Store。内置实现支持 `kairos://`；大文件应使用 `create_artifact` 登记其持久化外部 URI。
+如果一份报告被 Review 驳回，原文件仍留在对应 Submission 下。下一位执行者上传修订版并单独提交，审核者可以比较两次尝试，而不是只看到一份历史已经消失的可变文件。
 
-部署方可以配置 HTTP 与 MCP 共用的 Artifact 上传上限、暂存 Artifact 保留时间和 GC 周期；内置默认值依次为 16 MiB、24 小时和 15 分钟。内置托管上传有意只面向小文件；大文件应放在 S3 等持久外部存储中，并登记为外部 Artifact URI。MCP Base64 传输会增加约三分之一内容体积，并在内存中完整缓冲请求。
+## Artifact 存储与保留
+
+部署方拥有一个托管 Store，并决定上传、保留和垃圾回收策略。托管 Artifact 使用稳定的 `kairos://` URI，并保存 Digest 与大小。大体积交付物应放在持久外部存储中，再登记绝对 URI。
+
+Active Claim 会保护其暂存 Artifact。Claim 结束后，旧的未提交 Artifact 和未完成上传记录可以被回收；已提交 Artifact 作为工作历史保留。
+
+精确上传方式、上限、重放语义、权限和默认值见 [API 参考](../api-reference.zh-CN.md)与 [OpenAPI](../openapi.yaml)。
+
+## Artifact 不变量
+
+- Artifact 只属于一个 WorkItem，并来源于一个 Task Claim。
+- 其他 Claim 不能提交当前 Claim 的暂存内容。
+- Submission 不可变地绑定 Artifact，Review 不会删除它们。
+- Artifact 内容不会复制进普通 Context 或 Result 字段。
+- 存储清理不得改变已接受的业务历史。
