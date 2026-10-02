@@ -1,235 +1,73 @@
 # Kairos Core Work Model
 
-> How a shared objective becomes executable Tasks—and how fixed and evolving plans use the same foundation
+Coordination breaks down when the work exists only in conversations: the objective becomes ambiguous, responsibility changes silently, and the next executor has to reconstruct what happened. Kairos gives those facts durable names. A WorkItem holds the objective, a Task describes one deliverable execution, and Relations connect Tasks into a graph.
 
-## Abstract
+Workflow and Blackboard organize that graph differently, but they do not create separate work models. The same records carry responsibility, results, review, and history in both modes.
 
-A team needs to see both the outcome it is pursuing and the concrete work that can happen next. Kairos calls the complete objective a `WorkItem` and each executable, deliverable piece a `Task`. Together, the Tasks and their relations form a Task Graph.
+## Definition, WorkItem, and Task
 
-The team can organize that graph in two ways. Workflow enforces a plan defined before execution. Blackboard lets collaborators build and revise the plan while they work. The planning style changes, but the underlying objects—and the history attached to them—remain the same.
+### Definition
 
-## 1. WorkItem and Task
+A Definition is a reusable, versioned collaboration template. It supplies a name, description, default guidance, and mode-specific configuration. A WorkItem pins one version; later edits never change work already in progress.
 
-### 1.1 WorkItem
+### WorkItem
 
-A `WorkItem` represents a complete work objective: the final outcome expected by a person or system.
+A WorkItem is one concrete collaborative objective. It contains:
 
-Examples:
+- intent: objective, context, constraints, and acceptance criteria;
+- mode: Workflow or Blackboard;
+- structure: Tasks and Relations;
+- work records: Claims, Submissions, Reviews, Failures, Artifacts, and domain events;
+- lifecycle: execution, acceptance, or a terminal state.
 
-```text
-Implement login
-Fix duplicate charges in the payment system
-Complete the first conceptual design of Kairos
-```
+A terminal WorkItem retains its history. It is not rewritten into a snapshot containing only the final result.
 
-A WorkItem contains:
+### Task
 
-- the work objective;
-- background and context;
-- constraints and acceptance criteria;
-- final deliverables;
-- its internal Tasks and their relations.
+A Task is the boundary of one coherent, deliverable execution by one responsible executor. It records the objective, description, executor constraints, acceptance requirements, and lifecycle.
 
-A WorkItem can be created with a complete plan, or with only an objective so that collaborators form the plan during execution.
+A Task may complete directly or be decomposed into child Tasks. After decomposition, the parent becomes an aggregate and produces no Submission of its own; the children collectively express its completion.
 
-Every WorkItem is bound at creation to a fixed version of a Coordination Definition. The Definition selects Workflow or Blackboard and provides the collaboration space name, description, Agent Instructions, and Suggested Tags. A Workflow Definition additionally defines the formal execution structure; a Blackboard Definition does not predefine a Task Graph.
+## The Task Graph
 
-> A WorkItem is the boundary of an objective and its outcome.
-
-### 1.2 Task
-
-A `Task` is a unit of work decomposed from a WorkItem that a person or agent can execute and deliver.
-
-```text
-WorkItem: Implement login
-├── Task: Design the login approach
-├── Task: Implement the login API
-└── Task: Test login
-```
-
-A Task is the execution boundary of one executor:
-
-- it can appear as an independent work candidate;
-- it has explicit execution content and a deliverable result;
-- it has only one responsible executor while being executed;
-- its lifecycle changes and durable results contribute to the owning WorkItem's progress and shared context.
-
-A Task should be small enough for one executor to own through one coherent work session and produce a deliverable. It can be restricted to an agent, a person, or either.
-
-In Blackboard, an executor can also decompose a Task into child Tasks before producing a result. The parent becomes an aggregation boundary and no longer receives a result directly; it completes after all child Tasks end. A Task uses exactly one delivery style: direct delivery or child Task aggregation.
-
-Whenever an executor formally submits a result, Kairos creates an immutable Task Submission under the Task and links it to the Claim that produced the result. A Task can go through multiple execution, submission, and Review rounds. Every Submission remains in shared history.
-
-A Result is the executor's durable narrative; an Artifact is a named, addressable deliverable. Executors may stage Artifacts while holding a Claim and bind them when creating the Submission. Bound Artifacts inherit the Submission's immutable history and are visible across the WorkItem.
-
-When an executor reports failure, Kairos creates an immutable Task Failure under the Task. A prompt supplied with action `retry` becomes part of the next execution context; a global failure ends both the Task and WorkItem. Claims, Submissions, Reviews, Failures, and progression decisions also form a persisted append-only WorkItem Event history. A user-facing WorkItem event timeline is a separate presentation capability and remains planned.
-
-WorkItem cancellation is a separate Human management decision, not an execution failure. It records the cancelling actor, time, and reason, ends active Claims, and prevents further Task mutations without changing established Task outcomes or creating Task Failures.
-
-> A WorkItem answers “What final outcome is required?” A Task answers “What concrete work comes next?”
-
-## 2. Task Graph
-
-A WorkItem contains zero or more Tasks. Directed relations between Tasks form a Task Graph.
-
-```text
-Design login → Implement login API → Test login
-```
-
-A Task Graph can express:
-
-- Task decomposition hierarchy;
-- prerequisites;
-- parallel work;
-- one Task connected to multiple downstream Tasks;
-- multiple Tasks connected to one downstream Task;
-- decomposition and aggregation of work.
-
-Workflow and Blackboard use the same runtime Task Graph. Their organizational semantics determine how the graph is produced, how it evolves, and whether a relation constrains execution. Workflow additionally uses a versioned formal definition to determine how the runtime graph unfolds.
-
-## 3. Workflow
-
-`Workflow` organizes the work inside a WorkItem with a versioned formal definition. A WorkItem is bound to the latest stored Workflow Definition ID and Version when created and is unaffected by later Workflow versions.
-
-```text
-Design ──→ Implement ──→ Test
-```
-
-Relations in the definition are authoritative constraints. “Design → Implement” means that the system creates the “Implement” Task for this WorkItem only after “Design” has completed.
-
-Workflow instantiates Tasks as progression requires. When execution reaches the same definition node more than once, it creates a new Task instance each time, preserving independent Claim and result history for every pass. Those lifecycle records contribute to the WorkItem's progress, while the resulting runtime Task Graph records the actual execution history.
-
-Key characteristics of Workflow include:
-
-- the WorkItem is bound to a fixed Workflow Definition ID and Version;
-- Tasks and relations come from that formal version;
-- Task instances are created on demand as the Workflow advances;
-- the system enforces prerequisites;
-- structural changes during execution are constrained by formal rules;
-- the system computes the currently legal candidate Tasks from the structure;
-- WorkItem completion can usually be derived from the formal structure.
-
-A Workflow can expose multiple legal candidate Tasks at once. Workflow limits the choice space; a person or agent can choose proactively, and a future Agent Daemon can automate the same role-aware selection.
-
-> Workflow is a formally defined and authoritative Task Graph.
-
-## 4. Blackboard
-
-`Blackboard` is an open collaboration space maintained collectively inside a WorkItem. The WorkItem supplies the objective, background, constraints, and acceptance criteria, while the Task Graph emerges during execution.
-
-The WorkItem is bound to a fixed Blackboard Definition version. The Definition identifies the collaboration space and provides global instructions, Agent Instructions, and Suggested Tags, but no initial Task Graph.
-
-The initial state can contain only an objective:
-
-```text
-WorkItem: Implement login
-Tasks: []
-```
-
-Collaborators create a plan from their current understanding:
-
-```text
-[ ] Design the login approach
-[ ] Implement the login API
-[ ] Test login
-```
-
-The plan can continue evolving as the work becomes better understood:
-
-```text
-[x] Design the login approach
-[ ] Implement password login
-[ ] Implement session management
-[ ] Add brute-force protection
-[ ] Test login
-```
-
-Tasks in Blackboard can also have prerequisite relations:
-
-```text
-Design login ⇢ Implement login API ⇢ Test login
-```
-
-These relations express the collaborators’ current shared guidance about progression. An executor can use the actual context to start early, work in parallel, add a suggested relation, or create new Tasks. Existing Blackboard Relations are not updated or deleted.
-
-Key characteristics of Blackboard include:
-
-- the initial Task Graph can be empty or incomplete;
-- collaborators dynamically create, decompose, append children to, and skip Tasks;
-- prerequisite relations are guidance by default;
-- executors choose the next work from the objective and shared context;
-- before ending the current Task, the executor decides whether follow-up Tasks are needed; the WorkItem completes when no unfinished Task remains.
-
-> Blackboard is a Task Graph continuously planned and evolved by collaborators.
-
-## 5. Unified Underlying Model
-
-Workflow and Blackboard map to the same basic structure:
-
-```text
-                         WorkItem
-                    “Implement login”
-                            │
-                        Task Graph
-                            │
-              ┌─────────────┴─────────────┐
-              │                           │
-           Workflow                   Blackboard
-       formal, constrained graph     dynamic, advisory graph
-```
-
-The underlying model has three core concepts. Tasks use Parent Task to express hierarchy and Task Relation to express directed relations:
+Tasks and Relations form a Task Graph inside a WorkItem:
 
 ```text
 WorkItem
-Task
-Task Relation
+├── Task A ──→ Task C
+└── Task B ──↗
 ```
 
-The organizational semantics differ as follows:
+The coordination mode determines the authority of a Relation:
 
-| Dimension | Workflow | Blackboard |
-| --- | --- | --- |
-| WorkItem | Complete work objective | Complete work objective |
-| Task | Executable, deliverable unit | Executable, deliverable unit |
-| Initial Task Graph | Usually predefined | Usually empty or incomplete |
-| How Tasks are created | From a formal plan | Dynamically planned by collaborators |
-| How the graph evolves | Runs and changes under rules | Evolves continuously with collaboration |
-| Task Relation | Execution constraint | Progression guidance |
-| Candidate Tasks | Computed from structure | Formed from structure and context |
-| Completion | Usually derivable from formal structure | Judged against the WorkItem objective |
+| Mode | Source of graph | Meaning of Relation | How the graph changes |
+| --- | --- | --- | --- |
+| Workflow | Versioned Definition | Constrains legal progression | The Definition stays fixed; runtime instances and decisions are appended |
+| Blackboard | Collaborators' current shared understanding | Suggests progression without hard blocking | Tasks and Relations may be appended during execution |
 
-Workflow and Blackboard therefore share data structures while applying different coordination semantics:
+See [Coordination Semantics](03-coordination-semantics.md) for candidate and completion rules, and the [Workflow](04-workflow.md) and [Blackboard](05-blackboard.md) papers for each mode's detailed contract.
 
-> A Workflow graph specifies how work advances; a Blackboard graph records how collaborators currently believe work should advance.
+## Records That Survive the Session
 
-## 6. Presentation
+A Task stores not only its current state but how that state was reached:
 
-The operations console presents complete work at two levels:
+- **Claim**: one executor held responsibility for a period;
+- **Submission**: one formal delivery and its result;
+- **Review**: a decision and feedback on one Submission;
+- **Failure**: why one Claim could not complete;
+- **Artifact**: a durable reference to, or managed copy of, a deliverable;
+- **Event**: an ordered, append-only domain change.
 
-```text
-Workspace
-    ├── All Work
-    └── Needs Human
-          ↓ open WorkItem
-WorkItem Detail
-    ├── Workflow   → Flow Graph
-    └── Blackboard → Task Hierarchy
-```
+These records belong to the Task and WorkItem, not to an ephemeral agent session. Later executors can therefore continue from durable facts.
 
-The workspace summarizes WorkItems and selected human-attention signals. WorkItem detail keeps Tasks inside their owning objective: the Flow Graph presents formal Workflow dependencies and runtime history, while the current Blackboard console presents dynamically formed Tasks as a hierarchy with tags and lifecycle state. Blackboard Relations remain part of the durable model and execution context but are not yet displayed or created by the console.
+## Lifecycle Boundaries
 
-Task lifecycle changes and durable records express how the WorkItem is advancing; Kairos does not require a separate mutable progress field.
+- Task state and its active Claim must agree; terminal Tasks cannot be mutated.
+- A terminal WorkItem ends active Claims and prevents later Task mutations.
+- Execution failure, Human cancellation, and Review rejection remain distinct domain facts.
+- Retries and recovery never overwrite historical Claims, Submissions, Reviews, Failures, or Artifacts.
+- Empty collection fields are encoded as `[]`; only genuinely optional single values use `null`.
 
-## 7. Core Definitions
+## What the Model Protects
 
-The Kairos core work model can be summarized as:
-
-```text
-WorkItem   = a complete work objective
-Task       = an executable, deliverable unit of work
-Workflow   = a formally defined and authoritative Task Graph
-Blackboard = a Task Graph dynamically planned and evolved by collaborators
-```
-
-> Workflow follows a plan the team defined up front. Blackboard lets the team build the plan while doing the work.
+A WorkItem is the objective a team advances together; a Task is one deliverable execution owned by one responsible executor. Workflow constrains which predefined path may advance, while Blackboard lets the team append its current plan as understanding changes. Because progress is expressed through durable lifecycle records, no chat or agent session has to remain online for the work to continue.

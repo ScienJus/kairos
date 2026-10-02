@@ -10,198 +10,104 @@ English | [简体中文](README.zh-CN.md) | [Documentation](https://scienjus.git
 [![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Kairos is an open-source coordination server for human and AI agent teams. It gives Codex, Claude Code, and other MCP clients a durable shared work view for tasks, claims, reviews, artifacts, and next steps.
+Kairos is an open-source coordination server for work that outlives any one human or AI agent session. Codex, Claude Code, other MCP clients, and Human collaborators see the same objectives, responsibilities, Reviews, and deliverables, so a handoff does not depend on reconstructing an old conversation.
 
-It is the coordination layer around an agent harness: Kairos does not start or stop agents, choose models, or manage sandboxes. Agents connect proactively through MCP / Skills, while the durable work state stays available across sessions.
+It deliberately stops at coordination. Kairos does not choose models, provide sandboxes, or replace an Agent Harness. Agents may participate directly through MCP and Skills, or Agent Daemon may discover work and start a configured Harness. In either case, Core remains the durable source of truth.
 
 <p align="center">
-  <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow showing two parallel tasks joining into a release plan" width="900">
+  <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow showing two parallel Tasks joining into a release plan" width="900">
 </p>
 
-## Try it
+## Quickstart
 
-Start an isolated Workflow with two parallel Tasks and a join Task:
+Start a local Workflow with two parallel Tasks and one join:
 
 ```bash
 make quickstart
 ```
 
-Open the printed local URL, then follow the [quickstart guide](examples/quickstart/README.md) to connect Codex sessions and see how exclusive Claims prevent duplicate work.
+Follow the [quickstart guide](examples/quickstart/README.md) to connect several Codex sessions and see Claims prevent duplicate execution while upstream results flow into the join Task.
 
-Agents connect proactively through MCP / Skills. Agent Daemon provides continuous scheduling and an opt-in local Codex Adapter; real-provider smoke validation remains separate from automated tests.
-
-## Why Kairos
-
-Kairos gives every participant one durable view of the work:
-
-- people and agents discover Tasks from the same WorkItem;
-- an atomic Claim prevents two executors from working on the same Task at once;
-- submissions, Reviews, feedback, and failures remain with the Task instead of an agent session;
-- named Artifacts keep Git commits, branches, documents, reports, and managed files addressable across Tasks;
-- Tasks can be executed by an agent, a person, or either;
-- both structured processes and open-ended collaboration use the same execution protocol.
+## How Work Moves
 
 ```text
-find work → choose → claim Task or lifecycle candidate → heartbeat → decide or execute → complete
-                                                  └── Review → approve / reject
+WorkItem objective
+  ↓
+candidate Task → exclusive Claim → execute + heartbeat
+  ↓                              ↓
+next work ← Submission / Review / Failure / Artifact
 ```
 
-## Choose a Coordination Mode
+A team advances a **WorkItem** by completing its **Tasks**. Each Task is one coherent delivery owned by one executor at a time. A **Claim** makes that responsibility explicit; for Agents, leases, heartbeat, reaping, and fencing make interruption recoverable. Submissions, Reviews, Failures, and Artifacts stay with the work instead of disappearing with the session that produced them.
 
-| Use | When it fits |
-| --- | --- |
-| **Workflow** | The process is known in advance and the system must enforce dependencies and required steps. |
-| **Blackboard** | The objective is clear, but the plan should evolve as people and agents learn during execution. |
+## Coordination Modes
 
-### Workflow
+| | Workflow | Blackboard |
+| --- | --- | --- |
+| Use when | Main steps and dependencies are known | The objective is known but the path must evolve with evidence |
+| Graph authority | A Definition constrains legal progression | A Task Graph shares guidance |
+| Runtime planning | Decide only at configured optional, Review, and loop points | Create, decompose, append, relate, and skip Tasks |
+| Completion | Complete when the selected path converges | Submit an explicit completion result, then apply acceptance policy |
 
-Workflow defines the legal choice space while allowing executors to make decisions at configured points.
+Both modes share discovery, Claim, submission, Review, failure, and Artifact protocols. See [Workflow](docs/whitepapers/04-workflow.md) and [Blackboard](docs/whitepapers/05-blackboard.md) for detailed rules.
 
-Supported collaboration capabilities:
+## One Model for People and Agents
 
-- **Dependencies**: downstream Tasks become available only after their prerequisites end.
-- **Parallelism and joins**: multiple Tasks can run in parallel, and downstream work can wait for several predecessors.
-- **Role constraints**: only agents with matching roles can discover and Claim a Task.
-- **Autonomous selection**: executors choose from all currently legal Tasks.
-- **Progression guidance**: Relations may carry optional labels and agent guidance without changing the graph's existing progression semantics.
-- **Autonomous skipping**: upstream executors decide whether Optional Tasks are needed; decisions are combined at joins.
-- **Autonomous Review**: a Task can require no Review, let the executor decide, or require Review.
-- **Cycles**: executors can continue through a cycle path or exit it, with a maximum Task instance count per node.
-- **Automatic completion**: the WorkItem completes after every selected path closes.
+The console provides WorkItem overview, Human attention, Workflow graph, Blackboard hierarchy, Task Detail, Definition editing, and Daemon observation. Humans can execute Tasks, review results, recover failed Workflows, and cancel WorkItems.
 
-`max_task_instances_per_node` is shared configuration counted independently for each Workflow node and WorkItem; there is no total Task-instance limit.
+Agents use stateless Streamable HTTP MCP and `.agents/skills/kairos-agent` for the discover → Claim → heartbeat → submit loop. Agent Daemon can automate the same protocol and gives each concrete Harness a Claim-bound Executor Credential.
 
-### Blackboard
+## Current Status
 
-Blackboard keeps planning with the collaborators instead of fixing the Task Graph in advance.
+Implemented:
 
-Supported collaboration capabilities:
+- Workflow and Blackboard semantics with SQLite and PostgreSQL persistence;
+- Trusted and Authenticated Modes, Identity Tokens, Admin Human, and Executor Credentials;
+- HTTP, MCP, idempotent resource creation, and managed/external-URI Artifacts;
+- Human console with Identity Token management, Workflow recovery, Blackboard acceptance, and WorkItem cancellation;
+- Agent Daemon continuous scheduling, local Codex Adapter, instance/Dispatch/event observation, and isolated E2E examples.
 
-- **Blank planning**: an agent can discover an empty WorkItem and create its first Task.
-- **Dynamic planning**: collaborators continuously add Tasks and organize discovery with tags.
-- **Suggested dependencies**: relations provide shared guidance without blocking execution.
-- **Dynamic skipping**: obsolete Pending Tasks can be skipped with a reason.
-- **Exclusive coordination**: Task Claims protect execution, while Coordination Claims reserve empty-Blackboard planning, completion, and Agent-acceptance decisions before reasoning begins.
-- **Task decomposition**: a claimed Task can be decomposed into nested child Tasks before producing a result.
-- **Open subtrees**: collaborators can append children until an aggregate Task closes; parents complete recursively.
-- **Dynamic Review**: an executor can request human Review when submitting a result.
-- **Continuous expansion**: an executor creates follow-up Tasks before ending the current Task when more work is needed.
-- **Explicit completion**: after current Tasks converge, a collaborator either plans more work or submits a durable WorkItem completion result.
-- **Optional acceptance**: a completion submission may require no acceptance, agent acceptance, or human acceptance.
+Current work focuses on more Provider/platform validation, hardened deployment, and broader operational views. See the [Roadmap](ROADMAP.md).
 
-## Shared Execution Semantics
+## Run
 
-A Claim establishes exclusive execution responsibility. Submitting a result ends the Claim. If Review is requested, the Task waits without holding an agent alive:
-
-```text
-Working
-  ├── submit ─────────────→ Completed
-  ├── submit for Review ──→ InReview
-  │                           ├── approve → Completed
-  │                           └── reject  → Pending → Claim again
-  └── fail
-       ├── retry Task (new instance in Workflow)
-       └── fail WorkItem
-```
-
-Every submission and Review round is preserved. When an executor retries a failed or rejected Task, it receives the earlier results, all Review feedback, and any retry prompt as shared context.
-
-A human operator can terminally cancel an active WorkItem from its detail page. Cancellation ends active Claims without recording Task failures; agents receive `work_item_cancelled` on their next heartbeat or mutation and stop without changing the Task further.
-
-## Human Interaction
-
-The human-attention view includes pending Reviews, unclaimed Human Tasks, Tasks actively claimed by the current Human (including `either`), and WorkItems awaiting human acceptance.
-
-The operations console currently provides a workspace overview, a human-attention view, and WorkItem detail. Inside a WorkItem:
-
-- Workflow is shown as a flow graph with execution history.
-- Blackboard is shown as a hierarchical Task workspace. WorkItem lifecycle decision controls are Human-only; Agents use the MCP Coordination Claim loop. Relations remain available through the HTTP and MCP surfaces but are not yet rendered or created by the console.
-
-Task lifecycle changes, responsibility, submissions, Reviews, failures, and Artifacts together show how the owning WorkItem is advancing. A complete WorkItem event timeline is planned; the underlying events are already persisted.
-
-The `fail_task` operation accepts `retry` for another attempt, `await_human` to end the current Workflow attempt as Failed and wait for Human Continue to create a replacement attempt, and `fail_work_item` to fail the whole WorkItem. Workflow retry creates a replacement Task; Blackboard retry reuses the same Task.
-
-For failed Workflows or current failed Tasks, Humans can **Continue execution** to retry failed/interrupted attempts while retaining successful branches, or **Start over** in a new WorkItem with the original goal and a failure summary. History stays on the source WorkItem; include external outcomes to reuse in your instructions because scoped executors cannot read the source history. See the [API reference](docs/api-reference.md).
-
-## Project Status
-
-Kairos currently includes a Go core engine and a runnable HTTP service, but it is not yet a final end-user service.
-
-Available in this repository:
-
-- domain model and Application Services;
-- Workflow and Blackboard runtime semantics;
-- PostgreSQL and SQLite persistence;
-- Workflow Artifact delivery contracts and a built-in `kairos://` Artifact Store with database-first uploads, integrity digests, configurable limits, and garbage collection;
-- concurrency guards plus replay protection for resource-creating API calls and managed uploads;
-- persisted single-role identities, Trusted / Authenticated Mode, and Token lifecycle management;
-- Claim-bound Executor credentials with scoped HTTP/MCP read, Artifact, and Blackboard-planning permissions;
-- an Agent Daemon scheduler and [local Codex Adapter](internal/daemon/codexadapter/README.md), with shared slots, health probes, candidate-generation suppression, scoped managed execution, platform instance/dispatch/event visibility, and real-process HTTP/MCP tests without model calls;
-- stateless Streamable HTTP MCP execution tools and a repository-level Codex Skill;
-- an operations console with a workspace overview, human attention, Workflow graph, Blackboard Task hierarchy, and Definition editors;
-- human-operated WorkItem cancellation with durable actor, time, and reason metadata;
-- agent Task and WorkItem Coordination Claim leases with flexible durations, heartbeat, reaper-mediated recovery, and fencing;
-- deterministic unit tests and randomized collaboration simulations.
-
-Still to be built:
-
-- broader Agent Daemon provider/platform validation and hardened deployment profiles;
-- the remaining operational-console workflows, including a WorkItem event timeline.
-
-For development, use Go 1.26.6 or later. The console requires npm and Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+. Run:
-
-```bash
-make go-test
-```
-
-## Running Kairos
-
-Build the operations console and embedded server, then open `http://127.0.0.1:8080`:
+Development requires Go 1.26.6+. Building the console also requires Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, plus npm.
 
 ```bash
 make build
 ./bin/kairos-server
 ```
 
-Development builds report `dev`; release builds report their tag with `./bin/kairos-server --version`. Maintainer release steps are documented in [Releasing Kairos](docs/releasing.md).
+The default uses SQLite and Trusted Mode. See the [API Reference](docs/api-reference.md) for PostgreSQL, Authenticated Mode, Admin Token, reverse proxy, Artifacts, and complete routes.
 
-The default uses SQLite and Trusted Mode. Set `KAIROS_POSTGRES_DSN` to run the same service with PostgreSQL instead. Shared deployments within one trusted collaboration group should use Authenticated Mode; the console then accepts an issued Identity Token or the deployment Admin Token (as a stable ordinary Human), uses it for the browser session, and provides sign-out. Authenticated Mode does not provide tenant, project, or object-level data isolation, so mutually untrusted groups need separate Kairos instances. See the [API Reference](docs/api-reference.md) for development-only server startup, database and identity configuration, HTTP routes, MCP transport, and response contracts. Admin sessions display `system admin` while retaining their stable actor ID; configured Admin Tokens require at least 32 visible ASCII characters (no whitespace or controls).
+For managed execution, see the [Daemon example](examples/daemon/README.md). `make build` builds Core and Daemon; `make daemon-e2e` verifies real binaries with a scripted Harness and no model calls.
 
-In Authenticated Mode, sign in with the deployment `KAIROS_ADMIN_TOKEN` using the existing login form, then open the single **Token management** entry in the account menu (`/admin/identities`). Create a Human (no role) or an Agent (one required role, such as `developer`), inspect identity metadata, and rotate or revoke issued Tokens on this page. Rotation and revocation require confirmation and invalidate the previous Token immediately. The deployment-managed Admin credential is read-only here; change it through deployment configuration. Ordinary Identity Tokens, including `initial-human.token`, cannot access management. The server returns `can_manage_identities` on `/session`, true only for the configured Admin credential when identity management is available; the UI never derives access from an ID, role or display name. Every management endpoint still checks the credential.
+In Authenticated Mode, the configured Admin signs in through the ordinary login form and manages Human and Agent Identity Tokens from the account menu. Exact authorization, Actor ID, one-time Token, and compatibility rules live in the [API Reference](docs/api-reference.md).
 
-### Identity management layout and Actor IDs
-Identity management uses the workbench library layout: existing identities are the main list, with **Create identity** and **Refresh** in the page header. Creation and rotation/revocation confirmations use the shared dialog. Rows separate identity, type/role, Token status and actions; deployment-managed credentials show **system admin**, with a secondary, single-line ID below. Other identities show their ID only once. Long IDs are truncated; hover to read the full ID or use the fixed copy icon. Copy success changes the icon to a checkmark without resizing the row. Creation uses a compact, single-column dialog with example-based hints and field-level validation. New Tokens appear above the identity list in a one-time result area that receives focus and scrolls into view after creation or rotation; page-level errors also appear above the list. Tokens remain available when copying an identity ID. Leaving the page clears them; returning from the browser back/forward cache automatically reloads metadata without restoring Tokens. Sign out remains in the account menu.
+## Documentation Map
 
-Actor IDs must contain a non-whitespace character and cannot equal `.` or `..` (reserved URL path segments). Unicode and meaningful surrounding whitespace remain supported; HTTP identity creation preserves the value, while Trusted HTTP/MCP headers trim surrounding whitespace before the same domain validation. Encode an Actor ID as one URL path component for detail/rotation/revocation. Invalid input is rejected before identity persistence or issuance; correct it before retrying. MCP derives identity from credentials/Trusted headers, not tool arguments. Generated Admin IDs already satisfy the rule.
+| Document | Responsibility |
+| --- | --- |
+| README / [Roadmap](ROADMAP.md) | Current capabilities / future direction |
+| [Whitepapers](docs/whitepapers/01-core-work-model.md) | Stable domain concepts, coordination semantics, and system boundaries |
+| [API Reference](docs/api-reference.md) / [OpenAPI](docs/openapi.yaml) | Cross-interface behavior / exact HTTP contract |
+| Detailed designs and decision records | Implementation tradeoffs, current status, and historical context |
+| Package READMEs and examples | Component operation, verification, and failure boundaries |
 
-Compatibility: this restriction assumes unreleased/new installations with no existing users. Earlier versions accepted `.` and `..`; stored identities with those IDs can no longer authenticate because login validates the stored identity. No automatic ID migration is provided. For disposable development data containing these IDs, start with a fresh database and create identities with valid IDs; this resets identities and work history, so use a separate database and Artifact directory if retaining the old data. If that history must remain usable, arrange a migration of the identities and all historical actor references before upgrading; renaming only the identity row or rotating its Token is not sufficient.
+When two documents touch the same subject, the narrower owner wins: OpenAPI for exact HTTP shape, the API Reference for cross-interface behavior, whitepapers for meaning, README for current status, and Roadmap for future direction.
 
-## MCP and Agent Integration
-
-Kairos exposes an execution-focused MCP surface and a repository-level Codex Skill at `.agents/skills/kairos-agent`. The Skill gives compatible harnesses a durable discover → claim → heartbeat → submit loop. Integration and configuration details live in the [API Reference](docs/api-reference.md).
-
-For managed execution, use the [isolated Daemon example](examples/daemon/README.md).
-`make build` builds both Core and Daemon; release archives bundle both binaries for
-Linux/macOS amd64/arm64. Codex and model authentication remain operator-provided.
-`make daemon-e2e` verifies real binaries with a scripted Harness and no model calls.
-
-## Design Whitepapers
+Suggested whitepaper order:
 
 1. [Core Work Model](docs/whitepapers/01-core-work-model.md)
-2. [Execution Collaboration Model](docs/whitepapers/02-execution-collaboration-model.md)
-3. [Coordination Semantics](docs/whitepapers/03-coordination-semantics.md)
-4. [Workflow Mode](docs/whitepapers/04-workflow.md)
-5. [Blackboard Mode](docs/whitepapers/05-blackboard.md)
-6. [Human Interaction Model](docs/whitepapers/06-human-interaction-model.md)
-7. [Agent Interaction Model](docs/whitepapers/07-agent-interaction-model.md)
-8. [Agent Identity Model](docs/whitepapers/08-agent-identity-model.md)
-9. [Artifact Model and Store](docs/whitepapers/09-artifacts.md)
-10. [API Reference](docs/api-reference.md)
+2. [Execution Collaboration](docs/whitepapers/02-execution-collaboration-model.md) and [Coordination Semantics](docs/whitepapers/03-coordination-semantics.md)
+3. [Workflow](docs/whitepapers/04-workflow.md) or [Blackboard](docs/whitepapers/05-blackboard.md)
+4. [Human](docs/whitepapers/06-human-interaction-model.md), [Agent](docs/whitepapers/07-agent-interaction-model.md), [Identity](docs/whitepapers/08-agent-identity-model.md), and [Artifact](docs/whitepapers/09-artifacts.md)
+5. [Agent Daemon](docs/whitepapers/agent-daemon.md)
+
+Implementation records include the [Daemon acceptance record](docs/agent-daemon-implementation-plan.zh-CN.md), [Daemon decision summary](docs/whitepapers/agent-daemon-design-decisions.zh-CN.md), [observability design](docs/daemon-observability-design.zh-CN.md), [Task Detail architecture](docs/task-detail-architecture.zh-CN.md), [page design baseline](docs/page-design-baseline.zh-CN.md), and [frontend handbook](docs/frontend-development-handbook.zh-CN.md). These records are currently Chinese-only.
 
 ## Community
 
-See the [contribution guide](CONTRIBUTING.md) before proposing a substantial change. The [roadmap](ROADMAP.md) records current direction without promising delivery dates. Report suspected vulnerabilities privately according to the [security policy](SECURITY.md).
-
-## License
+Read the [contribution guide](CONTRIBUTING.md) before contributing. Report security issues privately according to the [security policy](SECURITY.md).
 
 Kairos is licensed under the [Apache License 2.0](LICENSE).

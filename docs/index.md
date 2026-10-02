@@ -41,8 +41,9 @@ type: home
     <a href="{{ '/api-reference.html' | relative_url }}"><strong>API Reference</strong><span>Configure the server and integrate through HTTP or MCP.</span></a>
     <a href="{{ '/whitepapers/01-core-work-model.html' | relative_url }}"><strong>Core Work Model</strong><span>Learn how objectives, tasks, and their relationships fit together.</span></a>
     <a href="{{ '/whitepapers/07-agent-interaction-model.html' | relative_url }}"><strong>Agent Interaction Model</strong><span>Follow an agent from discovering work to submitting a result.</span></a>
+    <a href="{{ '/whitepapers/agent-daemon.html' | relative_url }}"><strong>Agent Daemon</strong><span>Understand automatic dispatch, Harness execution, and terminal convergence boundaries.</span></a>
     <a href="https://github.com/ScienJus/kairos"><strong>GitHub repository</strong><span>Code, issues, releases, and contribution guide.</span></a>
   </div>
 </section>
 
-<p class="status-note">Today you can coordinate work with Workflow or Blackboard, store it in SQLite or PostgreSQL, connect agents over MCP, and follow progress in the operations console. Agent Daemon includes continuous scheduling, an opt-in local Codex Adapter, and <a href="https://github.com/ScienJus/kairos/tree/main/examples/daemon">isolated execution examples</a>. Release packaging includes Core and Daemon; additional platform/provider validation remains separate. See <a href="https://github.com/ScienJus/kairos#project-status">Project Status</a>.</p>
+<p class="status-note">Today you can coordinate work with Workflow or Blackboard, store it in SQLite or PostgreSQL, connect agents over MCP, and follow progress in the operations console. Agent Daemon includes continuous scheduling, an opt-in local Codex Adapter, and <a href="https://github.com/ScienJus/kairos/tree/main/examples/daemon">isolated execution examples</a>. Release packaging includes Core and Daemon; additional platform/provider validation remains separate. See <a href="https://github.com/ScienJus/kairos#current-status">Current Status</a>.</p>

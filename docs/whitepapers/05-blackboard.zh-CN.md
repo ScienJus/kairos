@@ -1,153 +1,72 @@
 # Kairos Blackboard 模式
 
-> 工作已经开始后，团队如何共同建立并不断修订计划
+有些工作目标很清楚，却没有诚实的方法预先画出完整路径。硬把它塞进固定 Workflow，只会把不确定性藏进含糊的步骤里。Blackboard 让目标保持稳定，同时允许计划随着证据逐步形成。
 
-## 摘要
+因此 WorkItem 可以在一个 Task 都没有时开始。人和 Agent 边做边加入 Task、层级与建议 Relation；但当他们认为目标已经达成时，仍需作出一次明确、可审核的完成判断。
 
-当团队知道目标，却还无法说清完整路径时，适合使用 Blackboard。WorkItem 可以从空白或不完整的 Task 列表开始。随着证据出现，人和 Agent 可以创建工作、拆分大任务、连接相关 Task、追踪新线索，也可以放弃已经证实无效的方向。
+## 可以生长的计划
 
-Task Relation 记录团队当前认为合适的推进方式。它帮助下一个执行者理解计划，但不会把每一条建议都变成阻塞依赖。
+Blackboard Definition 提供默认说明、Agent 指引、建议 tags 和验收策略，但不预定义完整 Task Graph。
 
-## 1. Blackboard 结构
+WorkItem Version 是服务端维护的结构修订号。不同协作者并发追加不同 Task 或 Relation 时，操作可串行后全部成功；Task 自身生命周期仍由 Task Version 保护。创建操作使用 `operation_id` 处理响应丢失后的重放。
 
-Blackboard Definition 定义一个共享协作空间，包括名称、说明、Agent Instructions 与 Suggested Tags。它不预先定义 Task Graph。每个 WorkItem 绑定一个固定的 Definition Version，并在这个空间内提供自己的目标、背景、约束和验收标准：
-
-```text
-WorkItem：实现登录功能
-Tasks：[]
-```
-
-协作者根据当前理解建立初始 Task：
-
-```text
-[ ] 设计登录方案
-[ ] 实现登录功能
-[ ] 测试登录功能
-```
-
-执行过程中发现的新信息会继续改变结构：
-
-```text
-[x] 设计登录方案
-[ ] 实现密码登录
-[ ] 实现会话管理
-[ ] 增加暴力破解防护
-[ ] 测试登录功能
-```
-
-Blackboard 中的 Task Graph 是当前工作认知的共享表达。
-
-Blackboard 的结构追加基于服务端最新状态提交。多个协作者同时创建不同 Task 或 Relation 时，操作依次写入并可以全部成功；WorkItem Version 作为服务端维护的结构修订号。Operation ID 负责识别创建 Task 的请求重试，Relation 自身标识防止重复边，Task Version 负责保护单个 Task 的状态变化。
-
-Task Graph 为空时，WorkItem 本身作为候选工作被发现。Agent 在读取完整上下文或开始规划前，先创建一个带 lease 的 WorkItem Coordination Claim。Active Claim 会让该候选从其他发现查询中隐藏，直到 Agent 创建首个 Task、提交“目标已满足”的完成结果、主动释放 Claim，或 lease 被 reaper 回收。WorkItem Tags 用于这种初始发现。
-
-Suggested Tags 提供开放的标签词汇，例如 `module:*` 或 `kind:*`。Agent 在创建 Task 时根据实际内容选择具体 tags；这些建议不构成权限或格式约束。
-
-## 2. 规划与执行
-
-Blackboard 将规划放在整个执行过程中：
-
-```text
-观察当前工作
-      ↓
-创建、拆分或扩展 Task
-      ↓
-选择并执行 Task
-      ↓
-通过 Task 生命周期与成果更新 WorkItem 进展
-      ↓
-重新观察 WorkItem
-      ↺
-```
+## 协作者如何改变计划
 
 协作者可以：
 
-- 创建新的 Task；
-- 将较大的 Task 拆分为更清晰的交付单元；
-- 向尚未完成的聚合 Task 追加子 Task；
-- 在 Task 之间新增建议关系；
-- 根据新信息将已经失去价值的 Task 标记为 Skipped；
-- 使用已有成果规划后续工作。
+- 在 WorkItem 下创建顶层 Task；
+- 将已 Claim、尚未产生成果的 Task 拆分为初始子 Task；
+- 在聚合 Task 尚未完成时追加子 Task；
+- 在 Task 之间追加建议 Relation；
+- 将失去价值的未领取 Task 标记为 Skipped。
 
-已完成 Task 及其成果继续保留，为后续判断提供上下文。
+拆分会结束父 Task 的 Claim 并使其进入 `waiting_children`。父 Task 不再产生自己的 Submission，子 Task 共同表达完成过程。
 
-Task 可以形成层级。执行者 Claim 一个尚未产生成果的 Task 后，可以将它拆分为初始子 Task。父 Task 随即结束 Claim 并进入 `WaitingChildren`，不再产生自己的 Submission；成果由后代 Task 汇总。
+Harness 使用 Executor Credential 创建的 Task 和 Relation 一经提交就是共享事实，不因原 Claim 后续失败或释放而回滚。
 
-Blackboard 不施加结构化 Artifact 契约。动态创建的 Task 提示词与验收标准告诉执行者需要交付什么；提交的 Artifact 进入 WorkItem 级共享 Artifact 集合。
+## Relation 与候选：建议，而不是隐藏依赖
 
-`WaitingChildren` 表示一个开放的聚合范围。WorkItem 未完成期间，协作者可以继续向其中追加子 Task。所有直接子 Task 完成或跳过后，父 Task 递归完成并封闭。普通执行 Task、聚合 Task 与 Task Relation 分别表达执行、工作拆分和建议顺序。
+Blackboard Relation 只表示建议的推进顺序。它帮助执行者解释上下文，但不会因前置 Task 未完成而强制阻止后续 Task。已有 Relation 不更新或删除，计划变化通过追加新结构与 Skip 原因表达。
 
-## 3. Task Relation
-
-Blackboard 使用 Task Relation 表达当前建议的推进顺序：
+普通 Task 在下列条件下成为候选：
 
 ```text
-设计 ⇢ 实现 ⇢ 测试
+state = pending
++ no active Claim
++ WorkItem permits execution
++ executor kind, Agent role, and queried tags match
 ```
 
-前置 Task 尚未完成时，后续 Task 仍然可以成为候选。执行者会同时看到建议关系和相关前置成果，并根据实际情况决定是否开始工作。
+空 Blackboard、Task 已收敛或待 Agent 验收时，WorkItem 本身产生协调候选。Agent 先建立 Coordination Claim，再分析完整上下文并完成创建、提交或验收决策。
 
-例如，实现 Task 可以在设计尚未完全结束时提前开始。协作者可以在建立共享结构时新增建议 Relation；当前 API 中已有 Relation 不可变，不支持更新或删除。
+## 审核单次结果
 
-> Task Relation 记录团队当前对推进方式的共同判断。
+执行者可在提交时请求 Human Review，Human 也可以要求当前 Task 的下一次 Submission 进入 Review。
 
-## 4. Task 发现与执行
+提交进入 Review 后，当前 Claim 结束，Task 处于 `in_review`。通过后完成；拒绝后回到 `pending`，保留全部 Submission、Review 与反馈历史。
 
-Blackboard 的候选 Task 来自当前共享空间：
+## 判断目标已经完成
 
-```text
-Pending 的执行叶子 Task
-+ 当前没有 Claim
-+ 符合查询上下文
-```
+Task 全部完成或跳过只表示当前计划收敛，WorkItem 仍保持 `open`。协作者必须选择：
 
-查询上下文可以包含 tags、执行者类型以及 WorkItem 范围。例如，一个 Agent 可以寻找带有 `backend` 和 `auth` tags 的 Task，人也可以通过界面查看适合人工处理的 Task。
+- 创建后续 Task，继续执行；
+- 提交一份持久的 WorkItem 完成结果。
 
-Task 可以配置执行者类型：
+例如，一次调查的原定 Task 已全部完成，但最终证据表明仍需补做上线检查。自动完成会过早关闭 WorkItem；Blackboard 会留下一个协调决定：增加这项检查，或者说明现有结果为何已经充分并提交完成。
 
-```text
-executor:
-  agent
-  human
-  either
-```
+提交完成后才应用 `acceptance_mode`：
 
-人或 Agent 可以主动选择候选 Task，未来的 Agent Daemon 可以自动完成同样基于 Role 的选择。Claim 为选中 Task 上的一个具体 Actor 建立唯一执行责任。
+| 模式 | 结果 |
+| --- | --- |
+| `none` | 立即完成 |
+| `agent` | 产生 Agent 验收候选 |
+| `human` | 进入人工验收 |
 
-## 5. 自主性
+验收者可以接受完成结果。Agent 验收者也可以创建新 Task，废弃当前完成提案并让 WorkItem 回到执行。
 
-Blackboard 将规划自主性持续开放给协作者：
+## Blackboard 不变量
 
-- 判断当前哪些工作值得执行；
-- 创建遗漏的 Task；
-- 拆分或扩展工作，并新增建议关系；
-- 根据成果重新规划下一步；
-- 判断是否需要人工 Review。
-
-人工 Review 可以由执行者在提交成果时请求，也可以由人在 Task 正式结束前要求下一次提交进入 Review。Review 作用于当前 Task，不要求在 Blackboard 初始结构中预先配置。
-
-执行者提交成果并发起 Review 时，系统从当前 Claim 创建不可变的 Task Submission，Review 关联该 Submission，随后结束 Claim 并将 Task 置为 `InReview`。每次 Submission、Review 决定和反馈都按时间顺序保留，全部进入该 Task 的共享上下文。审核期间没有 Active Claim，Reviewer 处理审核记录，不领取一个新的 Task。Review 通过后 Task 正式结束；Review 驳回后 Task 回到 `Pending`，由原执行者或其他执行者重新 Claim。
-
-其他未结束且未被 Claim 的 Task 仍可继续执行。Blackboard 的 Task Relation 是推进建议，因此某个 Task 正在 Review 不会自动阻止其他 Task 成为候选。
-
-Blackboard 的自主性来自持续规划，因此无需通过预配置的 optional Task 标记来预留跳过位置。协作者只创建当前认为有价值的 Task，也可以在判断改变后将已有 Task 标记为 Skipped 并记录原因。
-
-## 6. WorkItem 完成
-
-当前 Task 收敛后，协作者根据 WorkItem 目标判断是否需要继续扩展工作：
-
-```text
-当前所有 Task 均已完成或跳过
-                 ↓
-       Blackboard 完成判断候选
-        ├── 仍需推进 → 创建后续 Task
-        └── 已经满足 → 提交完成结果
-                              ↓
-                      acceptance_mode
-```
-
-新的发现可以随时扩展 Task Graph，目标已经满足时则可以将剩余的低价值 Task 标记为 Skipped。Task 收敛后 WorkItem 仍保持 `open`，不会自行声明完成或开始验收；协作者必须显式提交持久的完成结果，之后才应用 `acceptance_mode`：`none` 立即完成，`agent` 产生 Agent 验收候选，`human` 进入人工验收状态。验收者可以接受完成声明；Agent 验收者也可以创建更多 Task，让 WorkItem 回到执行阶段。空 Blackboard 同样通过显式完成声明结束。
-
-Agent 使用一个带 lease 的 Coordination Claim 预留每次 `empty_blackboard`、`blackboard_completion` 或 `work_item_acceptance` 判断。创建所选 Task、提交完成或接受完成时携带该 Claim ID，并在同一事务内结束 Claim，过期 Agent 因而不能再提交第二份决定。lease 过期后候选重新进入发现，旧 ID 继续作为 fencing token。Human 管理动作不需要领取 Claim，但会先撤销 Active Agent Coordination Claim，再应用人的决定。
-
-> Blackboard 让计划在执行期间始终可见、可调整。
+- 已提交的 Task、Relation、Submission、Review 和 Artifact 不被新计划覆盖。
+- Relation 始终是建议，不作为硬阻塞条件。
+- 对空图、完成判断和 Agent 验收的分析都由 Coordination Claim 保护。
+- WorkItem 只有在显式完成结果按验收策略通过后才完成。

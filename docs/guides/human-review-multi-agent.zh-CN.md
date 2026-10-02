@@ -29,4 +29,4 @@ Kairos 会保留每一轮 Review。Task 再次被领取时，下一个执行者�
 
 Task 结果应保持简洁，较大的证据则作为 Artifact 附加。验收标准要让审核者能够直接验证。只有人的判断会影响结果时才要求 Review；某个 Task 等待审核期间，Blackboard 中的其他工作仍可继续。
 
-操作控制台支持当前的 Review 和人工关注流程，完整的 WorkItem 事件时间线仍在规划中。当前界面请参阅<a href="{{ '/whitepapers/06-human-interaction-model.zh-CN.html' | relative_url }}">人机交互模型</a>，接入细节请参阅 <a href="{{ '/api-reference.zh-CN.html' | relative_url }}">API 参考</a>。
+操作控制台支持 Review 和人工关注流程。界面契约请参阅<a href="{{ '/whitepapers/06-human-interaction-model.zh-CN.html' | relative_url }}">人机交互模型</a>，接入细节请参阅 <a href="{{ '/api-reference.zh-CN.html' | relative_url }}">API 参考</a>。

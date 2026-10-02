@@ -1,157 +1,79 @@
 # Kairos Agent 身份模型
 
-> Kairos 如何确认正在行动的是哪个 Agent，以及它可以领取哪些 Task
+身份和责任很容易被混为一谈。知道哪个 Actor 发起请求，并不能说明它当前负责哪份工作；持有 Claim，也不应该迫使系统把长期凭据交给一个短命的 Harness。
 
-## 摘要
+Kairos 把这些问题分开：Identity 说明谁在操作，Claim 说明它正对什么负责，Claim-bound Executor Credential 则把一个具体 Harness 限制在这次执行内。
 
-每次收到 Agent 请求时，Kairos 都要回答两个问题：是谁在行动，它可以领取哪些工作？Agent Identity 提供稳定标识和一个 Role。在 Authenticated Mode 下，Token 用来证明身份，Kairos 只返回这个 Agent 有资格发现和领取的 Task。
-
-本地或已经受信的环境可以使用 Trusted Mode，由运行环境直接提供 id 和 role。两种模式下的 Task 发现和执行方式相同，区别只在于身份由谁提供、可信程度有多高。
-
-## 1. Agent Identity
-
-Agent Identity 表达一个 Agent 在 Kairos 中的稳定身份：
+## Actor 与 Identity
 
 ```text
-Agent Identity
-├── id
-├── role
-└── credentials
+Identity
+├── actor_id   稳定标识
+├── kind       human | agent
+└── role       Agent 的单一角色；Human 为空
 ```
 
-- `id` 是稳定且可读的标识，同时用于展示和协作记录；
-- `role` 表达 Agent 可以承担的工作类型；
-- `credentials` 用于证明该身份。
+Actor ID 表示行为来源，不自动授予权限。Human 权限由操作类型决定；Agent 还需通过 Task 的 `executor` 和 `allowed_roles` 校验。
 
-`id` 不应随意改名，因为 Claim 所有权、幂等记录和协作历史都引用它。未来如果需要可变展示信息，可以在 Agent Profile 中增加独立的展示标签，而不改变身份标识。
+Actor ID 是稳定的历史引用，必须包含非空白字符，且不能等于 `.` 或 `..`。不同传输中的保留、去除空白和 URL 编码规则见 [API 参考](../api-reference.zh-CN.md#identity-管理与控制台)。
 
-一个 Agent Identity 只具有一个 Role：
+Identity 与 Agent Harness 不是同一对象。一个 Identity 可以被多个会话或 Daemon 实例使用，真正的独占执行责任始终由 Claim 保护。
+
+因此，两个使用同一 Agent Identity 的 Daemon 进程可能发现同一个候选。审计上它们属于同一 Actor，但只有成功建立 Claim 的进程拥有 Task。Identity 解决行为归属，不负责串行化执行。
+
+## 两种身份确认方式
+
+### Trusted Mode
+
+适用于本地开发或已由运行环境保证身份的网络。请求直接提供 Actor ID、kind 和 role，Kairos 信任这些值。
+
+### Authenticated Mode
+
+适用于同一可信协作群体的共享部署。系统持久化 Identity，通过 Bearer Token 解析 Actor 与 Role，并支持 Token 签发、轮换和撤销。请求不能用参数覆盖 Token 所属身份。
+
+两种模式的业务规则完全相同，只是身份证明强度不同。Authenticated Mode 不提供租户、Team、项目或对象级隔离；互不信任的群体必须分别部署。
+
+## Role 缩小候选资格
+
+Agent Identity 有一个单一 Role。Workflow 和 Blackboard 都使用精确 Role 匹配判断 Agent 是否有资格；Human 不受 `allowed_roles` 限制，但仍必须满足 `executor` 类型和操作本身的权限。
+
+Role 只决定可见候选和可领取资格，不表示已取得责任。Claim 仍是防止两个同 Role Agent 同时执行同一 Task 的权威记录。
+
+Blackboard tags 用于发现上下文，不取代 Role 授权。Workflow 候选由图与 Role 决定，不用 tags 缩小法定候选。
+
+## Executor Credential：只用于一次执行
+
+Agent Daemon 不把长期 Identity Token 交给具体 Harness。它在建立 Task 或 Coordination Claim 时生成一次性 Executor Token：
+
+- Token 绑定 Claim、Actor 和权限 Profile；
+- Core 只存储 hash，明文只在领取响应中返回一次；
+- 读写始终限制在绑定 WorkItem 和允许的操作内；
+- Claim 结束、WorkItem 终态或 scope 不匹配时立即失效；
+- Identity Token 的后续轮换不改写已发放 Executor Token 的 Claim 生命周期。
+
+Executor Credential 是执行 scope，不是另一个 Identity，不携带 Role，也不用于发现新工作。Token 只应进入受保护的运行配置，不能写入 WorkItem、Task 或项目文档。
+
+## Identity 不替代工作区指引
+
+`AGENTS.md` 描述某个代码库或目录中的工作规则；Agent Identity 描述向 Kairos 提交操作的 Actor。两者正交：
 
 ```text
-id: codex-backend
-role: backend
+Identity  → 谁在执行
+AGENTS.md → 在当前工作区如何执行
 ```
 
-Role 保持简单、显式，并由项目或团队按照自身工作划分定义。需要另一 Role 时创建新的 Agent Identity，避免一个 Token 隐含多组授权。Kairos 不需要为 Role 引入能力评分或自动匹配模型。
+Role 不应用来编码代码风格、测试命令或目录规则；这些属于项目指引。
 
-## 2. Token
+## 部署 Admin Token
 
-Token 是 Agent Identity 的认证凭证：
+Authenticated Mode 的 Admin Token 映射为一个稳定、绑定数据库的普通 Human Actor。它的业务权限遵循 Human 规则，不获得 Agent 发现、Role 或 Executor 权限。只有配置的 Admin 凭据可以管理 Identity，普通 Human Identity 不能。
 
-```text
-Token
-  ↓ authenticate
-Agent Identity
-  ↓ resolve
-id + role
-```
+Token 轮换保留同一 Actor，但需要重启所有服务实例。控制台可以把它显示为 `system admin`，但不会改变 Actor ID。配置、持久化、会话、Identity 管理和兼容性细节见 [API 参考](../api-reference.zh-CN.md#admin-token-业务身份)。
 
-Agent 调用 Kairos 时只需要携带 Token，不必重复声明 id 和 role。服务只保存 Token Hash，明文仅在签发或轮换时返回。Token 可以被轮换或撤销，Agent Identity 以及它产生的协作记录保持不变。
+## Identity 不变量
 
-Token 应保存在 Agent 的运行环境中，不进入 WorkItem、Task 或项目文档。
-
-## 3. Authenticated Mode
-
-Authenticated Mode 由 Kairos 管理 Agent Identity 并签发 Token：
-
-```text
-Agent 携带 Token
-      ↓
-Kairos 验证身份
-      ↓
-使用已配置的 id 和 role
-```
-
-Agent 不能通过请求临时改变自己的 Role。Task 发现和领取均使用 Kairos 中已授予的身份信息。Authenticated Mode 忽略 Trusted Mode 身份头，只接受 Bearer Token。
-
-这种模式适合同一可信协作群体，用于明确身份归属和执行具体操作时的约束。它不提供租户、Team、项目或对象级数据隔离：所有已签发身份都属于同一个全局信任域。互不信任的群体需要分别部署 Kairos 实例。未来可以通过 Team 模型引入隔离边界，但这不属于当前身份契约。
-
-在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
-
-管理页面复用当前标签页 sessionStorage 中的登录凭据，不建立第二套管理员会话。退出和当前凭据的 401 清除登录及工作区缓存。新签发的 Token 仅保存在页面内存，不进入 URL、浏览器存储或 Query/Mutation 缓存。请在关闭结果、开始其他凭据操作、离开或刷新页面之前复制保存。复制身份 ID 会保留已签发的 Token 及其复制反馈。从浏览器前进／后退缓存返回时自动重新加载身份元数据，不恢复 Token 或重放写请求；剪贴板失败时可手动复制。列表和详情不会返回明文 Token。写请求失败时不自动重试，因为操作可能已成功；应先刷新元数据，再决定是否轮转新 Token。Trusted Mode 保留本地身份设置，不开放管理功能。
-
-## 4. Trusted Mode
-
-Trusted Mode 适合本地开发、受信网络和其他身份已由运行环境保证的场景：
-
-```text
-id: local-codex
-role: backend
-```
-
-Agent 无需 Token，直接声明 id 和 role。Kairos 信任这些信息，并以此进行任务发现和协作记录。
-
-Trusted Mode 的信任边界是运行环境。它提供身份标识和 Role 语义，但不提供 Authenticated Mode 的认证保证。
-
-## 5. Role 与 Workflow
-
-Workflow 中的 Role 是正式约束。Task 可以配置允许执行它的 Role：
-
-```text
-Task: 实现登录接口
-executor: agent
-roles: [backend]
-```
-
-一个 Task 对 Agent 可见，需要同时满足：
-
-```text
-Workflow 前置关系满足
-+ Task 允许 Agent 执行
-+ Agent Role 匹配
-+ Task 当前没有 Claim
-```
-
-Role 也参与领取校验。拥有 `backend` Role 的 Agent 可以领取上述 Task，其他 Agent 无法通过改变查询条件绕过限制。
-
-因此，Workflow 使用 Role 定义 Agent 的合法工作范围。
-
-## 6. Role 与 Blackboard
-
-Blackboard 中的 Role 主要帮助 Agent 发现相关工作：
-
-```text
-Agent role: backend
-Task tags: [backend, auth]
-```
-
-Kairos 可以根据 Agent Role 提供默认 tags 或查询范围，Agent 再结合 Task 描述和当前上下文作出选择。
-
-Blackboard 的 tags 表达工作分类和发现线索，不自动成为访问权限。需要限制 Agent 执行某个 Task 时，应显式配置 allowed roles；Human 执行只受执行者类型控制，不按 Agent Role 筛选。
-
-Workflow Definition 和 Blackboard Definition 都可以提供 Suggested Tags，例如 `module:*`。Agent 根据实际工作为 Task 添加具体 tags；Definition 只提供推荐词汇，不要求人持续维护每个 Task 的标签。
-
-因此，Blackboard 默认使用 Role 改善任务发现，也允许在需要时施加明确约束。
-
-## 7. AGENTS.md
-
-`AGENTS.md` 描述 Agent 在当前代码库或目录中应当遵循的工作规则。它与 Agent Identity 解决不同问题：
-
-```text
-Agent Identity → Agent 是谁、具有什么 Role
-AGENTS.md       → 在当前项目中如何工作
-```
-
-AGENTS.md 适合保留在项目仓库中：
-
-- 与代码版本同步变化；
-- 可以按照目录继承和覆盖；
-- 对应当前 checkout 或 worktree；
-- 由 Agent Harness 在执行时读取。
-
-Kairos 可以在 Task 上提供仓库和工作目录信息，使 Agent 找到对应的 AGENTS.md。平台不需要复制或取代仓库中的规则文件。
-
-Kairos 可以托管轻量的 Agent Profile，例如 role、展示标签和描述；项目级执行规则仍由仓库维护。
-
-> Identity 告诉 Kairos 是谁在行动，Role 则限定这个 Agent 可以领取哪些工作。
-
-## 部署管理员作为 Human
-
-部署 Admin Token 也可通过 HTTP、MCP 和工作台认证为稳定、绑定数据库、role 为空的普通 Human。业务权限遵循 Human 规则；身份管理仍只接受配置的凭据。更换 Token 保持 actor，并要求重启所有实例，不授予 Agent discovery 或 Executor 权限。持久化、冲突、迁移和会话语义见 [API 参考](../api-reference.zh-CN.md#admin-token-业务身份)。 控制台通过可选会话展示字段显示 `system admin`，actor ID 不变。Admin 配置要求至少 32 个可见 ASCII 字符（0x21–0x7E），不允许空白和控制字符。
-
-### 身份管理布局与 Actor ID
-身份管理沿用工作台资料架布局，以已有身份列表为主体，页头提供“创建身份”和“刷新”。创建及轮转／撤销确认使用共享弹窗。列表分为身份、类型／角色、Token 状态和操作；部署管理身份显示 **system admin**，ID 以次级单行省略展示，复制入口固定。其他身份的 ID 只显示一次，可悬停或复制查看完整值。新 Token 显示在列表上方的一次性结果区域，创建或轮转成功后自动滚动到该区域并聚焦；页面级错误也显示在列表上方。退出登录仅保留在账户菜单。
-
-Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`（保留的 URL 路径段）。继续支持 Unicode 和有意义的首尾空白；HTTP 创建身份保留原值，Trusted HTTP/MCP 身份头先去除首尾空白，再执行相同领域校验。详情、轮转和撤销 URL 中应将完整 Actor ID 编码为单一路径参数。非法输入在写入身份或签发凭据前被拒绝，修正后再重试。MCP 身份来自凭据／Trusted 请求头，不来自工具参数。服务端生成的 Admin ID 已满足规则。
-
-兼容性：此限制以尚未发布、没有既有用户的新安装为前提。旧版本接受 `.` 和 `..`；登录会校验已存身份，因此使用这两个 ID 的已有身份将无法认证。本次不提供自动 ID 迁移。若可丢弃的开发数据包含这些 ID，应使用新数据库并创建合法 ID 的身份；这会重置身份和工作历史，如需保留旧数据，请使用独立的数据库和 Artifact 目录。若必须继续使用原有历史，应在升级前安排同时迁移身份及所有历史 actor 引用；仅修改身份行或轮转其 Token 并不足够。
+- 身份证明与执行责任分开；Identity 不取代 Claim。
+- 服务端从认证结果解析 Actor，不信任请求参数自报身份。
+- Role 只约束 Agent 资格；Human 权限由明确业务规则决定。
+- Executor Credential 的权限不能超过其 Claim scope。
+- Authenticated Mode 的 Token 隔离不等于多租户数据隔离。
