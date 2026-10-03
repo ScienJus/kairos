@@ -1,153 +1,69 @@
 # Kairos Blackboard Mode
 
-> How a team builds and revises its plan while the work is already under way
+Some work begins with a clear objective but no honest way to predict the full path. Forcing it into a fixed Workflow only hides uncertainty in vague steps. Blackboard keeps the objective durable while allowing the plan to emerge from evidence.
 
-## Abstract
+A WorkItem may therefore start with no Tasks at all. People and agents add Tasks, hierarchy, and advisory Relations as they learn, but they must still make an explicit, reviewable decision when they believe the objective is complete.
 
-Use Blackboard when the team knows the objective but cannot yet describe the whole path. A WorkItem may begin with an empty or partial Task list. As evidence arrives, people and agents can create work, break it down, connect related Tasks, follow new leads, and abandon dead ends.
+## A Plan That Can Grow
 
-Task Relations record the team's current view of how the work should proceed. They help the next executor understand the plan without turning every suggestion into a blocking dependency.
+A Blackboard Definition supplies default description, Agent guidance, suggested tags, and acceptance policy, but not a complete Task Graph.
 
-## 1. Blackboard Structure
+WorkItem Version is a server-maintained structural revision. Concurrent collaborators may append distinct Tasks or Relations and have the operations serialize successfully; Task lifecycle changes still use Task Version. Resource creation uses `operation_id` to replay safely after a lost response.
 
-A Blackboard Definition defines a shared collaboration space with a name, description, Agent Instructions, and Suggested Tags. It does not predefine a Task Graph. Every WorkItem is bound to a fixed Definition Version and supplies its own objective, background, constraints, and acceptance criteria within that space:
+## How Collaborators Change the Plan
 
-```text
-WorkItem: Implement login
-Tasks: []
-```
+Collaborators may:
 
-Collaborators create initial Tasks from their current understanding:
+- create a top-level Task;
+- decompose a claimed Task with no result into initial children;
+- append children while an aggregate remains open;
+- append advisory Relations between Tasks;
+- skip an obsolete, unclaimed Task.
 
-```text
-[ ] Design the login approach
-[ ] Implement login
-[ ] Test login
-```
+Decomposition ends the parent Claim and moves the parent to `waiting_children`. The parent produces no Submission; its children collectively express completion.
 
-New information continues changing the structure during execution:
+Tasks and Relations created by a Harness through Executor Credentials become shared facts once committed. They do not roll back if the originating Claim later fails or releases.
 
-```text
-[x] Design the login approach
-[ ] Implement password login
-[ ] Implement session management
-[ ] Add brute-force protection
-[ ] Test login
-```
+## Relations and Candidates: Advice, Not Hidden Dependencies
 
-The Task Graph in Blackboard is a shared representation of the current understanding of the work.
+A Blackboard Relation suggests progression. It helps an executor interpret context but does not block a later Task while a predecessor is unfinished. Existing Relations are immutable; changed plans are expressed through appended structure and Skip reasons.
 
-Blackboard structural appends are committed against the latest server state. When multiple collaborators concurrently create different Tasks or Relations, their operations are serialized and can all succeed. WorkItem Version is a server-maintained structural revision. Operation ID identifies retries that create Tasks, Relation identity prevents duplicate edges, and Task Version protects state changes to one Task.
-
-When the Task Graph is empty, the WorkItem itself is exposed as candidate work. Before an Agent reads the full context or plans it, the Agent creates a leased WorkItem Coordination Claim. The active Claim hides that candidate from other discovery queries until the Agent creates the first Task, submits an already-satisfied completion, releases the Claim, or the lease is reaped. WorkItem Tags support this initial discovery.
-
-Suggested Tags provide an open vocabulary such as `module:*` or `kind:*`. Agents choose concrete tags from actual Task content when creating Tasks. Suggestions are neither permissions nor format constraints.
-
-## 2. Planning and Execution
-
-Blackboard keeps planning active throughout execution:
+An ordinary Task is a candidate when:
 
 ```text
-Observe current work
-        ↓
-Create, decompose, or extend Tasks
-        ↓
-Choose and execute a Task
-        ↓
-Update WorkItem progress through Task lifecycle and results
-        ↓
-Observe WorkItem again
-        ↺
+state = pending
++ no active Claim
++ WorkItem permits execution
++ executor kind, Agent role, and queried tags match
 ```
 
-Collaborators can:
+When the Blackboard is empty, converged, or awaiting Agent acceptance, the WorkItem itself produces a coordination candidate. An Agent creates a Coordination Claim before reading full context and deciding to create work, submit completion, or accept it.
 
-- create new Tasks;
-- decompose a larger Task into clearer deliverable units;
-- append child Tasks to an unfinished aggregate Task;
-- add suggested relations between Tasks;
-- mark a Task that no longer provides value as Skipped when new information appears;
-- plan follow-up work from existing results.
+## Reviewing an Individual Result
 
-Completed Tasks and their results remain available as context for later decisions.
+An executor may request Human Review at submission, and a Human may require the current Task's next Submission to enter Review.
 
-Tasks can form a hierarchy. After claiming a Task that has not produced a result, the executor can decompose it into an initial set of child Tasks. The parent immediately ends its Claim, enters `WaitingChildren`, and no longer produces its own Submission. Its result is aggregated from descendants.
+Submission ends the Claim and enters `in_review`. Approval completes the Task; rejection returns it to `pending`, retaining every Submission, Review, and feedback record.
 
-Blackboard does not impose a structured Artifact contract. The dynamically authored Task prompt and acceptance criteria tell the executor what to deliver. Any submitted Artifacts become part of the WorkItem-wide shared Artifact collection.
+## Deciding That the Objective Is Complete
 
-`WaitingChildren` represents an open aggregation scope. While the WorkItem remains open, collaborators can append child Tasks to it. After every direct child is completed or skipped, the parent recursively completes and closes. Regular execution Tasks, aggregate Tasks, and Task Relations separately represent execution, work decomposition, and suggested order.
+All Tasks being completed or skipped means only that the current plan converged; the WorkItem stays `open`. A collaborator must either create follow-up work or submit a durable WorkItem completion result.
 
-## 3. Task Relation
+Imagine an investigation whose original Tasks are all complete, but the final evidence reveals that a rollout check is still needed. Automatic completion would close the WorkItem too early. Blackboard instead presents a coordination decision: add that check, or state why the existing result is sufficient and submit completion.
 
-Blackboard uses Task Relation to express the currently suggested progression order:
+Only then does `acceptance_mode` apply:
 
-```text
-Design ⇢ Implement ⇢ Test
-```
+| Mode | Result |
+| --- | --- |
+| `none` | Complete immediately |
+| `agent` | Produce an Agent acceptance candidate |
+| `human` | Enter Human acceptance |
 
-A downstream Task can remain a candidate while its predecessor is unfinished. The executor sees the suggested relation and relevant predecessor results, then decides whether work should begin.
+An acceptance actor may accept completion. An Agent acceptance actor may instead create a Task, discard the proposal, and reopen execution.
 
-For example, implementation can start before design is fully complete. Collaborators can add a suggested Relation when creating the shared structure. Existing Relations are immutable in the current API: they cannot be updated or deleted.
+## Blackboard Invariants
 
-> Task Relation records shared judgment about how work should proceed.
-
-## 4. Task Discovery and Execution
-
-Blackboard candidate Tasks come from the current shared space:
-
-```text
-Pending executable leaf Task
-+ no current Claim
-+ matches query context
-```
-
-Query context can include tags, executor type, and WorkItem scope. For example, an agent can search for Tasks tagged `backend` and `auth`, while a person can use the interface to view Tasks suitable for human execution.
-
-A Task can configure its executor type:
-
-```text
-executor:
-  agent
-  human
-  either
-```
-
-A person or agent can choose a candidate proactively, and a future Agent Daemon can automate the same role-aware choice. A Claim establishes unique execution responsibility for one concrete actor on the selected Task.
-
-## 5. Autonomy
-
-Blackboard continuously exposes planning autonomy to collaborators:
-
-- decide which current work is worthwhile;
-- create missing Tasks;
-- decompose or extend work and add suggested relations;
-- replan next steps from results;
-- decide whether human Review is needed.
-
-An executor can request human Review while submitting a result. A person can also require the next submission to enter Review before the Task formally ends. Review acts on the current Task and does not need preconfiguration in the initial Blackboard structure.
-
-When an executor submits a result for Review, the system creates an immutable Task Submission from the current Claim, links the Review to that Submission, ends the Claim, and moves the Task to `InReview`. Every Submission, Review decision, and feedback record is retained chronologically in shared Task context. There is no Active Claim during Review. The Reviewer acts on the Review record and does not claim another Task. Approval formally ends the Task; rejection returns it to `Pending`, where the original or another executor can claim it again.
-
-Other unfinished, unclaimed Tasks can continue executing. Since Blackboard Task Relations are progression guidance, one Task being in Review does not automatically prevent other Tasks from becoming candidates.
-
-Blackboard autonomy comes from continuous planning and therefore does not need preconfigured optional Task placeholders. Collaborators create only the Tasks that currently provide value, and can later mark a Task as Skipped with a reason if their judgment changes.
-
-## 6. WorkItem Completion
-
-After the current Tasks converge, a collaborator evaluates whether the WorkItem objective requires more work:
-
-```text
-Every current Task is Completed or Skipped
-                    ↓
-        Blackboard completion candidate
-         ├── more work needed → create follow-up Tasks
-         └── objective met    → submit completion result
-                                      ↓
-                              acceptance_mode
-```
-
-New findings can expand the Task Graph at any point. When the objective is already satisfied, remaining low-value Tasks can be marked Skipped. Task convergence leaves the WorkItem `open`; it does not itself declare completion or start acceptance. A collaborator must submit a durable completion result. Then `acceptance_mode` applies: `none` completes immediately, `agent` exposes an Agent acceptance candidate, and `human` enters human acceptance and is shown in the human-attention queue. An acceptance actor may accept the proposal, while an Agent acceptance actor may instead create more Tasks and return the WorkItem to execution. The same explicit completion submission also applies to an empty Blackboard.
-
-Agents reserve each `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance` decision with one leased Coordination Claim. Creating the chosen Task, submitting completion, or accepting completion carries that Claim ID and ends it atomically, so a stale Agent cannot commit a second decision. Expiry returns the candidate to discovery and fences the old ID. Human management actions remain claim-free and revoke any active Agent Coordination Claim before applying their decision.
-
-> Blackboard keeps the plan visible and editable while people and agents carry it out.
+- Committed Tasks, Relations, Submissions, Reviews, and Artifacts are never overwritten by a new plan.
+- Relations remain advisory rather than hard blocking conditions.
+- Coordination Claims protect analysis of an empty graph, completion, and Agent acceptance.
+- The WorkItem completes only after an explicit result passes its acceptance policy.

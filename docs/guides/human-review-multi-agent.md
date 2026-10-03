@@ -28,4 +28,4 @@ Kairos keeps every Review round. When the Task is claimed again, the next execut
 
 Keep the submitted result concise and attach larger evidence as Artifacts. Write acceptance criteria that a reviewer can verify. Require Review only where a person's judgment can change the outcome; other Blackboard Tasks can continue while one Task waits.
 
-The operations console supports the current Review and human-attention flows. A complete WorkItem event timeline remains planned. See the <a href="{{ '/whitepapers/06-human-interaction-model.html' | relative_url }}">Human Interaction Model</a> for the current interface and the <a href="{{ '/api-reference.html' | relative_url }}">API Reference</a> for integration details.
+The operations console supports Review and human-attention flows. See the <a href="{{ '/whitepapers/06-human-interaction-model.html' | relative_url }}">Human Interaction Model</a> for the interface contract and the <a href="{{ '/api-reference.html' | relative_url }}">API Reference</a> for integration details.

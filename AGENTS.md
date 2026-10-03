@@ -22,6 +22,7 @@ These instructions apply to the entire repository.
 ## Documentation
 
 - Treat documentation as part of the change. When behavior, API routes, MCP tools, configuration, schema semantics, UI capabilities, or project status changes, update the corresponding README, API reference, OpenAPI document, whitepaper, handbook, frontend type, Skill, and examples in the same change.
+- Give each concept one owning document and link to it elsewhere. Whitepapers own stable meaning, the API reference owns cross-interface behavior, OpenAPI owns exact HTTP schemas, README owns current capability, and the roadmap owns future direction. Other documents should state only the local consequence instead of copying the full definition, enum, or lifecycle.
 - When server errors, terminal states, retry behavior, or recovery behavior changes, update the relevant Agent Skill stop/retry instructions in the same change.
 - Before handing off a feature, search the repository for old constants, tool counts, obsolete status lists, renamed configuration, superseded field semantics, and lifecycle descriptions in both English and Chinese.
 - Keep current implementation status separate from planned product behavior. Do not describe an implemented capability as planned, or a partially implemented surface as complete.

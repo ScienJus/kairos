@@ -1,254 +1,82 @@
 # Kairos Workflow 模式
 
-> 预定义流程如何约束依赖，同时为执行者保留必要的判断空间
+Workflow 适合那些在执行前就能说明主要步骤和依赖的工作。这里的图不只是展示，它会决定哪些运行时 Task 可以出现，以及它们何时能够推进。
 
-## 摘要
+为了让这份承诺保持稳定，每个 WorkItem 都绑定一个不可变的 Definition 版本。后续编辑可以改善未来的工作，却不会悄悄改变正在执行的规则。
 
-当重要步骤和依赖在开始前已经确定时，适合使用 Workflow。WorkItem 会绑定一个带版本的流程定义，后续修改不会悄悄改变已经运行中的工作。Kairos 随着流程推进创建实际 Task，并且只在规则满足后开放下一项工作。
+## Definition 与运行时事实
 
-预定义流程图并不意味着所有决定都要写死。Task 可以规定由谁执行、该 Task 能否跳过，以及结果是否必须由人 Review。当前执行者会在完成 Task 时作出这些预留的决定，无需为了选择下一条分支额外启动一次 Agent。
+Workflow Definition 包含 Task Definition、Relation 和起始节点。WorkItem 创建时绑定 Definition ID 与 Version；新版本不会改变已运行 WorkItem。
 
-## 1. Workflow 结构
+Definition 是规则，运行时 Task 是事实。界面可以将两者合并展示，但未到达的 Definition 节点不是可 Claim 的 Task。循环节点可以产生多个 Task 实例，每个实例保留独立 Claim、Submission 和历史。
 
-WorkItem 创建时绑定最新已存储的 Workflow Definition ID 与 Version。这个绑定在 WorkItem 生命周期内保持不变，Workflow 后续创建的新版本不会改变已经开始的工作。
+Relation 可以附带简短 `label` 和供执行者理解推进选择的 `agent_guidance`。Guidance 只解释已经合法的路径，不创建额外条件分支。
 
-Workflow Definition 还可以提供作用于全部运行时 Task 的 Agent Instructions 与 Suggested Tags。Suggested Tags 由执行者用于动态标注具体 Task，不参与 Workflow 前置关系和候选资格计算。
+## Workflow 推进：图如何运行
 
-Workflow Graph 由起点、Task Definition、单向 Relation 和 `MaxTaskInstancesPerNode` 组成。一个 Workflow 可以有多个起点；WorkItem 创建时同时产生全部起始 Task，因此起始 Task 必须是 required。Task Definition 可以配置 Default Tags，系统在产生运行时 Task 时复制这些标签，执行者仍可按实际情况调整。
+普通无环关系表示：一个节点的所有具体前置实例结束后，该节点才能产生新 Task。并行分支独立推进，汇合节点等待它们对应的具体实例。
 
-Relation 可以配置可选的 `Label` 与 `AgentGuidance`。`Label` 是图上显示的简短交接提示；`AgentGuidance` 进入当前 Task 的 Workflow execution context，帮助执行者判断已有的 optional、continue 或 exit 决策。两者都可以留空，尤其是没有判断空间的简单单通路。Guidance 只解释编译后已经合法的推进方式，不会把普通 Relation 变成条件分支，也不会改变 required、optional、并行或循环语义。
+循环中的选择按结构编译为：
 
-运维 UI 会把不可变的 Definition Graph 与运行时 Task、Relation 合并投影。尚未产生运行时 Task 的 Definition 节点显示为“尚未到达”；它们只用于展示，不能 Claim，也不能打开 Task execution context。完整图展示不会预先创建 Task，也不会改变 Workflow Activation 与 Transition 语义。循环 Relation 保留为返回边；同一循环 Definition 节点的多次运行会在主图节点上汇总任务实例数。选择节点时默认打开最新的运行时 Task，并可使用上一项和下一项控件逐个查看保留在执行历史中的具体实例。
+- 每条留在当前循环的出边各形成一个 Continue Group；
+- 离开循环的出边合并为一个 Exit Group；
+- Continue Group 与 Exit Group 互斥，执行者只选一组；
+- Continue Group 的目标直接保留；Exit Group 内 required 目标自动保留，optional 目标由执行者判断。
 
-Workflow Definition 描述可以重复到达的任务节点和推进关系，运行时则从定义的起点开始，在到达相应节点时产生具体 Task：
+循环必须有出口，运行时 Task Graph 只连接具体实例，因此历史始终为无环图。
 
-```text
-Workflow Definition：设计 → 实现 → 测试
+例如，调查节点可以进入下一轮调查，也可以退出并进入发布。选择继续会创建新的运行时 Task 实例，而不是重新打开或覆盖上一轮。Definition 可以包含循环，记录下来的执行历史仍保持无环。
 
-WorkItem Runtime：设计 #1 → 实现 #1 → 测试 #1
-```
+## Task Definition 控制什么
 
-每个 Task 实例具有独立的 Claim 与成果历史，其生命周期共同构成 WorkItem 进展。系统在前一批 Task 正式结束后产生后续 Task；运行时的一个 Task 实例具有多个前置 Task 时，默认等待这些具体实例全部结束。
-
-每个 Task Definition 还可以声明具名 Artifact 交付指引。运行时 Submission 必须包含 Definition 声明的每个名称。契约用 Description 指导执行者，但不规定文件类型或存储方式，同时允许额外 Artifact。
-
-Kairos 使用内部的 Workflow Task Activation 汇聚同一次展开产生的前置结果。Activation 通过 correlation 区分并行分支和不同循环轮次；输入全部确定后才产生可执行的 Task，它本身不会被执行者看到或 Claim。
-
-Workflow Definition 可以包含循环：
-
-```text
-实现 → 测试
- ↑      │
- └──────┘
-```
-
-再次经过同一个定义节点时，系统创建新的 Task 实例：
-
-```text
-实现 #1 → 测试 #1 → 实现 #2 → 测试 #2
-```
-
-Workflow 版本创建时，系统根据图结构为每个 Task 推导推进选择：每条留在当前循环中的出边分别形成一个 Continue Group，离开循环的出边合并为一个 Exit Group。多个 Continue Group 与 Exit Group 互斥；执行者选择其中一个组。循环内出边不表达并行或前置关系。普通无环节点只有一个 Exit Group。
-
-选择 Continue Group 即表示保留并产生其目标 Task，该次激活不再应用目标 Task 的 optional 配置。未选择的 Continue Group 不产生 Task。
-
-选择 Exit Group 后，其中的 required Task 自动产生，optional Task 仍由执行者判断是否保留。循环必须存在出口；一个 Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation Definition。起始 Task ID 必须唯一、存在于图中且对应 required Task，因此其数量由 Task Definition 上限自然约束。`MaxTaskInstancesPerNode` 在同一 WorkItem 内按每个 Task Definition 节点分别计数，配置为零时使用 100 的默认值，显式值不能超过 500。每次新建 Task 实例计一次，包括起始和跳过的实例；释放或重新认领同一 Task 不增加次数；Workflow 重试创建新 Task，因此增加次数。其他节点和其他 WorkItem 互不占用额度；不再限制整个流程的 Task 实例总数，零不表示无限。运行时 Task Graph 只连接具体实例，因此始终记录为无环的执行历史。 同一 WorkItem 内的重试保留先前 Human Review 驳回意见；从头执行不复制评审历史。 从头执行只携带本次失败摘要和当前 Human 说明，旧执行历史保留在来源 WorkItem。Workflow 重试将完整指引单独保存到 `retry_instructions`，不受错误摘要截断影响。依次采用首个非空值：本次 Human 输入、来源尝试最新 `retry` 失败的 `retry_prompt`、来源尝试已继承的 `retry_instructions`。自动 retry 被任务实例数上限阻止后，人类提高上限并继续执行，也会保留该指引。重试摘要优先为最新失败及中断原因保留空间，再携带较早历史，不重复拼接完整重试指引。 节点上限失败消息超过 32 KiB 时使用简短说明，完整节点 ID 仍保存在 `failure.workflow_task_id`；失败状态和 Claim 结束操作正常提交。
-
-执行者提交 Task 时，Kairos 保存一条 Transition Decision，记录选择的 Group、触发或跳过的 Relation、执行者和理由。需要 Review 时，Decision 暂不应用；Review 通过后再应用并产生下游 Task。被驳回的 Decision 作为未应用历史保留，同一个运行时 Task 最多应用一条 Decision。Decision、Activation、下游 Task 与 Task Relation 在同一事务中更新。
-
-并行前置关系仍按实例聚合：
-
-```text
-前端实现 ─┐
-后端实现 ─┼→ 集成测试
-编写文档 ─┘
-```
-
-Task 的前置关系只有一种统一含义：全部前置 Task 均已完成或跳过，当前 Task 才能继续推进。
-
-## 2. Task 配置
-
-Workflow 为每个 Task 配置四项设置：
-
-```text
-executor:
-  agent
-  human
-  either
-
-roles:
-  - backend
-
-execution:
-  required
-  optional
-
-review:
-  none
-  executor_decides
-  required
-```
-
-`executor` 定义 Task 可以由 Agent、人或两者中的任意一方执行。
-
-`roles` 限定可以发现和领取该 Task 的 Agent Role。人工 Task 不受 Agent Role 影响。
-
-`execution` 定义 Task 是否允许跳过：
-
-| 配置 | 语义 |
+| 配置 | 含义 |
 | --- | --- |
-| `required` | Task 必须执行 |
-| `optional` | 执行者可以保留或跳过 Task |
+| `executor` | 允许 Human、Agent 或两者执行 |
+| `allowed_roles` | 允许的 Agent Role；不限制 Human |
+| required / optional | required 路径必须执行；optional 在配置的决策点可跳过 |
+| Review policy | 不需要、执行者判断，或必须 Human Review |
+| Artifact requirements | 声明 Submission 必须附带的交付物 |
 
-optional 配置应用于 Exit Group 中的 Task。Task 通过 Continue Group 被选择时，该选择本身构成 keep 判断，Task 直接产生。
+Workflow 限制一个 Definition 的 Task/Relation 规模，并按每个 Definition 节点限制单个 WorkItem 中可产生的 Task 实例数。精确上限与请求约束以 [OpenAPI](../openapi.yaml) 为准。
 
-没有前置 Task 的起始 Task 必须配置为 `required`。每个 optional Task 至少具有一个前置 Task，其是否执行由前置执行者判断。
+## Task 何时成为候选
 
-`review` 定义 Task 结束前的人工 Review 要求：
-
-| 配置 | 语义 |
-| --- | --- |
-| `none` | 无需人工 Review |
-| `executor_decides` | 执行者判断是否请求人工 Review |
-| `required` | 必须通过人工 Review |
-
-这些配置定义执行者可以作出判断的位置，同时保持 Workflow 的整体结构稳定。
-
-## 3. 候选 Task
-
-一个 required Task 在满足以下条件后进入候选集合：
+一个已产生 Task 需同时满足以下条件才能被领取：
 
 ```text
-所有前置 Task 已完成或跳过
-+ 当前 Task 尚未结束
-+ 当前没有 Claim
-+ 执行者类型匹配
-+ 执行者为 Agent 时 Role 匹配
+state = pending
++ no active Claim
++ WorkItem permits execution
++ executor kind and Agent role match
 ```
 
-多个 Task 同时满足条件时，系统返回多个候选。人或 Agent 可以主动选择，未来的 Agent Daemon 可以自动完成同样基于 Role 的选择。
+Workflow 候选不按 Blackboard tags 过滤。多个 Task 同时满足条件时，人、主动 Agent 或 Agent Daemon 可以选择任意合法候选并建立 Claim。
 
-```text
-[前端实现, 后端实现, 编写文档]
-```
+## Optional 与 Review：留给执行阶段的决定
 
-未被选择的 required Task 继续保留在候选集合中，直到被执行。optional Task 也可以由执行者决定跳过。
+执行者在提交当前 Task 时同时提交对本次可判断 optional 目标的意图。Kairos 根据 Definition 分区和展开路径，执行者不直接构造新图。
 
-## 4. Optional Task 的推进
+当多条前置路径汇合到同一 optional 目标时，所有相关路径都选择跳过才会跳过；任一路径选择保留就产生 Task。
 
-每个前置 Task 结束时，都附带对其所连接 optional Task 的判断。该判断由完成前置 Task 或决定跳过它的执行者给出；执行者为 Agent 时不会增加 Agent 调用。
+这样，一条分支就不能丢弃另一条分支仍然需要的工作。若两项分析汇合到一个 optional 验证 Task，只有其中一项选择跳过，并不足以覆盖另一项的保留决定。
 
-当 optional Task 的所有前置 Task 都已结束后，系统聚合各个执行者的判断：
+Review 作用于当前 Submission。需审核时，提交结束 Claim 并进入 `in_review`；通过后才应用结果和推进决策，拒绝后回到 `pending` 并由新 Claim 修改。
 
-- 任意执行者选择保留：Task 进入候选集合；
-- 所有执行者都选择跳过：形成跳过决定；
-- 某个执行者未给出判断：默认保留 Task。
+## 完成与恢复
 
-```text
-前端执行者：跳过 ─┐
-后端执行者：保留 ─┼→ 编写文档进入候选集合
-设计执行者：跳过 ─┘
-```
+当已选路径上所有已产生 Task 结束，且没有后续 Task 需要产生时，WorkItem 完成。未通过 Review 的结果和未定案 optional 决策不参与推进。
 
-跳过采用一致同意原则：
+Workflow 失败后有两种 Human 恢复路径：
 
-```text
-keep = OR(keep₁, keep₂, ..., keepₙ)
-skip = AND(skip₁, skip₂, ..., skipₙ)
-```
+- **继续执行**：保留当前 WorkItem、成功分支和历史，为当前失败或中断的工作创建替代 Task 实例；
+- **从头执行**：使用同一 Definition 版本和原始目标创建新 WorkItem，只携带有界失败摘要与 Human 说明。
 
-一个 optional Task 只有一个前置 Task 时，无需等待其他执行者的判断，相关 Review 要求满足后即可生效。连续出现多个 optional Task 时，同一个执行者可以在一次推进中依次判断：
+两种路径都不复活旧 Claim，也不提供任意阶段回放。重试指引、实例上限、响应与冲突语义见 [API 参考](../api-reference.zh-CN.md)。
 
-```text
-后端实现
-    ↓
-编写文档（optional） → 跳过
-    ↓
-更新示例（optional） → 跳过
-    ↓
-集成测试（required） → 进入候选集合
-```
+## Workflow 不变量
 
-执行者将这些判断作为 Skip Intent 随当前提交保存，只需列出本次允许跳过的 optional Task。Kairos 根据 Workflow Definition 将其应用到当前可达路径；遇到需要执行的 Task 即停止继续应用。并行路径独立推进，多条路径汇合时采用一致同意原则。任一路径需要 Review 时，该路径等待 Review 通过后继续推进。
-
-## 5. Review
-
-执行者提交当前 Task 时，根据 Review 配置决定后续过程：
-
-```text
-提交 Task
-    ↓
-Review Policy
- ├── none ───────────→ 结束
- ├── executor_decides → 结束 / Review
- └── required ───────→ Review
-
-Review 通过 ─────────→ 结束
-Review 驳回 ─────────→ Pending → 重新 Claim
-```
-
-Review 是同一个 Task 的状态。执行者提交 Review 时，系统从当前 Claim 创建不可变的 Task Submission，Review 关联该 Submission，随后结束 Claim 并将 Task 置为 `InReview`。等待 Review 期间没有 Active Claim，Reviewer 处理审核记录，不领取该 Task。
-
-每次 Review 请求、决定和反馈都记录在当前 Task 下，并按时间顺序保留为完整审核历史。Task 上下文向执行者提供全部 Review 记录。Review 通过后 Task 正式结束；Review 驳回后 Task 回到 `Pending`，由原执行者或其他执行者重新 Claim，并在完整审核历史上继续处理。
-
-optional Task 的跳过也是一种结束决定，其 Review 配置以相同方式生效：
-
-- `none`：直接跳过；
-- `executor_decides`：任意前置执行者请求人工确认时进入 Review；
-- `required`：人工确认后跳过。
-
-跳过决定 Review 通过后，optional Task 标记为 Skipped；Review 驳回后，该 Task 被保留并进入候选集合。Review 检查的是前置执行者作出的跳过决定，不会为 optional Task 建立 Claim。
-
-每个执行者对 optional Task 的判断随当前 Task 一并提交，并在当前 Task 所需的 Review 通过后参与聚合。跳过决定所需的 Review 通过后，Workflow 继续推进；执行者为 Agent 时无需再次启动 Agent。
-
-## 6. 执行者自主性
-
-Workflow 通过配置明确执行者的判断空间：
-
-```text
-人类定义 Task Graph 和策略
-            ↓
-系统保证前置关系
-            ↓
-执行者判断 optional Task 与 Review
-```
-
-执行者的自主性体现在：
-
-- 从多个候选 Task 中选择工作；
-- 判断当前 Task 所连接的 optional Task 是否值得执行；
-- 在 `executor_decides` 模式下判断是否需要人工 Review。
-
-前置依赖、required Task 和 required Review 仍然由 Workflow 强制保证。执行者为 Agent 时，这些决策体现 Agent 自主性。
-
-## 7. WorkItem 完成
-
-Task 有两种结束结果：
-
-```text
-Completed
-Skipped
-```
-
-需要 Review 的结果在 Review 通过后才正式生效。所有已经产生的 Task 均已完成或跳过，并且 Workflow 已没有后续 Task 需要产生时，WorkItem 完成：
-
-```text
-∀ Runtime Task: Completed or Skipped
-+ No Next Task
-            ↓
-    WorkItem Completed
-```
-
-Workflow 完成是结构性结果，不会自动合成 WorkItem 级 Result。完成后的 WorkItem 保持 `result` 为空；持久成果保留在具体 Task Submission 和 Artifact 中。确实需要最终总结的 Workflow 应将其建模为末尾 Task，由执行者正式提交。
-
-每个节点可以产生恰好 `MaxTaskInstancesPerNode` 个 Task 实例；推进决策尝试创建该节点的下一次实例时，WorkItem 才进入 Failed，并结束活跃 Claim。失败事件记录目标节点 ID 和上限。来源 Submission 与推进决策仍提交成功，不创建超额的目标 Task；达到上限后退出到其他节点仍然有效。
-
-人工恢复为整批替代任务准备一次事务内快照，索引各节点任务实例数、来源激活和 Task 前驱关系；每次成功创建替代实例后递增计数和下一个 Task 位置，再检查下一个替代任务。控制台按节点汇总已有实例和待替代实例数量，计算建议上限，不增加流程 Task 总数限制。
-
-普通扩展通过现有索引列查询等待中的激活、目标节点计数和下一个 Task 位置，不再为每条边解码全部 Task/Activation 历史；保留现有事务与重复等待激活检查，不增加缓存或数据库结构。基准测试及仍然存在的历史读取成本见[运行时测量](../workflow-runtime-performance.md)。
-
-> Workflow 划定边界；执行者只在流程明确留下的决策点作出选择。
-
-WorkItem 失败或仍有当前失败 Task 的 Workflow 提供两个 Human 操作：**继续执行**保留当前 WorkItem、成功分支、等待汇合和待人工评审，为失败或中断的执行创建新 Task，并仅补发已提交决策中尚未送达的输入；**从头执行**创建新的 WorkItem，从起点执行，复制原始目标和绑定的 Workflow 版本，并携带有长度限制的失败摘要及操作人补充说明。原 WorkItem 以 Failed 状态结束并保留执行历史，剩余 Claim 在同一事务中结束。A 的重试与同一轮成功的 B 汇合；A、B 都失败时，必须等二者的新尝试都成功才触发 C。不提供任意阶段重跑。继续执行保留各节点计数，重试的新 Task 也计数，必要时提高上限（最高 500）；从头执行的新 WorkItem 独立计数。已结束 Claim 不复活，恢复后重新发现并认领。从头执行保留来源 WorkItem 引用和当前失败摘要，不扫描或复制旧 URL、Artifact、Review、Submission 或恢复摘要。受限执行者不能读取其他 WorkItem，人类应在当前补充说明中列出需复用的外部成果；已有外部操作不会撤销。迁移将历史失败归一为普通执行失败并保留原始消息，不自动恢复。API 详见 `/continue` 和 `/start-over`。
-
-Workflow 重试保留失败的来源 Task，只有替代实例继续推进。从头执行的来源必须是绑定相同 Workflow Definition ID 和版本的另一个 WorkItem；来源关系和 Definition 绑定在创建后不可修改。
+- WorkItem 始终绑定同一 Definition 版本。
+- 只有结构允许的 Task 才会被产生和领取。
+- 执行者只在 Definition 预留的决策空间内自主判断。
+- 历史 Task 实例、Submission、Review 和 Failure 不因后续推进或恢复被覆盖。
+- 运行时扩展的存储与查询边界见[性能测量](../workflow-runtime-performance.md)。

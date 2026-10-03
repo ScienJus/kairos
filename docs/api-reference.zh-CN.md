@@ -2,97 +2,62 @@
 
 [English](api-reference.md)
 
-配置 Kairos 服务或接入客户端时，请查阅本页。这里记录身份认证、HTTP 资源、MCP 工具、请求限制和准确的响应结构。第一次了解产品时建议先读 README；需要理解模型设计时再查看白皮书。
+本页说明部署、认证、资源边界和跨接口行为。[OpenAPI 3.1](openapi.yaml) 是 HTTP 路径、字段、请求体、响应码、枚举和限制的权威契约；本页不重复逐字段 Schema。
 
-## 服务启动
+## 启动与存储
 
-Core 与托管 Harness 的独立启动方式见 [Daemon 示例](https://github.com/ScienJus/kairos/tree/main/examples/daemon)。
-Daemon 使用 Agent Identity Token，每个 Harness 只取得 Executor Token 及对应的 MCP 工具和
-初始化指令；下文 HTTP/MCP 操作不变。
-
-默认服务使用 SQLite 与 Trusted Mode：
+默认使用 SQLite 和 Trusted Mode：
 
 ```bash
 KAIROS_SQLITE_PATH=kairos.db \
 KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
-KAIROS_AGENT_CLAIM_LEASE=5m \
-KAIROS_ARTIFACT_DIR=artifacts \
-KAIROS_ARTIFACT_MAX_UPLOAD_BYTES=16777216 \
-KAIROS_ARTIFACT_GC_RETENTION=24h \
-KAIROS_ARTIFACT_GC_INTERVAL=15m \
-KAIROS_HTTP_READ_TIMEOUT=60s \
-KAIROS_HTTP_WRITE_TIMEOUT=120s \
-KAIROS_HTTP_IDLE_TIMEOUT=120s \
 go run ./cmd/kairos-server
 ```
 
-设置 `KAIROS_POSTGRES_DSN` 后，服务改用 PostgreSQL：
+设置 `KAIROS_POSTGRES_DSN` 后使用 PostgreSQL；它优先于 `KAIROS_SQLITE_PATH`。服务在接收请求前验证连接并应用内嵌 migration，显式配置的数据库不可用时启动失败。
 
-```bash
-KAIROS_POSTGRES_DSN='postgres://kairos:<password>@127.0.0.1:5432/kairos?sslmode=disable' \
-go run ./cmd/kairos-server
-```
+| 配置 | 默认值 | 用途 |
+| --- | --- | --- |
+| `KAIROS_AGENT_CLAIM_LEASE` | `5m` | Agent Claim 默认 lease |
+| `KAIROS_ARTIFACT_DIR` | `artifacts` | 托管 Artifact 根目录 |
+| `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` | `16777216` | HTTP/MCP 上传内容上限 |
+| `KAIROS_ARTIFACT_GC_RETENTION` | `24h` | 未提交 Artifact 与幂等记录保留时间 |
+| `KAIROS_ARTIFACT_GC_INTERVAL` | `15m` | Artifact GC 间隔 |
+| `KAIROS_HTTP_READ_TIMEOUT` | `60s` | 读取完整请求的总时间 |
+| `KAIROS_HTTP_WRITE_TIMEOUT` | `120s` | 请求体、Handler 和响应共享的绝对 write deadline |
+| `KAIROS_HTTP_IDLE_TIMEOUT` | `120s` | keep-alive 请求之间的空闲时间 |
 
-`KAIROS_POSTGRES_DSN` 非空时优先于 `KAIROS_SQLITE_PATH`。服务在开始接收请求前会验证连接并应用内嵌的 PostgreSQL Migration；显式配置的数据库无效或不可访问时，启动将直接失败。
+SQLite 文件使用 `0600`。Artifact 根目录必须是专用、非根目录、非符号链接且权限为 `0700` 的路径；托管文件使用 `0600`。无法满足安全条件时服务拒绝启动，不自动放宽权限。
 
-内置本地持久化仅允许运行 Kairos 的操作系统用户访问。SQLite 数据库、WAL 和共享内存文件会强制设为 `0600`，打开已有数据库时也会收紧其权限。托管 Artifact 根目录必须是专用、非文件系统根、非符号链接且权限为 `0700` 的目录；已有根目录权限过宽时 Kairos 会拒绝启动，而不会替管理员修改。散列子目录会以 `0700` 创建，托管文件会以 `0600` 创建，重试替换已有文件时同样如此。若部署确实需要多个操作系统用户共享这些路径，应在 Kairos 之外配置访问方式，而不是依赖默认的 Group 可读权限。
+公网部署应由反向代理终止 TLS，并限制连接数、速率和请求体。代理的超时应略长于 Kairos 对应配置。MCP 转发到 loopback 时，上游 `Host` 应使用 loopback 目标，同时保留 `Authorization` 和 `Origin`。`403 invalid Host header` 表示代理/loopback 配置错误，不是业务冲突或 Token 过期。
 
-HTTP read timeout 限制读取完整请求的总时间，包含 JSON、MCP 和托管 Artifact 上传。Go 在读取完请求头后设置绝对 write deadline，因此读取 Body、执行 Handler 和写出响应共享这段预算，它不是独立的响应写出计时器；默认 write timeout 因而设为 read timeout 的两倍，并同时限制 Artifact 下载。idle timeout 限制 keep-alive 连接在两次请求之间的空闲时间。三个配置均使用 Go duration 语法且必须为正数。
+`GET /healthz` 无需认证。HTTP API 位于 `/api/v1`，Streamable HTTP MCP 位于 `/mcp`。Core 与 Daemon 的完整启动示例见 [`examples/daemon`](https://github.com/ScienJus/kairos/blob/main/examples/daemon/README.zh-CN.md)。
 
-公网部署应在 Kairos 前配置反向代理，由其终止 TLS，并限制连接数和请求速率。代理连接上游的 timeout 应略长于 Kairos 对应配置，使慢请求由 Kairos 可预测地关闭。代理可以有意采用更小的上传上限；否则其请求体限制应允许 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` 以及 multipart 开销。
+## HTTP 约定
 
-MCP 经代理转发到 loopback 监听地址时，代理应发送上游目标地址作为 Host。例如在 `kairos.example.com` 的 Nginx server 块中单独配置以下 location，并保留现有速率、请求体和 timeout 限制：
+- JSON 字段统一使用 `snake_case`，请求对象拒绝未知字段。
+- JSON 成功响应使用 `{ "data": ... }`；错误使用 `{ "error": { "code": string, "message": string } }`。
+- 集合为空时返回 `[]`；真正可选的单值才返回 `null`。
+- 释放 Claim、Daemon 上报和 Token 撤销返回无 Body 的 `204`。Artifact 内容使用 `application/octet-stream`。
+- 列表使用 `{ "data": [...], "next_cursor": string | null }`。Cursor 不透明且与集合/过滤条件绑定。
 
-```nginx
-location = /mcp {
-    if ($host != kairos.example.com) { return 421; }
-    proxy_pass http://127.0.0.1:8080;
-    proxy_http_version 1.1;
-    proxy_set_header Host $proxy_host;
-    proxy_buffering off;
-}
-```
-
-这适用于 Codex 等非浏览器 MCP 客户端，无需修改 SDK 默认的 localhost 防护。控制台及 REST 路由继续保留公网 Host。保留 Authorization 和 Origin 请求头，不要通过清除 Origin 绕过跨站校验。携带公网 Origin 的浏览器 MCP 请求需要另外配置正确的来源校验，因为它与改写后的上游 Host 不同。含 `invalid Host header` 的 `403` 表示代理与 loopback 配置问题，不是 Token 过期或业务失败；先修正部署，再重试客户端。
-
-参与发现、授权候选收窄、筛选或排序的运行时字段，除了保留在聚合 payload 中，也存入专用列。PostgreSQL 对 WorkItem/Task tags 和 Task allowed roles 使用原生 `TEXT[]`，并为当前的包含查询建立 GIN 索引。SQLite 将相同逻辑字段保存为经过校验的 JSON 数组 `TEXT` 列，通过 `json_each` 执行包含查询；SQLite 定位于本地和较小规模部署。空集合在存储和响应中均为数组，不使用 `null`。
-
-数据库时间在应用边界统一规范为 UTC、微秒精度，因此 API 值、聚合 payload 和查询列表示同一个时间点。PostgreSQL 使用 `TIMESTAMPTZ`；SQLite 使用固定宽度的 RFC 3339 UTC 文本，使文本范围比较保持时间顺序。Definition、WorkItem、Task、Workflow activation 和 Identity 按照领域元数据使用 `created_at` 与 `updated_at`。Task Relation 持久化其不可变的 `created_at`；可变的 Claim、暂存 Artifact 和幂等记录在状态变化时更新 `updated_at`。具有更精确不可变事件或生命周期语义的行继续使用 `occurred_at`、`claimed_at`、`applied_at` 等字段名，不额外添加没有含义的重复时间列。
-
-`GET /healthz` 无需认证。HTTP 管理与执行路由位于 `/api/v1`，Streamable HTTP MCP 位于 `/mcp`。
-
-## HTTP 响应约定
-
-机器可读的 <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 文档</a>是当前全部 53 个 HTTP operation 的精确契约，包含认证方式、路径和查询参数、JSON 与 multipart 请求体、响应状态码、枚举、默认值、Artifact 二进制下载及每一个响应字段。本文保留不适合写入 Schema 的行为语义。
-
-所有 API JSON 字段统一使用 `snake_case`。JSON 请求对象是封闭契约；未知字段（包括嵌套对象中的未知字段）会被拒绝并返回 `400 invalid_request`。JSON 成功响应使用 `{ "data": ... }`，JSON 错误响应使用 `{ "error": { "code": string, "message": string } }`。释放 Claim、上报 Daemon 以及撤销 Token 返回无响应体的 `204`；`/healthz` 返回 `{ "status": "ok" }`；Artifact 内容使用 `application/octet-stream`。
-
-集合字段和列表响应即使为空也始终编码为数组。`active_claim_id`、`parent_task_id`、`current_review`、`workflow`、`blackboard`、完成时间以及取消操作者和时间等可选单值在不存在时使用 `null`。重复的 `status`、`mode` 与 `tag` 查询参数通过重复 query key 传递。通用错误码如下：
-
-| 状态码 | Code |
+| HTTP | 通用错误 code |
 | --- | --- |
 | `400` | `invalid_request` |
 | `401` | `unauthenticated` |
 | `403` | `forbidden` |
 | `404` | `not_found` |
-| `409` | `conflict` |
-| `409` | `work_item_cancelled` |
+| `409` | `conflict` 或 `work_item_cancelled` |
 | `413` | `artifact_too_large` |
 | `500` | `internal_error` |
 
-## Daemon 平台可观测性
+创建 WorkItem、Claim、Artifact 和 Blackboard Task 的请求可以使用稳定 `Idempotency-Key`；托管上传必须提供。相同 key 与相同参数返回原资源，参数改变时必须使用新 key。生命周期变更不重放旧响应，而是按当前状态重新判断。
 
-`kairos-daemon` 每次启动生成新的实例 ID，使用 Agent Identity Token 注册，并约每 15 秒向 Core 上报运行快照和有类型的事件。遥测失败不改变 Claim、续租和业务结果处理；Daemon 只在首次失败、类别变化、最大退避和恢复时记录安全的错误类别，不记录响应正文或凭据。退出期间先上报 `stopping`，等待活跃 Dispatch 收尾后使用 2 秒超时尽力发送一次 `stopped` 报告。最终报告沿用普通批次和请求体上限，可能留下未发送的内存事件。`--instance-name` 可以设置展示名称（最多 128 UTF-8 字节），首尾空白会被移除。不会上传主机名、工作目录、凭据、模型输出或原始日志。
+## 身份与认证
 
-控制台的 **Daemon** 页面及读取 API 只允许 Human 使用。`GET /api/v1/daemon-instances` 默认列出近 30 天有上报的实例；`include_history=true` 包含仍保留的历史实例，`agent_id` 可筛选。`GET /api/v1/daemon-instances/{id}` 返回最后快照，`GET /api/v1/daemon-instances/{id}/events` 按实例事件序号倒序分页。`last_report_at` 使用 Core 接收时间。45 秒内收到上报为 `reporting`，超时为 `stale`，只有明确收到退出报告才是 `stopped`；实例失联不意味着 Claim 已结束。页面每 15 秒轮询，并可从 Dispatch 与事件跳转到 WorkItem。
+### Trusted Mode
 
-`POST /api/v1/daemon-instances` 仅允许 Agent 注册自己的实例，首次返回 `201`，配置完全相同的重放返回 `200`。`POST /api/v1/daemon-instances/{id}/reports` 请求体上限 64 KiB；快照 revision 单调递增，单次最多 100 个活跃详情和 50 个事件。Daemon 生成的候选事件携带相关 WorkItem、Task、Dispatch 和 Claim 引用，进程级事件将这些引用留空。Core 校验已知事件类型、传入引用非空、共享枚举和非负数值，并保留显式的 `false` 和 `0`。`204` 表示整批上报成功；同一 `(instance_id, sequence)` 重送时保留首次写入的事件且不产生重复行，因此 Daemon 在响应丢失后可以安全重送。旧 revision 可以补交事件，却不能刷新在线时间。事件引用只用于导航，上报时不与可能变化的 Claim 状态同步核对。事件保留 30 天，停止上报的实例保留 90 天，Core 每日清理。没有新增 MCP 工具。
-
-状态含义与后续扩展见[详细设计](daemon-observability-design.zh-CN.md)。
-
-## 选择身份模式
-
-Trusted Mode 在可信边界内接受传输头：
+Trusted Mode 接受受信边界提供的 Header：
 
 ```text
 X-Kairos-Actor-Id: codex-backend
@@ -100,9 +65,9 @@ X-Kairos-Actor-Kind: agent
 X-Kairos-Actor-Role: backend
 ```
 
-`X-Kairos-Actor-Kind` 默认为 `agent`。Agent 身份必须提供 `X-Kairos-Actor-Role`，Human 身份必须省略它。创建 WorkItem、Blackboard Task、Claim、外部 Artifact、拆分结果或子 Task 的 HTTP 请求可以提供稳定的 `Idempotency-Key`；完全相同的重试返回原资源，参数变化时必须使用新 key。Definition 追加使用 `base_version`，生命周期变更依据当前状态判断，不重放旧响应。托管 Artifact 上传必须提供稳定 key，因为文件存储与数据库无法放入同一个事务。
+`kind` 默认为 `agent`。Agent 必须提供 role，Human 必须省略 role。
 
-同一可信协作群体内的共享环境应使用 Authenticated Mode：
+### Authenticated Mode
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
@@ -110,131 +75,135 @@ KAIROS_ADMIN_TOKEN='<at-least-32-visible-ASCII-high-entropy-token>' \
 go run ./cmd/kairos-server
 ```
 
-身份管理路由使用 `Authorization: Bearer <admin-token>`，业务路由接受签发的 Identity Token，或作为普通 Human 的部署 Admin Token。Authenticated Mode 忽略 Trusted actor headers。
+Authenticated Mode 忽略 Trusted Header。业务路由接受 Identity Token、部署 Admin Token 映射的 Human，或绑定 Active Claim 的 Executor Token。身份管理只接受 Admin Token。
+
+`GET /api/v1/auth/config` 无需认证，返回当前模式。`GET /api/v1/session` 返回传输层实际解析的 `id`、`kind`、`role`、可选 `display_name` 和 `can_manage_identities`；客户端不应从 Token 或 ID 前缀推导这些字段。
 
 ### Admin Token 业务身份
 
-`KAIROS_ADMIN_TOKEN` 可直接通过工作台原登录框登录，也可用于 HTTP 和 MCP 业务请求，身份为普通 Human（`kind=human`、空 `role`、无 Executor scope）。它可创建 WorkItem、执行 Human/either Task；Agent-only Task、他人 Claim 和已结束 Claim 仍适用普通 Human 限制。只有配置的 Admin 凭据可以管理身份，Human 身份本身不授予管理权限。
+Admin Token 同时映射为一个稳定、绑定数据库的普通 Human Actor。它的业务权限遵循 Human 规则；管理凭据本身才能管理 Identity。
 
-Authenticated 启动时，migration 005 与事务创建或读取唯一的 `credential_source=admin` 身份。随机 `admin-` ID 与 Token 无关；与已有 Human ID 冲突时重新生成，不认领或覆盖旧记录；同名 Agent 是另一 actor。唯一部分索引确保并发初始化收敛。数据库约束和启动校验拒绝错误 kind、role 或已存凭据状态。升级保留 migrations 001–004 和已有身份。备份必须包含完整数据库及该行；不支持手工删除或修改该行。新数据库会创建新的 Human 身份。
+Token 必须至少 32 个可见 ASCII 字符，不含空白或控制字符。轮换后需重启所有服务实例；同一数据库保留原 Human Actor。备份必须包含整个数据库，不支持手工删除或修改该 Actor 行。
 
-同库重启保持 actor 不变。更换 Admin Token 应修改部署配置并重启所有实例；新 Token 仍对应原 Human，所有旧进程停止后，旧 Token 的业务和管理认证均失败。不提供热更新，也不将 Admin 凭据或 hash 存成普通 Identity 凭据。启动拒绝与已有 Identity Token 的碰撞及完整规范 Executor 格式。配置至少 32 个可见 ASCII 字符（0x21–0x7E），不接受非 ASCII、空白或控制字符，应使用高熵随机值；无效或缺失配置启动失败且不输出凭据。
+控制台只在当前标签页的 `sessionStorage` 保存凭据。退出或当前凭据收到 `401` 时清除凭据与业务缓存。不得把凭据写入 URL、WorkItem、日志或截图。
 
-该凭据在控制台当前身份菜单显示为 `system admin`。`/session` 增加可选展示字段 `display_name: "system admin"`；普通 Identity 会话和 Trusted Mode 不返回此字段，仍显示 actor ID。稳定的 `id`、Human `kind` 和空 `role` 继续作为 HTTP 与 MCP 的业务身份。名称或 ID 前缀不授予权限。旧配置若含非 ASCII 或控制字符，须在重启前替换为随机可见 ASCII 凭据；数据库绑定的 actor 保持不变。
+### Executor Token
 
-身份管理响应新增 `credential_source`（`identity` 或 `admin`）。`token_active` 只表示是否存在已签发的 Identity Token，因此部署管理的 Human 为 false。对该行调用 `/identities/{kind}/{actor_id}/token` 轮换或撤销返回 403，应改部署配置。普通身份签发、轮换和撤销不变。
+Agent 创建 Task/Coordination Claim 时可附带以 `krs_claim_` 开头的 256 位随机 Token。Core 只保存 SHA-256 hash。该凭据只能在 Claim Active 期间读取绑定 WorkItem 上下文；Task Executor 可额外创建 Artifact 和执行允许的 Blackboard 非终态写入，Coordination Executor 只读。
 
-工作台将任一有效凭据保存在当前标签页 sessionStorage；刷新恢复会话，退出或当前凭据收到 401 时清除凭据及业务缓存。登录提交时清空密码输入，失败时也不残留。迟到会话响应不能恢复已失效会话；存储不可用时明确报错。不要把凭据放入 URL、WorkItem、日志或截图。
+Claim 结束后 Token 失效。完整匹配 Executor 格式但认证失败的凭据不回退到 Identity 查询。
 
-Agent 创建 Task Claim 或 Coordination Claim 时，可以附带一个由客户端生成的 `executor_token`。Token 必须以 `krs_claim_` 开头，后接按无填充 base64url 编码的 256 位随机值；Core 只保存其 SHA-256 hash。在 Authenticated Mode 中，该 Token 可在对应 Claim 保持 Active 期间作为 Bearer 凭据使用。它可以读取绑定 WorkItem 内的 Task、WorkItem context 和已提交 Artifact；Task Executor 还可以为其精确绑定的 Task Claim 创建或上传 Artifact，并扩展 Blackboard 计划，Coordination Executor 只读。其他操作一律拒绝。Claim 结束或被 reaper 回收后 Token 失效；Agent identity token 的轮换或撤销不影响已经 Active 的 Executor Token。
+Authenticated Mode 是同一全局信任域，不是多租户隔离。互不信任的群体必须分别部署 Kairos。
 
-只有完整且规范的 Executor Token 格式进入 Claim 认证，其他格式仍走 Identity 认证；Claim 认证失败不回退。内置生成器的旧 43 字符 Identity Token 因而保持兼容，包括前缀碰撞的情况。自定义旧 Token 若完整匹配新 Executor 格式，需要在升级前轮换。
+### Identity 管理与控制台
 
-认证用于确定调用方身份；Task 发现、领取以及基于 Claim 的执行等操作仍受各自规则约束。但认证不是数据隔离边界：所有已签发身份都属于同一个全局信任域，Kairos 当前不会按租户、Team、项目或对象隔离读写。需要阻止不同群体访问彼此数据时，应分别部署 Kairos 实例。
+Authenticated Mode 下，配置的 Admin 通过 `/admin/identities` 中的 **Token 管理** 创建 Human 或 Agent Identity，并轮换或撤销 Token。普通 Identity Token 不能管理身份。`/session` 返回 `can_manage_identities`；前端只用它决定是否展示入口，各管理端点仍独立认证 Admin 凭据。
 
-Operations console 通过公开的 `GET /api/v1/auth/config` 识别当前模式。在 Authenticated Mode 下，控制台会在加载任何工作区数据前显示 Token 登录页，通过 `GET /api/v1/session` 验证 Token，之后所有 API 请求、托管上传和 Artifact 下载都使用该 Bearer 凭据。Token 只保存在浏览器 `sessionStorage` 中，因此仅属于当前标签页会话，不会形成持久浏览器登录；如果浏览器禁止访问该存储，控制台会明确报告不可用。退出登录会清除 Token 和缓存的 API 数据；包括 Token 被撤销或轮换在内的业务 API `401` 响应，也会清除会话并返回登录页。
+管理页面复用当前标签页登录，不建立第二套管理员会话。新 Token 只存在于页面内存，列表与详情接口不会再次返回明文。关闭结果、开始其他凭据操作、离开或刷新前必须复制保存。Mutation 不自动重试，因为首次请求可能已经提交；应先刷新元数据，再决定是否轮换替代 Token。
 
-在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
+Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`。允许 Unicode 和有意义的首尾空白。HTTP 创建 Identity 时保留原值；Trusted HTTP/MCP 请求头会先去除首尾空白再校验。详情、轮换和撤销 URL 中必须把完整 Actor ID 编码为一个路径参数。
 
-管理页面复用当前标签页 sessionStorage 中的登录凭据，不建立第二套管理员会话。退出和当前凭据的 401 清除登录及工作区缓存。新签发的 Token 仅保存在页面内存，不进入 URL、浏览器存储或 Query/Mutation 缓存。请在关闭结果、开始其他凭据操作、离开或刷新页面之前复制保存。复制身份 ID 会保留已签发的 Token 及其复制反馈。从浏览器前进／后退缓存返回时自动重新加载身份元数据，不恢复 Token 或重放写请求；剪贴板失败时可手动复制。列表和详情不会返回明文 Token。写请求失败时不自动重试，因为操作可能已成功；应先刷新元数据，再决定是否轮转新 Token。Trusted Mode 保留本地身份设置，不开放管理功能。
+较早的未发布构建可能保存了 `.` 或 `..` ID，这些身份将无法继续认证，系统不提供自动迁移。可丢弃数据应使用新数据库；如需保留历史，必须同时迁移 Identity 与全部历史 Actor 引用。
 
-`GET /api/v1/auth/config` 无需认证，返回 `{ "data": { "mode": "trusted" | "authenticated" } }`。`GET /api/v1/session` 使用普通业务路由的认证方式，返回传输层实际解析出的身份：`{ "data": { "id": string, "kind": "human" | "agent", "role": string } }`。客户端应信任该结果，而不是自行从 Token 推导身份字段。
+## HTTP 资源索引
 
-## HTTP 资源
-
-| 资源 | 路由 |
+| 领域 | 主要路由 |
 | --- | --- |
-| 认证与会话 | `GET /api/v1/auth/config`、`GET /api/v1/session` |
-| Workflow Definitions | 目录 `GET /api/v1/definitions/workflows`；最新版本 `GET /{id}`；历史与追加 `GET/POST /{id}/versions`；精确版本 `GET /{id}/versions/{version}` |
-| Blackboard Definitions | 目录 `GET /api/v1/definitions/blackboards`；最新版本 `GET /{id}`；历史与追加 `GET/POST /{id}/versions`；精确版本 `GET /{id}/versions/{version}` |
-| WorkItems | `GET/POST /api/v1/work-items`、`GET /api/v1/work-items/{id}/context`、`POST /completion`、`POST /acceptance`、`POST /cancellation`、`POST /continue`、`POST /start-over`；Coordination Claim 使用 `POST /{id}/coordination-claims`、`POST /{id}/coordination-claims/{claim_id}/heartbeat` 和 `DELETE /{id}/coordination-claims/{claim_id}` |
-| Artifacts | `GET /api/v1/work-items/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifacts`、`POST /api/v1/tasks/{id}/artifact-uploads`、`GET /api/v1/artifacts/{id}/content` |
-| 工作发现 | `GET /api/v1/work` |
-| Task 详情与执行 | `GET /api/v1/tasks/{id}`、`/context`、`/claims`、`/submissions`、`/failures`、`/reviews` |
-| Blackboard 规划 | WorkItem Task、relation、completion；Task decomposition、children 与 skipping |
-| 人工关注 | `GET /api/v1/human-attention` |
-| Identities | `GET/POST /api/v1/identities` 及 Token 轮换、撤销路由 |
+| 认证 | `/auth/config`、`/session` |
+| Identity | `/identities`、`/identities/{kind}/{actor_id}` 及 `/token` |
+| Workflow Definition | `/definitions/workflows`、`/{id}`、`/{id}/versions`、`/{id}/versions/{version}` |
+| Blackboard Definition | `/definitions/blackboards`、`/{id}`、`/{id}/versions`、`/{id}/versions/{version}` |
+| 发现与人工关注 | `/work`、`/human-attention` |
+| WorkItem | `/work-items`、`/{id}/context`、`/completion`、`/acceptance`、`/continue`、`/start-over`、`/cancellation` |
+| Coordination Claim | `/work-items/{id}/coordination-claims`、`/{claim_id}/heartbeat`、`/{claim_id}` |
+| Blackboard 规划 | `/work-items/{id}/tasks`、`/relations`；Task 下的 `/decomposition`、`/children`、`/skip` |
+| Task 详情与执行 | `/tasks/{id}`、`/context`、`/claims`、`/submissions`、`/failures`、`/reviews/{review_id}/decision` |
+| Artifact | `/work-items/{id}/artifacts`、`/tasks/{id}/artifacts`、`/artifact-uploads`、`/artifacts/{id}/content` |
+| Daemon 观测 | `/daemon-instances`、`/{id}`、`/{id}/reports`、`/{id}/events` |
 
-`GET /api/v1/human-attention` 包含待处理 Review、未认领的 Pending Human Task、当前 Human 持有有效 Claim 的 Working Task（包括 `executor=either`），以及等待人工验收的 WorkItem。Human 调用时，还包含 Open Workflow 中尚无替代实例的 Failed Task；创建重试替代实例后，旧失败 Task 从该列表移出。不包含其他执行者正在处理的 Task 或未认领的 `either` Task。沿用 `human_task` kind，通过 `task.status` 区分待认领、当前用户执行中和上述失败任务。所有者和替代关系过滤均在游标分页之前完成，非 Open WorkItem 不提供 Task 条目；等待人工验收的 WorkItem 仍可提供验收条目。
+表中路径都相对 `/api/v1`。精确 HTTP 方法与 Schema 见 OpenAPI。
 
-WorkItem、Human Attention、Definition 目录、Definition 版本历史和已提交 Artifact 的列表路由使用 cursor 分页。`limit` 默认为 50，允许范围为 1-200。每页返回 `{ "data": [...], "next_cursor": string | null }`；当该值非空时，将其作为 `cursor` 传回同一集合路由，并保留原有过滤参数。Cursor 是不透明且与集合绑定的；无效 cursor 或 limit 返回 `400 invalid_request`。WorkItem 按 `updated_at DESC, id ASC` 排序，Human Attention 优先返回 Review，其余按条目更新时间排序；Definition 目录按 `id ASC` 排序，版本历史按 `version DESC` 排序，Artifact 按 `created_at ASC, id ASC` 排序。
+## 关键资源语义
 
-Operations console 使用两套按状态过滤的 cursor 分别加载进行中和已结束 WorkItem，因此加载更早历史不会影响进行中工作队列。
+### Definition 与 WorkItem
 
-每个 Definition 目录对每个 ID 返回最大的已存储版本。`GET /definitions/{mode}/{id}` 返回该最新版本，`GET /definitions/{mode}/{id}/versions` 分页返回该 ID 的不可变版本历史。控制台会直接解析未知 ID 或版本，不扫描无关目录页。
+Definition ID 只允许小写 ASCII 字母、数字和连字符。创建 ID 时省略 `base_version`；追加版本必须提供当前基线，过期基线返回冲突。Definition 版本不可变。
 
-Definition ID 只能包含小写 ASCII 字母、数字和连字符（`^[a-z0-9-]+$`）。
+创建 WorkItem 时只提交 Definition ID 和 mode，服务端在事务中绑定最新版本。Workflow 实例化起始 Task；Blackboard 可从空图开始。
 
-创建新的 Definition ID 时省略 `base_version`，服务端分配版本 1。追加版本时必须通过 `base_version` 提交编辑所基于的最新版本；服务端在 Definition 锁内比较后分配 `max(version) + 1`。已有 ID 缺少基线或基线过期时返回 `409 conflict`。
+### Workflow 恢复
 
-创建 WorkItem 时有意只提交 Definition ID 和 mode，不提交版本。服务端会在创建时解析并绑定该 ID 最大的已存储版本。
+`continue` 保留原 WorkItem、成功分支、汇合和审核，并为当前失败/中断工作创建替代 Task。`start-over` 使用同一 Definition 版本和原始目标创建新 WorkItem，并保留来源引用。
 
-Definition 版本不可变。Workflow WorkItem 根据图实例化起始 Task；空 Blackboard WorkItem 保持为规划候选。Blackboard Task 收敛后，`find_work` 返回 `blackboard_completion`；协作者可以继续创建 Task，也可以提交持久完成结果。提交后才应用 `acceptance_mode`：`none`（默认）立即完成，`agent` 返回 `work_item_acceptance`，`human` 进入人工验收；验收通过独立的 `POST /acceptance` 动作完成。Agent 验收候选仅对 Agent identity 可见。Agent 在分析 `empty_blackboard`、`blackboard_completion` 或 `work_item_acceptance` 前必须创建 WorkItem Coordination Claim；Active Claim 会从发现结果中隐藏该候选，后续创建 Task、提交完成或接受完成必须携带 Claim ID，并在同一事务内结束 Claim。
+两者都不复活旧 Claim、不回放任意阶段、不自动复制旧 Artifact、Review 或外部副作用。Human 应在说明中写明新执行者需要的外部成果。恢复是 WorkItem 操作，没有独立 Task 重试管理接口。
 
-Operations console 只向 Human identity 提供这些 WorkItem 生命周期决策控件。Agent 通过 MCP 的发现与 Coordination Claim 循环执行这些决策，在加载完整上下文并开始分析前先建立 Claim。
+### Blackboard 完成
 
-Workflow Definition 最多包含 100 个 Task Definition 和 1,000 个 Relation Definition。起始 Task ID 必须唯一、存在于图中且对应 required Task，因此其数量由 Task Definition 上限自然约束。`max_task_instances_per_node` 统一配置、在同一 WorkItem 内按每个 Task Definition 节点分别计数。传 0 时使用 100 的默认值，显式值不能超过 500。每次新建 Task 实例计一次，包括起始和跳过的实例；释放或重新认领同一 Task 不增加次数；Workflow 重试创建新 Task，因此增加次数。其他节点和其他 WorkItem 互不占用额度，不再限制流程 Task 实例总数。这些限制用于保护图规模和循环执行，不增加重复的运行时图校验。尝试创建已耗尽额度节点的下一次实例时，WorkItem 进入 Failed 并结束活跃 Claim；来源提交和决策仍提交成功，失败事件包含目标节点及上限。 同一 WorkItem 内的重试保留先前 Human Review 驳回意见；从头执行不复制评审历史。Workflow 重试将完整指引单独保存到 `retry_instructions`，不受错误摘要截断影响。依次采用首个非空值：本次 Human 输入、来源尝试最新 `retry` 失败的 `retry_prompt`、来源尝试已继承的 `retry_instructions`。自动 retry 被任务实例数上限阻止后，人类提高上限并继续执行，也会保留该指引。重试摘要优先为最新失败及中断原因保留空间，再携带较早历史，不重复拼接完整重试指引。 节点上限失败消息超过 32 KiB 时使用简短说明，完整节点 ID 仍保存在 `failure.workflow_task_id`；失败状态和 Claim 结束操作正常提交。
+Task 收敛后 WorkItem 仍为 `open`。协作者可以创建后续 Task，或提交持久完成结果。只有提交后才应用 `acceptance_mode`：`none` 立即完成，`agent` 产生 Agent 验收候选，`human` 进入人工验收。
 
-WorkItem 失败或仍有当前失败 Task 的 Workflow 提供两个 Human 操作：**继续执行**保留当前 WorkItem、成功分支、等待汇合和待人工评审，为失败或中断的执行创建新 Task，并仅补发已提交决策中尚未送达的输入；**从头执行**创建新的 WorkItem，从起点执行，复制原始目标和绑定的 Workflow 版本，并携带有长度限制的失败摘要及操作人补充说明。原 WorkItem 以 Failed 状态结束并保留执行历史，剩余 Claim 在同一事务中结束。A 的重试与同一轮成功的 B 汇合；A、B 都失败时，必须等二者的新尝试都成功才触发 C。不提供任意阶段重跑。继续执行保留各节点计数，重试的新 Task 也计数，必要时提高上限（最高 500）；从头执行的新 WorkItem 独立计数。已结束 Claim 不复活，恢复后重新发现并认领。从头执行保留来源 WorkItem 引用和当前失败摘要，不扫描或复制旧 URL、Artifact、Review、Submission 或恢复摘要。受限执行者不能读取其他 WorkItem，人类应在当前补充说明中列出需复用的外部成果；已有外部操作不会撤销。API 详见 `/continue` 和 `/start-over`。
+Agent 在处理 `empty_blackboard`、`blackboard_completion` 或 `work_item_acceptance` 前必须建立 Coordination Claim。创建 Task、提交完成或验收完成会在同一事务中消耗该 Claim。
 
-WorkItem 响应包含 `failure`（失败前及继续执行后为 null）、`workflow_max_task_instances_per_node`（0 继承绑定版本，Blackboard 恒为 0）、`started_over_from_work_item_id`（未复制时为 null）、`start_over_context` 和 `recovery_instructions`（默认为空字符串）。失败快照包含 `kind`、`message`、`workflow_task_id`、`task_instances`、`limit`；快照存在时，message 不能为空或纯空白。从头执行的来源必须是另一个绑定相同 Definition ID 和版本的 Workflow WorkItem，来源引用和 Definition 绑定创建后不可修改。Task 增加 `retry_of_task_id`（非重试实例为 null）、`retry_context`、`retry_instructions`（默认为空字符串）。恢复统一为 WorkItem 操作，不提供独立 Task 重试能力或接口。增量迁移 `007_workflow_attempts` 以独立列保存重试/来源关系，唯一索引保证每个 Task 至多一个直接替代实例。 HTTP WorkItem 上下文增加 `recovery_task_ids`（没有待重建任务或 Blackboard 时为 `[]`），与继续执行共用任务选择逻辑。控制台据此计算包含中断任务在内的单节点建议上限，超过 500 时仅提供从头执行；服务端提交时仍重新校验。该投影不持久化，也不进入 Agent MCP 视图。
+### 失败与取消
 
-Human 管理接口：
-- `POST /api/v1/work-items/{id}/continue`：`{ "version": <当前 WorkItem version>, "max_task_instances_per_node": 0, "instructions": "..." }`。有未完成工作的 Failed Workflow 或含尚未替代失败 Task 的 Open Workflow 均可继续执行。一次事务替换所有当前失败实例，保留仍在执行的分支；Pending 实例仅在 Claim 被整个流程失败撤销时视为中断，正常释放、租约过期和评审驳回保持原实例（已耗尽 Claim 历史容量的实例除外）。上限省略或 0 保留当前值；显式值不可降低、最高 500，且必须容纳所有待重试和被阻止节点。成功返回 200，记录 `work_item.continued`，清除当前失败快照，保留历史失败事件。
-- `POST /api/v1/work-items/{id}/start-over`：`{ "version": <当前 WorkItem version>, "instructions": "..." }`，必须提供 `Idempotency-Key`。返回 201 和新 WorkItem，相同 key 和请求重放返回同一资源。含当前失败 Task 的 Open 来源会在同一事务中标记为 Failed 并撤销其他 Claim，已有 Failed 来源保持失败；来源版本递增以阻止并发继续/从头执行，记录 `work_item.started_over`；新对象复制原不可变 Definition 版本与当前上限覆盖值，不复制执行状态。
+`fail_task` 支持 `retry`、`await_human` 和 `fail_work_item`。Workflow `retry` 创建替代 Task，Blackboard `retry` 重新开放原 Task；`await_human` 只适用 Workflow；`fail_work_item` 终止整个 WorkItem 并结束其他 Claim。
 
-补充说明可省略，上限为 32 KiB UTF-8 字节，与自动摘要分开保存。自动恢复摘要按相同字节上限安全截断并标记省略，来源历史完整保留。从头执行摘要仅包含来源 WorkItem ID、当前 WorkItem 失败原因以及当前失败 Task 尝试的最新原因，统一按 32 KiB UTF-8 字节上限安全截断。新 WorkItem 单独保存本次提交的 Human 说明；旧执行历史及旧人工说明留在来源中，不扫描或复制。当前失败原因中的 URL 作为原因正文保留，不提取为引用列表。管理接口不增加 Agent MCP 工具；MCP 上下文工具将 WorkItem 恢复信息放进 `work_item.context`，将 Task 重试信息放进 description，使受限执行者无需读取另一个 WorkItem 就能获得指引。`find_work` 仅保留原始 context/description，不附加自动恢复摘要。参数无效返回 400，Agent 返回 403，版本过期、状态不符或重试额度不足返回 409；继续执行在冲突时整体回滚（包括上限修改），旧 Claim 始终失效。
+`cancellation` 只允许 Human 调用，并要求非空原因。取消会结束 Active Task/Coordination Claim，阻止后续变更，但不改写旧结果或伪造 Task Failure。Agent 收到 `work_item_cancelled` 后必须停止写入。
 
-Claim 失败接口/MCP `fail_task` 接受 `retry`、`await_human`、`fail_work_item`。Workflow 的 `retry` 将旧 Task 结束为 Failed 并立即创建替代实例；若达到单节点上限，则提交失败记录并将 WorkItem 标记为上限失败。`await_human` 仅支持 Workflow，将当前 Task 留在 Failed 等待 Human 继续执行，其他分支继续。`fail_work_item` 使整个 WorkItem 失败并撤销其他 Claim。Blackboard 的 `retry` 仍将同一 Task 置回 Pending。对 Blackboard 的 `await_human` 动作在历史容量处理前返回无效参数错误；即使失败记录已满，也不改变 WorkItem、Task、Claim 或事件。接口返回失败记录，新实例通过重新发现获取。 Blackboard 重试记录 `task.retry_requested`；Workflow 重试记录 `task.failed`，容量允许时再为替代实例记录 `task.created`。
+### 历史与 Detail
 
-`find_work` 按 `work_item_acceptance`、`blackboard_completion`、`task`、`empty_blackboard` 分组顺序返回未领取候选。`limit` 独立作用于每个组；省略或传 0 时默认为 5，最大允许 50。因此 Agent 最多收到四倍于 limit 的候选；Human 不会收到 Agent 验收候选。每个组都在数据库查询阶段限制结果，不会先加载完整候选集合再截断。
+`GET /work-items/{id}/context` 在所有生命周期状态下可读，返回规范化 Task/Relation、完整 Claim 历史和当前 Active Claim 投影。
 
-单个 Blackboard WorkItem 最多包含 1,000 个 Task 实例和 10,000 条建议 Relation；已完成的历史 Task 以及拆分产生的子 Task 也计入总数。服务端会在根 Task 创建、Task 拆分、追加子 Task 和新增 Relation 的写事务内检查硬上限；超过上限时返回 `409 conflict`，不会产生部分写入结果。
+`GET /tasks/{id}` 是查看者 Detail，返回 responsibility、outcome、current review、history、已提交 Artifact 和 capabilities；它不要求执行资格。`GET /tasks/{id}/context` 是受执行权限保护的执行上下文，不用于普通详情页。
 
-为在不截断历史的前提下限制执行上下文和 WorkItem 上下文大小，每个 WorkItem 最多接受 128 条 Coordination Claim；每个 Task 最多接受 128 条 Claim、64 条 Submission、64 条 Review、64 条普通 Failure、64 条 Transition Decision 和 64 个 Artifact。尝试追加超过任一历史上限时，WorkItem 会失败并结束 Active Claim，被拒绝的操作不会再追加历史记录；使当前 Task 结束为 Failed 的 `fail_work_item` Failure 可额外写入 1 条，因此 Failure 历史在该场景下最多为 65 条。已接受的历史在上下文响应中保持完整。会保留在历史或事件中的 Result、Reason、Retry Prompt、Feedback、Transition Reason 和事件消息按 UTF-8 编码后的单字段上限为 32 KiB。Task Submission 可通过 `artifact_ids` 将较长交付物绑定为 Artifact，同时在 Result 中保留简短摘要。对于不接受 Artifact ID 的纯文本生命周期动作，包括失败与重试详情、Review Feedback、Cancellation Reason 和 Skip Reason，应将较长内容存入可持久访问的外部存储，并在文本字段中提供简短摘要和绝对 URI。
+### Artifact
 
-Workflow Definition 的每条 `graph.relations[]` 接受可选的 `label` 与 `agent_guidance` 字符串。空字符串表示没有额外 Guidance。两者不改变图编译或推进语义。HTTP Workflow Task context 的每个 Choice Group 在 `relations` 中返回完整 Guidance；MCP `get_task_context` 则在对应的 `targets[]` 项上提供合并后的 `relation_guidance`（优先使用 `agent_guidance`，否则使用 `label`），避免重复目标结构。
+Workflow Task Definition 可以声明必交 Artifact 名称与说明。执行者可以登记绝对外部 URI，或上传到唯一托管 Store，再在 `submit_task.artifact_ids` 中提交。暂存 Artifact 只属于创建它的 Claim，已提交 Artifact 对整个 WorkItem 可见。
 
-对于 Blackboard，等待验收期间 `work_item.result` 保存已提交的 completion proposal；验收通过后，同一字段表示已接受的最终结果。Agent 验收阶段若通过创建新 Task 重新打开 WorkItem，会清除已经失效的 proposal。Workflow 的完成由图收敛确定，因此 Workflow WorkItem 的 `result` 保持为空；其持久成果保留在各 Task Submission 和 Artifact 中。
+托管上传使用稳定 `kairos://` URI、SHA-256 digest 和先登记后写文件的恢复流程。未提交 Artifact、pending 上传和已完成的幂等重放记录按 retention 回收；已提交 Artifact 不由该生命周期删除。大文件应使用外部持久存储并登记 URI。
 
-`POST /api/v1/work-items/{id}/cancellation` 是只允许 Human 调用的管理动作，适用于 `open`、`awaiting_agent_acceptance` 和 `awaiting_human_acceptance` WorkItem。请求必须提供非空 `reason`，服务端记录 `cancelled_at`、`cancelled_by` 和 `cancellation_reason`，并清除待验收的完成提案。同一事务会让全部 Active Task Claim 与 Coordination Claim 以 `work_item_cancelled` 结束、清除对应 Task 的 `active_claim_id`，并只把 `working` Task 恢复为 `pending`；已有 Task 结果不会被重写，也不会创建 Task Failure。取消后的 WorkItem 仍可读取，后续 Task 变更返回 `409 work_item_cancelled`，Agent 收到后应直接停止。MCP 不提供取消工具。
+## 关键上限
 
-`GET /api/v1/work-items/{id}/context` 在 WorkItem 的所有生命周期状态下均可读取，返回 WorkItem、规范化的 Task 与 relation 集合、`claims` 中的完整 Task Claim 历史、`active_claims` 中当前仍存活的 Task 子集、`coordination_claims` 中的 WorkItem 判断历史，以及可选的 `active_coordination_claim`。空历史编码为 `[]`，不存在 Active Coordination Claim 时编码为 `null`。返回的 `work_item.result` 遵循上述模式语义：Blackboard 中保存 completion proposal 或已接受结果，Workflow 中保持为空；Workflow 成果应从 Task Submission 和 Artifact 获取。完成态 Task 的执行人可通过 `submission.claim_id -> claims[].id -> executor` 关联。
+下表便于运营评估；服务端精确校验以 OpenAPI 与实现为准。
 
-Workflow Task Definition 可以声明必交的 `artifacts[]`，每项只有 `name` 和 `description`。Description 是执行指引，不是文件类型 Schema。执行者持有 Claim 时可以用绝对 URI 创建外部 Artifact，或上传托管内容，再通过 `submit_task.artifact_ids` 提交。Submission 在同一事务中绑定暂存 Artifact；缺少 Definition 声明名称的 Workflow 提交会被拒绝。Blackboard Task 没有结构化 Artifact 契约。已提交 Artifact 对整个 WorkItem 可见，暂存 Artifact 只属于创建它的 Claim。
+| 范围 | 上限 |
+| --- | --- |
+| Workflow Definition | 100 个 Task Definition，1,000 条 Relation |
+| Workflow 节点实例 | 默认每节点/WorkItem 100，可配置上限 500 |
+| Blackboard WorkItem | 1,000 个 Task，10,000 条 Relation |
+| Claim 历史 | 每 WorkItem 128 条 Coordination Claim；每 Task 128 条 Claim |
+| Task 关联历史 | 各 64 条 Submission、Review、普通 Failure、Transition Decision 和 Artifact |
+| 历史文本字段 | 32 KiB UTF-8 |
+| `find_work` | 每个 candidate kind 默认 5，最大 50 |
 
-托管上传始终写入服务端唯一的托管 Store，调用方不能选择 Store。内置实现会先把稳定的 `kairos://` 上传 URI 和 pending 状态登记到数据库，再向 `KAIROS_ARTIFACT_DIR` 写入文件，并在完成数据库操作前同步文件和目录链；写入后的 Blob 元数据单独保存 SHA-256 完整性 Digest。
+达到历史安全上限会使 WorkItem 失败并结束 Active Claim，已接受历史仍完整保留。长内容应存入 Artifact 或外部持久存储，生命周期文本保留摘要和绝对 URI。
 
-`POST /tasks/{id}/artifacts` 接受 `claim_id`、`name`、`uri` JSON 字段；`POST /tasks/{id}/artifact-uploads` 接受 `claim_id`、`name`、`file` multipart 字段，不存在 Store 字段。`KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` 限制上传文件内容大小，默认 16 MiB；超限返回 `413 artifact_too_large`。内置托管上传是面向小文件的便捷通道；大文件应先发布到 S3 等持久外部存储，再通过 URI 接口登记。外部 URI 创建接受可选的资源创建 key；托管上传必须提供该 Header，以便服务端在写文件前先登记上传 URI 和 pending 状态。Store 流式写入并返回 Digest 和大小，服务端随后更新 pending 记录，再通过最终事务创建 Blob 元数据、暂存 Artifact，并把操作更新为 completed。Pending 重试会覆盖已登记 URI，并校验此前记录的 Digest 和大小，因此即使清理流程删除了文件却未能删除 pending 记录也能恢复。在上传记录仍处于配置的保留窗口内时，完全相同的 completed 上传可以在 Claim 结束后通过原 key 找回暂存 Artifact。
+## Claim 租约
 
-Artifact GC 默认每隔 `KAIROS_ARTIFACT_GC_INTERVAL`（15 分钟）执行一次。Claim 已不再 Active 且 Artifact 创建时间超过 `KAIROS_ARTIFACT_GC_RETENTION`（默认 24 小时）的未提交 Artifact 会进入回收；超过相同保留时间的 pending 托管上传记录及其已登记文件也会删除，completed 外部登记和托管上传重放记录同样在该窗口后过期；已提交 Artifact 始终保留。只有 Blob URI 已不再被任何 Artifact 引用时，托管内容和元数据才会删除。三个 Artifact 数值或时长配置都必须为正数。
+Agent Task Claim 和 Coordination Claim 使用 lease，Human Claim 不使用。Agent 可请求 15 秒至 30 分钟，省略时使用服务端默认值。
 
-`GET /api/v1/tasks/{id}` 是面向查看者的 Task Detail，不要求当前身份能够执行该 Task。它返回后端计算的 `responsibility`、`outcome`、`current_review`、规范化 `history`、属于该 Task 的已提交 `artifacts` 和当前身份的 `capabilities`。Task 没有已提交交付物时，`artifacts` 编码为 `[]`。`GET /api/v1/tasks/{id}/context` 仍是受执行权限保护的执行者上下文；客户端不得使用它加载普通详情或人工 Review。
+`lease_until` 是 reaper 最早可以回收的时间，不会在该时刻自动撤销执行权。reaper 提交回收前，当前 Agent 仍可续租或执行受保护操作；回收后旧 Claim ID 继续作为 fencing token，不能复活。
 
-## Claim 租约与恢复
+## Daemon 平台观测
 
-Agent Task Claim 与 WorkItem Coordination Claim 都使用 lease，Human 操作不使用。Agent Claim 与 heartbeat 可选择 15 秒至 30 分钟的时长；省略时使用 `KAIROS_AGENT_CLAIM_LEASE`，默认五分钟。`lease_until` 是后台 reaper 最早可以结束 Claim、将 Task 或生命周期候选重新放回发现结果的时间；到达该时间本身不会改变执行权。reaper 提交回收事务前，当前 Agent 仍可继续受保护操作或续租，其他 Agent 仍不能领取该工作。回收完成后，旧 Claim ID 继续作为 fencing token，不能续租或用于生命周期变更。
+`kairos-daemon` 每次启动生成新实例 ID，使用 Agent Identity Token 注册，并约每 15 秒上报快照与关键事件。遥测失败不影响调度、Claim、heartbeat 或业务结果。
+
+Core 根据接收时间计算连接状态：45 秒内为 `reporting`，超时为 `stale`，只有明确退出报告才是 `stopped`。失联不等于 Claim 已结束。事件保留 30 天，已停止上报的实例保留 90 天。
+
+上报只允许实例所属 Agent，读取只允许 Human。快照和事件是运行观测，WorkItem、Task 和 Claim 记录才是业务权威。完整契约见[可观测性设计](daemon-observability-design.zh-CN.md)。
 
 ## MCP 工具
 
-MCP 与 HTTP 复用身份解析。Trusted Mode 在传输层提供 actor headers，Authenticated Mode 提供 `Authorization: Bearer <identity-token>` 或绑定 Claim 的 Executor Token；身份不会出现在工具参数中。Executor 会话只暴露其 Profile 允许的工具，并在 `initialize` 响应中收到对应指令，Claim 生命周期交由 Agent Daemon 管理。普通 Identity 会话保留完整的 Agent 指令。应用层对 HTTP 和 MCP 执行相同的权限边界。
+MCP 与 HTTP 复用身份解析和应用层授权。身份来自传输层，不作为工具参数。Executor 会话只暴露 Profile 允许的工具，Claim 生命周期由 Agent Daemon 管理。
 
-Agent 通过 20 个 MCP 工具发现工作、承担责任、提交结果，并扩展 Blackboard：
+| 类别 | 工具 |
+| --- | --- |
+| 发现与上下文 | `find_work`、`get_task_context`、`get_work_item_context` |
+| Task Claim 与交付 | `claim_task`、`heartbeat_claim`、`create_artifact`、`upload_artifact`、`release_claim`、`submit_task`、`fail_task` |
+| Coordination Claim | `claim_work_candidate`、`heartbeat_coordination_claim`、`release_coordination_claim` |
+| Blackboard 规划与关闭 | `create_blackboard_task`、`add_blackboard_relation`、`decompose_blackboard_task`、`add_blackboard_child_task`、`skip_blackboard_task`、`submit_blackboard_completion`、`accept_blackboard_completion` |
 
-- 发现与上下文：`find_work`、`get_task_context`、`get_work_item_context`；
-- Task Claim 生命周期与交付：`claim_task`、`heartbeat_claim`、`create_artifact`、`upload_artifact`、`release_claim`、`submit_task`、`fail_task`；
-- Coordination Claim 生命周期：`claim_work_candidate`、`heartbeat_coordination_claim`、`release_coordination_claim`；
-- Blackboard 规划与关闭：`create_blackboard_task`、`add_blackboard_relation`、`decompose_blackboard_task`、`add_blackboard_child_task`、`skip_blackboard_task`、`submit_blackboard_completion`、`accept_blackboard_completion`。
+创建资源的工具要求 `operation_id`：`claim_task`、`claim_work_candidate`、`create_artifact`、`upload_artifact`、`create_blackboard_task`、`decompose_blackboard_task` 和 `add_blackboard_child_task`。相同重试返回原资源，参数改变时必须换 ID。
 
-只有创建资源的 MCP 工具要求 `operation_id`：`claim_task`、`claim_work_candidate`、`create_artifact`、`upload_artifact`、`create_blackboard_task`、`decompose_blackboard_task` 和 `add_blackboard_child_task`。这些工具会重放完全相同的重试，避免响应丢失后无法找回服务端生成的 ID；参数变化时必须使用新 ID。生命周期变更和 Relation 创建直接依据当前领域状态判断，成功后的重试可能返回冲突。Workflow 候选由 role 与图状态决定，忽略 tag 筛选；Blackboard 可以按 tags 发现。Workflow Task context 提供受控的上游摘要、durable result 和可选 Relation Guidance，但不授予任意读取其他 Task 的权限，也不会因为 Guidance 产生 Definition 未允许的分支。
-
-`upload_artifact` 通过不带 data URI 前缀的 `content_base64` 接受标准 Base64 字节，解码后写入服务端配置的 Artifact Store，并返回供 `submit_task.artifact_ids` 使用的暂存 Artifact ID。解码后的大小上限与 HTTP multipart 上传共用 `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES`；MCP 请求体上限会包含对应的 Base64 膨胀。该工具只面向小文件，因为 Base64 会增加约三分之一传输体积，且 MCP 请求会完整缓存在内存中。大文件应使用 `create_artifact` 登记 S3 或其他持久外部 URI。
+`upload_artifact` 接受不带 data URI 前缀的标准 Base64，只适合小文件；大文件应通过 `create_artifact` 登记持久外部 URI。
 
 项目 Codex 配置位于 `.codex/config.toml`，执行指引位于 `.agents/skills/kairos-agent/SKILL.md`。
-
-### 身份管理布局与 Actor ID
-身份管理沿用工作台资料架布局，以已有身份列表为主体，页头提供“创建身份”和“刷新”。创建及轮转／撤销确认使用共享弹窗。列表分为身份、类型／角色、Token 状态和操作；部署管理身份显示 **system admin**，ID 以次级单行省略展示，复制入口固定。其他身份的 ID 只显示一次，可悬停或复制查看完整值。新 Token 显示在列表上方的一次性结果区域，创建或轮转成功后自动滚动到该区域并聚焦；页面级错误也显示在列表上方。退出登录仅保留在账户菜单。
-
-Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`（保留的 URL 路径段）。继续支持 Unicode 和有意义的首尾空白；HTTP 创建身份保留原值，Trusted HTTP/MCP 身份头先去除首尾空白，再执行相同领域校验。详情、轮转和撤销 URL 中应将完整 Actor ID 编码为单一路径参数。非法输入在写入身份或签发凭据前被拒绝，修正后再重试。MCP 身份来自凭据／Trusted 请求头，不来自工具参数。服务端生成的 Admin ID 已满足规则。
-
-兼容性：此限制以尚未发布、没有既有用户的新安装为前提。旧版本接受 `.` 和 `..`；登录会校验已存身份，因此使用这两个 ID 的已有身份将无法认证。本次不提供自动 ID 迁移。若可丢弃的开发数据包含这些 ID，应使用新数据库并创建合法 ID 的身份；这会重置身份和工作历史，如需保留旧数据，请使用独立的数据库和 Artifact 目录。若必须继续使用原有历史，应在升级前安排同时迁移身份及所有历史 actor 引用；仅修改身份行或轮转其 Token 并不足够。
