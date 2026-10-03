@@ -108,6 +108,6 @@ Authenticated Mode 下，配置的 Admin 通过普通登录框进入控制台，
 
 ## 社区
 
-贡献前请阅读[贡献指南](CONTRIBUTING.zh-CN.md)。安全问题按[安全策略](SECURITY.zh-CN.md)私密报告。
+贡献前请阅读[贡献指南](CONTRIBUTING.zh-CN.md)。维护者发布版本时请参考[发布指南](docs/releasing.zh-CN.md)。安全问题按[安全策略](SECURITY.zh-CN.md)私密报告。
 
 Kairos 使用 [Apache License 2.0](LICENSE) 开源。
