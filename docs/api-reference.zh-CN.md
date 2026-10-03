@@ -31,7 +31,7 @@ SQLite 文件使用 `0600`。Artifact 根目录必须是专用、非根目录、
 
 公网部署应由反向代理终止 TLS，并限制连接数、速率和请求体。代理的超时应略长于 Kairos 对应配置。MCP 转发到 loopback 时，上游 `Host` 应使用 loopback 目标，同时保留 `Authorization` 和 `Origin`。`403 invalid Host header` 表示代理/loopback 配置错误，不是业务冲突或 Token 过期。
 
-`GET /healthz` 无需认证。HTTP API 位于 `/api/v1`，Streamable HTTP MCP 位于 `/mcp`。Core 与 Daemon 的完整启动示例见 [`examples/daemon`](../examples/daemon/README.zh-CN.md)。
+`GET /healthz` 无需认证。HTTP API 位于 `/api/v1`，Streamable HTTP MCP 位于 `/mcp`。Core 与 Daemon 的完整启动示例见 [`examples/daemon`](https://github.com/ScienJus/kairos/blob/main/examples/daemon/README.zh-CN.md)。
 
 ## HTTP 约定
 

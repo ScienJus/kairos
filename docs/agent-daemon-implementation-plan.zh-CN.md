@@ -1,6 +1,6 @@
 # Agent Daemon 实现与验收记录
 
-> 状态：阶段 1–5 已完成。当前能力见 [README](../README.zh-CN.md#当前状态)，后续方向见 [Roadmap](../ROADMAP.zh-CN.md)，设计边界见 [Agent Daemon 白皮书](whitepapers/agent-daemon.zh-CN.md)。
+> 状态：阶段 1–5 已完成。当前能力见 [README](https://github.com/ScienJus/kairos/blob/main/README.zh-CN.md#当前状态)，后续方向见 [Roadmap](https://github.com/ScienJus/kairos/blob/main/ROADMAP.zh-CN.md)，设计边界见 [Agent Daemon 白皮书](whitepapers/agent-daemon.zh-CN.md)。
 
 本文只保留已实现阶段、验收边界和未覆盖范围，不再作为开发计划维护。
 

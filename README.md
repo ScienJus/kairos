@@ -108,6 +108,6 @@ Implementation records include the [Daemon acceptance record](docs/agent-daemon-
 
 ## Community
 
-Read the [contribution guide](CONTRIBUTING.md) before contributing. Report security issues privately according to the [security policy](SECURITY.md).
+Read the [contribution guide](CONTRIBUTING.md) before contributing. Maintainers can follow the [release guide](docs/releasing.md). Report security issues privately according to the [security policy](SECURITY.md).
 
 Kairos is licensed under the [Apache License 2.0](LICENSE).

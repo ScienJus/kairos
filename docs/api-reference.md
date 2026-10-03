@@ -31,7 +31,7 @@ SQLite files use `0600`. The Artifact root must be a dedicated, non-root, non-sy
 
 Public deployments should terminate TLS and enforce connection, rate, and body limits at a reverse proxy. Proxy timeouts should be slightly longer than Kairos. When forwarding MCP to loopback, send the loopback upstream as `Host` while preserving `Authorization` and `Origin`. `403 invalid Host header` indicates proxy/loopback configuration, not a business conflict or expired Token.
 
-`GET /healthz` needs no authentication. HTTP API lives under `/api/v1`; Streamable HTTP MCP lives at `/mcp`. See [`examples/daemon`](../examples/daemon/README.md) for complete Core and Daemon startup.
+`GET /healthz` needs no authentication. HTTP API lives under `/api/v1`; Streamable HTTP MCP lives at `/mcp`. See [`examples/daemon`](https://github.com/ScienJus/kairos/blob/main/examples/daemon/README.md) for complete Core and Daemon startup.
 
 ## HTTP Conventions
 

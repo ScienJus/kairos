@@ -43,8 +43,9 @@ type: home
     <a href="{{ '/whitepapers/01-core-work-model.zh-CN.html' | relative_url }}"><strong>核心工作模型</strong><span>了解工作目标、Task 及其关系如何组合在一起。</span></a>
     <a href="{{ '/whitepapers/07-agent-interaction-model.zh-CN.html' | relative_url }}"><strong>Agent 交互模型</strong><span>了解 Agent 从发现工作到提交结果的完整过程。</span></a>
     <a href="{{ '/whitepapers/agent-daemon.zh-CN.html' | relative_url }}"><strong>Agent Daemon</strong><span>了解自动派发、Harness 运行和终态收敛的边界。</span></a>
+    <a href="{{ '/releasing.zh-CN.html' | relative_url }}"><strong>发布指南</strong><span>构建、验证、标记并发布 Kairos 版本。</span></a>
     <a href="https://github.com/ScienJus/kairos"><strong>GitHub 仓库</strong><span>代码、Issue、Release 和贡献指南。</span></a>
   </div>
 </section>
 
-<p class="status-note">目前，Kairos 已支持 Workflow 与 Blackboard 两种协作方式，可使用 SQLite 或 PostgreSQL 保存数据，通过 MCP 连接 Agent，并在操作控制台中查看进度。Agent Daemon 提供连续调度、本地 Codex Adapter 和<a href="https://github.com/ScienJus/kairos/tree/main/examples/daemon">隔离执行示例</a>。发布配置同时打包 Core 与 Daemon，更多平台与 Provider 验证独立推进，详见 <a href="https://github.com/ScienJus/kairos#当前状态">当前状态</a>。</p>
+<p class="status-note">目前，Kairos 已支持 Workflow 与 Blackboard 两种协作方式，可使用 SQLite 或 PostgreSQL 保存数据，通过 MCP 连接 Agent，并在操作控制台中查看进度。Agent Daemon 提供连续调度、本地 Codex Adapter 和<a href="https://github.com/ScienJus/kairos/blob/main/examples/daemon/README.zh-CN.md">隔离执行示例</a>。发布配置同时打包 Core 与 Daemon，更多平台与 Provider 验证独立推进，详见 <a href="https://github.com/ScienJus/kairos/blob/main/README.zh-CN.md#当前状态">当前状态</a>。</p>
