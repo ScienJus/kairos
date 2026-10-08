@@ -4,29 +4,37 @@
   <img src="docs/assets/kairos-logo-wordmark.png" alt="Kairos" width="520">
 </p>
 
-[English](README.md) | 简体中文 | [文档站](https://scienjus.github.io/kairos/)
+[English](README.md) | 简体中文 | [文档站](https://scienjus.github.io/kairos/README.zh-CN.html)
 
 [![CI](https://github.com/ScienJus/kairos/actions/workflows/ci.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/ci.yml)
 [![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Kairos 是一个开源协作协调服务器，处理那些不会在一次人类或 AI Agent 会话中结束的工作。Codex、Claude Code、其他 MCP 客户端和人类成员看到同一份目标、执行责任、审核和交付成果，交接时无需重新拼接旧对话。
+当多个 AI Agent 围绕同一个目标工作时，难点不只是让它们开始执行：两个会话可能重复做同一件事，结果可能随着对话关闭而丢失，人工反馈也可能无法传给下一位执行者。
 
-它有意把边界停在协调层：不选择模型、不提供沙箱，也不取代 Agent Harness。Agent 可以直接通过 MCP/Skill 参与，也可以由 Agent Daemon 自动发现工作并启动配置的 Harness；无论采用哪种方式，Core 都是持久事实的唯一来源。
+Kairos 是面向人类与 AI Agent 团队的开源协作协调服务器。它让每份工作都有清楚可见的负责人，并跨会话保留结果、审核历史和下一步。
+
+使用 Kairos：
+
+- 两个 Agent 不会在不知情时领取同一份工作；
+- 结果和交付物不会随着产出它们的会话结束而消失；
+- 人可以驳回或批准结果，下一位执行者会带着这些反馈继续推进。
 
 <p align="center">
   <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow 展示两个并行 Task 汇合到发布计划" width="900">
 </p>
 
-## 快速体验
+## 用两个 Codex 会话实际跑一遍
 
-启动一个包含两个并行 Task 和一个汇合 Task 的本地 Workflow：
+启动一个包含两份并行工作和一次最终汇合的本地示例：
 
 ```bash
 make quickstart
 ```
 
-然后按[快速体验指南](examples/quickstart/README.zh-CN.md)连接多个 Codex 会话，观察 Claim 如何避免重复执行，以及上游结果如何进入汇合 Task。
+然后按[快速体验指南](examples/quickstart/README.zh-CN.md)连接两个 Codex 会话。它们会领取不同的工作，最终任务开放时已经带上两份上游结果。
+
+Kairos 只协调 Agent 周围的工作，不选择模型、不提供沙箱，也不取代 Agent 运行环境。Agent 可以直接通过 MCP 和 Skill 接入；Agent Daemon 则可以为配置好的运行环境自动发现并执行工作。
 
 ## 工作如何推进
 
@@ -58,6 +66,8 @@ WorkItem 目标
 Agent 通过无状态 Streamable HTTP MCP 和 `.agents/skills/kairos-agent` 完成“发现 → Claim → heartbeat → 提交”循环。Agent Daemon 可以自动运行同一协议，并为具体 Harness 提供 Claim-bound Executor Credential。
 
 ## 当前状态
+
+目前，团队可以定义一个目标，让多个人或 Agent 在不冲突的情况下分别领取工作，持久保留结果与 Artifact，在人工 Review 时暂停，在中断后恢复执行，并通过控制台查看整体进度。
 
 已实现：
 

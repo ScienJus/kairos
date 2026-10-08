@@ -61,4 +61,4 @@ For a deployed Core behind a loopback reverse proxy, configure the proxy’s ups
 
 The Workflow example sets `max_task_instances_per_node` per node, not for the whole WorkItem; every node has its own count.
 
-If a Workflow fails, wait for a Human to continue or start over, then rediscover and claim fresh work. See [Workflow recovery](../../docs/api-reference.md) for operator actions and retained context.
+If a Workflow fails, wait for a Human to continue or start over, then rediscover and claim fresh work. See [Workflow recovery](../../docs/api-reference.md#workflow-recovery) for operator actions and retained context.

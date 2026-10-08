@@ -144,7 +144,7 @@ Cross-process recovery requires a durable Dispatch journal, external runtime sup
 
 Daemon best-effort reports instance snapshots and meaningful events to Core with its Agent Identity Token. Telemetry failure never changes scheduling, Claims, heartbeats, or outcome handling. Reported status is operational observation; Core business records remain authoritative.
 
-See the [platform observability design](../daemon-observability-design.zh-CN.md) for connectivity, report/event, retention, and console semantics.
+See the [platform observability design (Chinese)](../daemon-observability-design.zh-CN.md) for connectivity, report/event, retention, and console semantics.
 
 ## Agent Daemon Invariants
 

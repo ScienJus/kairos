@@ -189,7 +189,7 @@ Each `kairos-daemon` start creates a new instance ID, registers with its Agent I
 
 Core computes connectivity from receipt time: `reporting` within 45 seconds, `stale` afterwards, and `stopped` only after an explicit report. Lost contact does not mean a Claim ended. Events are retained for 30 days and inactive instances for 90 days.
 
-Only the owning Agent reports; only Humans read. Snapshots and events are operational observations, while WorkItem, Task, and Claim records remain authoritative. See the [observability design](daemon-observability-design.zh-CN.md) for the full contract.
+Only the owning Agent reports; only Humans read. Snapshots and events are operational observations, while WorkItem, Task, and Claim records remain authoritative. See the [observability design (Chinese)](daemon-observability-design.zh-CN.md) for the full contract.
 
 ## MCP Tools
 

@@ -1,11 +1,11 @@
 ---
-title: 使用 MCP 让多个 AI Agent 协同推进工作 | Kairos
-description: 让 Codex、Claude Code 和其他 MCP 客户端跨会话共享 Task、执行责任、工作结果和下一步。
+title: 让两个 Codex 会话协作而不重复执行 | Kairos
+description: 让两个 Codex 会话围绕同一个 Workflow 分别领取工作、保留结果，并通过 MCP 避免重复执行。
 lang: zh-CN
 type: article
 ---
 
-# 使用 MCP 让多个 AI Agent 协同推进工作
+# 让两个 Codex 会话协作而不重复执行
 
 彼此独立的 Agent 会话并不知道其他会话领取了什么、完成了什么。缺少共享记录时，两个 Agent 可能同时开始同一个 Task，也可能看不到上游结果，甚至在会话关闭后把工作丢在半路。Kairos 用一个共享队列和明确的 Task 负责人解决这些问题。
 

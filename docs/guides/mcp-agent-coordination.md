@@ -1,10 +1,10 @@
 ---
-title: Coordinate Multiple AI Agents over MCP | Kairos
-description: Connect Codex, Claude Code, and other MCP clients to shared Tasks, ownership, results, and next steps across agent sessions.
+title: Coordinate Two Codex Sessions Without Duplicate Work | Kairos
+description: Run two Codex sessions against one shared workflow, give each different work, preserve both results, and prevent duplicate execution over MCP.
 type: article
 ---
 
-# Coordinate multiple AI agents over MCP
+# Coordinate two Codex sessions without duplicate work
 
 Separate agent sessions do not know what the others have claimed or completed. Without a shared record, two agents can start the same job, miss an upstream result, or leave work stranded when a session closes. Kairos gives them one queue and one clear owner for each Task.
 

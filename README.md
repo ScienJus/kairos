@@ -10,23 +10,31 @@ English | [简体中文](README.zh-CN.md) | [Documentation](https://scienjus.git
 [![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Kairos is an open-source coordination server for work that outlives any one human or AI agent session. Codex, Claude Code, other MCP clients, and Human collaborators see the same objectives, responsibilities, Reviews, and deliverables, so a handoff does not depend on reconstructing an old conversation.
+Running several AI agents against one goal creates a coordination problem: two sessions can start the same job, useful results can disappear with a closed conversation, and human feedback may never reach the next executor.
 
-It deliberately stops at coordination. Kairos does not choose models, provide sandboxes, or replace an Agent Harness. Agents may participate directly through MCP and Skills, or Agent Daemon may discover work and start a configured Harness. In either case, Core remains the durable source of truth.
+Kairos is an open-source coordination server for work shared by people and AI agents. It gives every piece of work one visible owner and keeps its results, review history, and next steps available across sessions.
+
+With Kairos:
+
+- two agents do not unknowingly take the same work;
+- results and deliverables remain available after the producing session ends;
+- a human can reject or approve a result, and the next executor continues with that feedback.
 
 <p align="center">
   <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow showing two parallel Tasks joining into a release plan" width="900">
 </p>
 
-## Quickstart
+## See It with Two Codex Sessions
 
-Start a local Workflow with two parallel Tasks and one join:
+Run a real local example with two parallel jobs and one final handoff:
 
 ```bash
 make quickstart
 ```
 
-Follow the [quickstart guide](examples/quickstart/README.md) to connect several Codex sessions and see Claims prevent duplicate execution while upstream results flow into the join Task.
+Follow the [quickstart guide](examples/quickstart/README.md) to connect two Codex sessions. Each receives different work, and the final job opens with both upstream results already attached.
+
+Kairos coordinates the work around your agents. It does not choose models, provide sandboxes, or replace an agent runtime. Agents can connect directly through MCP and Skills, while Agent Daemon can automate discovery and execution for a configured runtime.
 
 ## How Work Moves
 
@@ -58,6 +66,8 @@ The console provides WorkItem overview, Human attention, Workflow graph, Blackbo
 Agents use stateless Streamable HTTP MCP and `.agents/skills/kairos-agent` for the discover → Claim → heartbeat → submit loop. Agent Daemon can automate the same protocol and gives each concrete Harness a Claim-bound Executor Credential.
 
 ## Current Status
+
+Today a team can define a goal, let several people or agents take separate work without collisions, preserve their results and Artifacts, pause for human Review, recover interrupted execution, and follow progress in the console.
 
 Implemented:
 
