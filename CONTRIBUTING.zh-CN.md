@@ -65,6 +65,8 @@ Repository 变更还应使用一次性 PostgreSQL 数据库执行 SQL 契约测�
 
 Pull Request 应说明行为变化、文档或 Migration 影响，以及已经执行的检查。一个 Pull Request 包含不相关修改时，维护者可能要求拆分。
 
+Dependabot 将 React、React DOM 及其类型包放在同一组更新并验证。当前 `typescript-eslint` 的 TypeScript peer 范围为 `<6.1.0`，因此暂时忽略 TypeScript 6.1 及更高版本；lint 工具支持新版编译器后再调整此规则。
+
 ## Commit 与 Review
 
 - Commit 标题使用清晰的祈使语气。
