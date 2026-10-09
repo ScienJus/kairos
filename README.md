@@ -148,7 +148,7 @@ Still to be built:
 - broader Agent Daemon provider/platform validation and hardened deployment profiles;
 - the remaining operational-console workflows, including a WorkItem event timeline.
 
-For development, use Go 1.26.6 or later. The console requires npm and Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+. Run:
+For development, use Go 1.26.9 or later. The console requires npm and Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+. Run:
 
 ```bash
 make go-test
