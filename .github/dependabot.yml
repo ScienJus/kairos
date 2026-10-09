@@ -8,6 +8,17 @@ updates:
 
   - package-ecosystem: npm
     directory: /web
+    groups:
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+    ignore:
+      # typescript-eslint currently supports TypeScript <6.1.0.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
     schedule:
       interval: weekly
     open-pull-requests-limit: 5

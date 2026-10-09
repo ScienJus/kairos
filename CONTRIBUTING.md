@@ -65,6 +65,8 @@ Repository changes should also run the SQL contract against a disposable Postgre
 
 The pull request should explain the behavior change, identify documentation or migration effects, and list the checks that were run. Maintainers may ask for a smaller change when a pull request combines unrelated work.
 
+Dependabot groups React, React DOM, and their type packages so they are validated together. TypeScript updates at 6.1 or later are temporarily ignored because the current `typescript-eslint` peer range is `<6.1.0`; revisit that rule when the linter supports newer compilers.
+
 ## Commit and review expectations
 
 - Use clear, imperative commit subjects.
