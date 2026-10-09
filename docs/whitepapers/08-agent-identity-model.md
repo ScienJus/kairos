@@ -1,157 +1,79 @@
 # Kairos Agent Identity Model
 
-> How Kairos knows which agent is acting and which Tasks it is allowed to take
+Identity and responsibility are easy to conflate. Knowing which actor sent a request does not say which piece of work it currently owns, and holding a Claim should not require giving one short-lived Harness a long-lived credential.
 
-## Abstract
+Kairos separates the questions. Identity says who is acting, a Claim says what that actor is responsible for, and a Claim-bound Executor Credential limits one concrete Harness to that execution.
 
-Kairos needs to answer two questions for every agent request: who is acting, and which work may that agent take? An Agent Identity provides a stable identifier and one role. In Authenticated Mode, a Token proves that identity and Kairos returns only the Tasks it is eligible to discover and claim.
-
-Local and already trusted environments can use Trusted Mode, where the runtime supplies the id and role directly. Task discovery and execution behave the same in both modes; only the strength and source of the identity proof changes.
-
-## 1. Agent Identity
-
-Agent Identity represents a stable agent identity inside Kairos:
+## Actor and Identity
 
 ```text
-Agent Identity
-├── id
-├── role
-└── credentials
+Identity
+├── actor_id   stable identifier
+├── kind       human | agent
+└── role       one Agent role; empty for Humans
 ```
 
-- `id` is stable and readable, and is also used in presentation and collaboration records;
-- `role` expresses the kind of work the agent can perform;
-- `credentials` prove the identity.
+Actor ID records the source of an action; it grants no permission by itself. Human permissions come from the operation's rules. Agents must also pass the Task's `executor` and `allowed_roles` checks.
 
-The `id` should not be casually renamed because Claim ownership, idempotency records, and collaboration history all reference it. A future Agent Profile can add a mutable display label without changing identity.
+Actor IDs are stable historical references. They must contain a non-whitespace character and cannot be `.` or `..`; transport-specific preservation, trimming, and URL encoding rules belong to the [API Reference](../api-reference.md#identity-administration-and-console).
 
-An Agent Identity has exactly one role:
+Identity is not an Agent Harness. Several sessions or Daemon instances may use one Identity; Claims still provide exclusive execution responsibility.
+
+Two Daemon processes using the same Agent Identity may therefore discover the same candidate. They are still the same actor for audit purposes, but only the process that successfully creates the Claim owns the Task. Identity explains attribution; it does not serialize execution.
+
+## Two Ways to Prove Identity
+
+### Trusted Mode
+
+Use Trusted Mode for local development or a network where the runtime already guarantees identity. Requests directly supply actor ID, kind, and role, and Kairos trusts those values.
+
+### Authenticated Mode
+
+Use Authenticated Mode for one trusted collaboration group. Kairos persists Identities, resolves Actor and Role from Bearer Tokens, and supports issuance, rotation, and revocation. Request parameters cannot override the credential's identity.
+
+Business rules are identical in both modes; only identity proof differs. Authenticated Mode does not provide tenant, team, project, or object-level isolation. Mutually untrusted groups require separate deployments.
+
+## Role Narrows Eligibility
+
+An Agent Identity has one role. Workflow and Blackboard use exact role matching for Agent eligibility. Humans ignore `allowed_roles` but still must satisfy `executor` kind and operation permissions.
+
+Role determines candidate visibility and Claim eligibility, not responsibility. A Claim still prevents two same-role agents from executing one Task simultaneously.
+
+Blackboard tags provide discovery context and never replace role authorization. Workflow candidates come from graph and role state, not tags.
+
+## Executor Credential: Access for One Execution
+
+Agent Daemon never gives a long-lived Identity Token to a concrete Harness. When creating a Task or Coordination Claim, it generates a one-use Executor Token:
+
+- the Token binds Claim, Actor, and permission profile;
+- Core stores only its hash and returns plaintext once in the Claim response;
+- reads and writes remain inside the bound WorkItem and allowed operations;
+- it fails immediately when the Claim ends, the WorkItem is terminal, or scope does not match;
+- later Identity Token rotation does not rewrite the already-issued Token's Claim lifecycle.
+
+An Executor Credential is an execution scope, not another Identity. It carries no role and cannot discover new work. Tokens belong in protected runtime configuration, never in WorkItems, Tasks, or project documentation.
+
+## Identity Does Not Replace Workspace Guidance
+
+`AGENTS.md` defines working rules for a repository or directory; Agent Identity defines the Actor making Kairos operations:
 
 ```text
-id: codex-backend
-role: backend
+Identity  → who executes
+AGENTS.md → how to execute in this workspace
 ```
 
-Roles remain simple and explicit and are defined by each project or team according to its own division of work. Create another Agent Identity when another role is required so one Token never implies multiple grants. Kairos does not require capability scoring or automatic matching for roles.
+Role should not encode code style, test commands, or directory rules; those belong to project guidance.
 
-## 2. Token
+## The Deployment Admin Token
 
-A Token authenticates an Agent Identity:
+In Authenticated Mode, the Admin Token maps to one stable, database-bound ordinary Human actor. Its business permissions follow Human rules and it gains no Agent discovery, role, or Executor privilege. Only the configured Admin credential can administer Identities; an ordinary Human Identity cannot.
 
-```text
-Token
-  ↓ authenticate
-Agent Identity
-  ↓ resolve
-id + role
-```
+Rotation preserves the actor but requires restarting every server instance. The console may present this actor as `system admin` without changing its ID. See the [API Reference](../api-reference.md#admin-token-business-identity) for configuration, persistence, session, Identity management, and compatibility details.
 
-An agent calling Kairos carries only the Token and does not repeatedly declare its id and role. The service stores only the Token hash; plaintext is returned only on issuance or rotation. A Token can be rotated or revoked without changing the Agent Identity or its collaboration history.
+## Identity Invariants
 
-Tokens belong in the agent execution environment, not in WorkItems, Tasks, or project documentation.
-
-## 3. Authenticated Mode
-
-In Authenticated Mode, Kairos manages Agent Identities and issues Tokens:
-
-```text
-Agent supplies Token
-        ↓
-Kairos authenticates identity
-        ↓
-Use configured id and role
-```
-
-An agent cannot temporarily change its role through a request. Task discovery and claiming both use the identity information granted in Kairos. Authenticated Mode ignores Trusted Mode identity headers and accepts only a Bearer Token.
-
-This mode is suited to one trusted collaboration group that requires explicit identity attribution and operation-specific execution constraints. It does not provide tenant, team, project, or object-level data isolation: all issued identities belong to one global trust domain. Mutually untrusted groups require separate Kairos instances. A future Team model may introduce an isolation boundary, but it is not part of the current identity contract.
-
-In Authenticated Mode, sign in with the deployment `KAIROS_ADMIN_TOKEN` using the existing login form, then open the single **Token management** entry in the account menu (`/admin/identities`). Create a Human (no role) or an Agent (one required role, such as `developer`), inspect identity metadata, and rotate or revoke issued Tokens on this page. Rotation and revocation require confirmation and invalidate the previous Token immediately. The deployment-managed Admin credential is read-only here; change it through deployment configuration. Ordinary Identity Tokens, including `initial-human.token`, cannot access management. The server returns `can_manage_identities` on `/session`, true only for the configured Admin credential when identity management is available; the UI never derives access from an ID, role or display name. Every management endpoint still checks the credential.
-
-Management uses the existing login credential in current-tab sessionStorage, with no second administrator session. Sign-out and a current-credential 401 clear login and cached workspace state. Newly issued Tokens stay only in page memory and are never placed in URLs, browser storage or Query/Mutation caches. Copy and save them before dismissing the result, starting another credential operation, navigating away or refreshing. Copying an identity ID preserves the issued Token and its copy feedback. Returning from the browser back/forward cache reloads identity metadata automatically without restoring Tokens or replaying writes. Clipboard failure allows manual copying. List and detail responses never return plaintext Tokens. Failed write requests are not automatically retried because the operation may already have succeeded; refresh metadata before deciding whether to rotate a replacement. Trusted Mode retains local identity settings and does not expose management.
-
-## 4. Trusted Mode
-
-Trusted Mode is suited to local development, trusted networks, and other environments where identity is already guaranteed by the runtime:
-
-```text
-id: local-codex
-role: backend
-```
-
-The agent declares its id and role without a Token. Kairos trusts the declaration and uses it for Task discovery and collaboration records.
-
-The trust boundary of Trusted Mode is the runtime environment. It provides identity labels and role semantics but not the authentication guarantees of Authenticated Mode.
-
-## 5. Roles and Workflow
-
-In Workflow, a role is a formal constraint. A Task can configure the roles allowed to execute it:
-
-```text
-Task: Implement login API
-executor: agent
-roles: [backend]
-```
-
-For a Task to be visible to an agent, all of the following must hold:
-
-```text
-Workflow prerequisites satisfied
-+ Task permits agent execution
-+ Agent role matches
-+ Task has no current Claim
-```
-
-Role is also validated when claiming. An agent with the `backend` role can claim the Task above; another agent cannot bypass the restriction by changing its query.
-
-Workflow therefore uses the identity role to define the agent’s legal work space.
-
-## 6. Roles and Blackboard
-
-In Blackboard, the identity role primarily helps an agent discover relevant work:
-
-```text
-Agent role: backend
-Task tags: [backend, auth]
-```
-
-Kairos can derive default tags or query scope from the agent role, after which the agent chooses using the Task description and current context.
-
-Blackboard tags describe work categories and discovery hints; they do not automatically become access permissions. A Task that needs to restrict Agent execution should explicitly configure its allowed roles. Human execution is governed by the executor type and is not filtered by Agent roles.
-
-Both Workflow Definition and Blackboard Definition can provide Suggested Tags such as `module:*`. Agents add concrete tags to Tasks from the actual work. A Definition supplies only the recommended vocabulary and does not require people to maintain every Task label continuously.
-
-Blackboard therefore uses the identity role for discovery by default while allowing explicit constraints when needed.
-
-## 7. AGENTS.md
-
-`AGENTS.md` describes the work rules an agent must follow in a repository or directory. It solves a different problem from Agent Identity:
-
-```text
-Agent Identity → who the agent is and which role it has
-AGENTS.md       → how work should be performed in this project
-```
-
-AGENTS.md belongs in the project repository:
-
-- it changes with the code version;
-- it can inherit and override rules by directory;
-- it corresponds to the current checkout or worktree;
-- the Agent Harness reads it during execution.
-
-Kairos can provide repository and working-directory information on a Task so an agent can locate the applicable AGENTS.md. The platform does not need to copy or replace repository rules.
-
-Kairos can host a lightweight Agent Profile with fields such as role, a display label, and description, while project execution rules remain in the repository.
-
-> Identity tells Kairos who is acting. Role narrows the work that agent is allowed to take.
-
-## Deployment administrator as Human
-
-The deployment Admin Token also authenticates a stable, database-bound ordinary Human with an empty role over HTTP, MCP and the console. Its business permissions follow Human rules; identity administration remains exclusive to the configured credential. Rotation preserves the actor and requires restarting every instance. This does not grant Agent discovery or Executor privileges. See the [API reference](../api-reference.md#admin-token-business-identity) for persistence, collisions, migration and session semantics. The console shows `system admin` via optional session presentation metadata, keeping the actor ID unchanged. Admin configuration requires at least 32 visible ASCII characters (0x21–0x7E), excluding whitespace and controls.
-
-### Identity management layout and Actor IDs
-Identity management uses the workbench library layout: existing identities are the main list, with **Create identity** and **Refresh** in the page header. Creation and rotation/revocation confirmations use the shared dialog. Rows separate identity, type/role, Token status and actions; deployment-managed credentials show **system admin**, with a secondary, truncated ID below and a fixed copy action. Other identity IDs are shown once; hover or copy to read the full value. New Tokens appear above the identity list in a one-time result area that receives focus and scrolls into view after creation or rotation; page-level errors also appear above the list. Sign out remains in the account menu.
-
-Actor IDs must contain a non-whitespace character and cannot equal `.` or `..` (reserved URL path segments). Unicode and meaningful surrounding whitespace remain supported; HTTP identity creation preserves the value, while Trusted HTTP/MCP headers trim surrounding whitespace before the same domain validation. Encode an Actor ID as one URL path component for detail/rotation/revocation. Invalid input is rejected before identity persistence or issuance; correct it before retrying. MCP derives identity from credentials/Trusted headers, not tool arguments. Generated Admin IDs already satisfy the rule.
-
-Compatibility: this restriction assumes unreleased/new installations with no existing users. Earlier versions accepted `.` and `..`; stored identities with those IDs can no longer authenticate because login validates the stored identity. No automatic ID migration is provided. For disposable development data containing these IDs, start with a fresh database and create identities with valid IDs; this resets identities and work history, so use a separate database and Artifact directory if retaining the old data. If that history must remain usable, arrange a migration of the identities and all historical actor references before upgrading; renaming only the identity row or rotating its Token is not sufficient.
+- Identity proof and execution responsibility remain separate; Identity never replaces a Claim.
+- The server resolves the Actor from authentication rather than self-reported request parameters.
+- Role constrains Agent eligibility only; explicit business rules govern Humans.
+- An Executor Credential never exceeds its Claim scope.
+- Token separation in Authenticated Mode is not multi-tenant data isolation.

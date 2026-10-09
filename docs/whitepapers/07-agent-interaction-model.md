@@ -1,163 +1,77 @@
 # Kairos Agent Interaction Model
 
-> How an agent finds work, takes responsibility, stays recoverable, and hands back a result
+An agent session is temporary, but the responsibility it accepts must be unambiguous and recoverable. Kairos gives both proactive agents and Daemon-started Harnesses the same loop: find work, understand it, Claim it, keep the Claim alive, and end with an explicit outcome.
 
-## Abstract
+Nothing in that loop requires the original session to survive. The Claim and the resulting work records carry continuity forward.
 
-Every agent follows the same basic loop: find or receive a Task, inspect its context, claim responsibility, keep the lease alive while working, and submit a result. Today an agent can discover work itself; a future Agent Daemon can run the same loop automatically under one bound Agent identity. Either way, the Task history—not the agent session—holds the record of progress.
-
-Workflow and Blackboard use this same execution loop but give agents different planning freedom. Workflow exposes only the decisions configured in advance. Blackboard lets agents add and reshape Tasks as their understanding changes.
-
-## 1. Interaction Process
-
-An agent enters execution in one of two ways:
-
-```text
-Proactive: discover candidates → choose Task ─┐
-                                              ├→ create Claim → execute Task
-Agent Daemon: receive Task ──────────────────┘
-```
-
-The complete process is:
+## The Execution Loop
 
 ```text
 discover / receive
         ↓
-inspect
+inspect context
         ↓
-claim
+claim responsibility
         ↓
-execute
+execute + heartbeat
         ↓
-heartbeat while executing
-        ↓
-submit result
+submit / fail / release
 ```
 
-Before execution, the agent reads necessary context and confirms the Task. The agent creates a leased Claim before work begins, establishing unique execution responsibility; an Agent Daemon establishes the same Claim with its bound Agent identity. During execution, the agent renews that lease with heartbeat calls and may request a different duration for each interval. The Claim and Task state show active work, while submissions, Reviews, failures, decisions, and Artifacts durably describe its contribution to WorkItem progress. Reaching `lease_until` makes the Claim eligible for reaping but does not revoke it: the current agent may still renew or submit until the reaper commits. After reaping, the agent must stop and cannot revive or submit through the old Claim.
+Each lifecycle write uses the current Claim, correct version, and required idempotency inputs. After a conflict, the agent rereads authoritative state instead of continuing from local assumptions.
 
-Blackboard lifecycle decisions use a parallel WorkItem Coordination Claim. An Agent claims an `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance` candidate before loading its full context and deciding it. The selected Task creation, completion submission, or acceptance carries that Claim ID and ends it in the same transaction. This protects the reasoning window in which no executable Task exists yet. Coordination Claims use the same lease, heartbeat, reaping, and fencing rules as Agent Task Claims.
+## Discovery and Coordination Candidates
 
-## 2. Discovering Work
+`find_work` uses coordination mode, executor kind, Agent role, and query context to return candidates. A candidate is not an assignment; the Agent must select and Claim it.
 
-An agent discovers only Tasks that permit agent execution:
+Task candidates Claim a Task directly. These Blackboard situations instead use a WorkItem Coordination Claim:
 
-```text
-executor = agent | either
-+ role matched
-```
+- `empty_blackboard`: create the first Task or submit completion;
+- `blackboard_completion`: create follow-up work or submit completion;
+- `work_item_acceptance`: accept completion or create work that reopens execution.
 
-The coordination mode determines where candidate Tasks come from:
+The Agent Claims before reading full coordination context so multiple agents cannot make conflicting decisions while no concrete Task exists.
 
-| Mode | Candidate Tasks |
-| --- | --- |
-| Workflow | Required Tasks whose prerequisites are satisfied, plus optional Tasks that were retained; role and graph state decide eligibility, not tags |
-| Blackboard | Tasks matching tags and query context |
+## Execution Context for the Work at Hand
 
-Candidate results provide enough information to compare work, including the WorkItem summary, Task objective, coordination mode, tags, and current eligibility reason. An agent can load Task context before creating a Task Claim. For a Blackboard lifecycle candidate, it must first create a Coordination Claim; an active Coordination Claim hides that WorkItem from other discovery queries.
+Agent context contains only what the current work requires:
 
-An empty Blackboard exposes its WorkItem directly as a candidate. The agent claims the candidate, reads the objective and global instructions, creates the first Task with the Coordination Claim ID, and then returns to regular Task discovery.
+- Definition and WorkItem intent;
+- the current Task, acceptance requirements, and historical feedback;
+- related upstream results and Artifacts;
+- decisions and planning capabilities legal in the current mode.
 
-## 3. Task Context
+Workflow Context exposes configured paths, optional work, continue/exit choices, and Review policy. Blackboard Context exposes the current Task Graph, advisory Relations, and appendable planning space. Reading another Task's full context remains constrained by role and active Claim.
 
-An agent receives five categories of information while executing a Task:
+## Claims, Lease Renewal, and Scoped Credentials
 
-```text
-Definition Context
-    Description, Agent Instructions, Suggested Tags
+Agent Claims and Coordination Claims are renewable leases. The Agent heartbeats before the returned `lease_until`; the old Claim loses authority only after the Core reaper commits recovery.
 
-WorkItem Context
-    Objective, background, constraints, acceptance criteria
+Agent Daemon gives a concrete Harness a Claim-bound Executor Credential. It can read required context in the bound WorkItem and perform profile-allowed Artifact or nonterminal Blackboard writes. The Daemon translates typed outcomes into terminal Core operations.
 
-Task Context
-    Task description, delivery requirements, lifecycle, and prior records
+## Submit, Fail, or Release: Ending Responsibility Deliberately
 
-Related Results
-    Results and Artifacts from related Tasks
+- **submit** creates a Submission, attaches staged Artifacts, and commits decisions legal in the current mode;
+- **fail** records a Failure and explicitly requests retry, Human intervention, or WorkItem failure;
+- **release** gives up responsibility without inventing a result, reopening the Task or coordination candidate.
 
-Coordination Context
-    Current mode, Task Relations, available decisions
-```
+On `work_item_cancelled`, fencing loss, owner mismatch, or authoritative credential failure, the Agent stops renewal and later writes. A timeout is not proof that an operation failed: idempotent resource creation reuses its `operation_id`, and uncertain terminal writes are reconciled against history.
 
-Definition Context applies to every WorkItem in the same collaboration space. Workflow Coordination Context contains formal prerequisites, optional decisions, and Review configuration. Blackboard context contains suggested relations, tags, and the current shared work state.
+## Mode Capabilities: What an Agent May Decide
 
-An agent can load more history and results on demand. Default context should prioritize information directly relevant to the current Task.
+| Capability | Workflow | Blackboard |
+| --- | --- | --- |
+| Select candidates | Yes | Yes |
+| Change work structure | Submit configured decisions only | Create, decompose, append, relate, or skip Tasks |
+| Request Review | According to Definition policy | May request it from current results |
+| Decide WorkItem completion | Workflow structure converges | Explicitly submit a completion result |
 
-Workflow Context supplies controlled upstream runtime Task summaries ordered by distance, including durable results, currently legal Choice Groups, direct targets, optional Relation labels and agent guidance, and optional Tasks that can be decided in this progression. Relation guidance helps the agent interpret existing progression choices but does not create a new conditional branch. The agent submits the Task IDs it wants to skip, and Kairos partitions relations and unfolds paths according to the Workflow Definition. Blackboard Context supplies the current shared Tasks and suggested relations. Full Task context remains restricted to the target Task's role and active Claim.
+## Proactive Agents and Agent Daemon
 
-## 4. Execution and Submission
+A proactive agent calls MCP/HTTP itself. Agent Daemon binds one Agent identity and automatically discovers, Claims, and starts a configured Harness. Both use the same Core protocol. See the [Agent Daemon whitepaper](agent-daemon.md) for scheduling, Adapter, and crash boundaries.
 
-During execution, heartbeat renews the Claim but does not write a separate mutable progress note. WorkItem progress changes through durable Task operations such as Claim, decomposition, submission, Review, failure, Skip, and follow-up Task creation.
+## MCP Integration Surface
 
-When submitting a Task, the agent records completed work, discovered issues relevant to the delivery, produced results, and Artifacts. Kairos creates an immutable Submission under the Task and makes it part of shared WorkItem context. A later submission after rework creates a new Submission instead of overwriting the previous result.
+Kairos exposes the execution loop through stateless Streamable HTTP MCP and provides Harness discipline in `.agents/skills/kairos-agent`. MCP covers Agent execution: discovery, context, Claims, Artifacts, submission, failure, and Blackboard planning. Definition and Identity administration and Human Review decisions remain outside the Agent surface.
 
-If a submission requires human Review, the current Claim ends with the submission, and the Task does not require agent liveness while `InReview`. Rejection returns the Task to the candidate set for continuation under a new Claim.
-
-```text
-Task
-├── Claim and lifecycle history
-├── Submission 1
-│   ├── Result
-│   └── Artifacts
-└── Submission 2
-    ├── Result
-    └── Artifacts
-```
-
-A submission can also carry progression decisions allowed by the current coordination mode. Kairos updates the Task Graph according to those decisions and mode rules.
-
-Operation IDs are reserved for HTTP or MCP calls that create WorkItems (including Human Start over), Task Claims, Coordination Claims, Artifacts, or Blackboard Tasks. Replaying the same request returns the original resource so a lost response does not orphan its server-generated ID; reusing an Operation ID with different arguments returns a conflict. Definition appends use their base version, while lifecycle transitions do not store prior responses: a retry is evaluated against current Task and WorkItem state and may return a conflict after the first call succeeded. Managed Artifact upload additionally uses its Operation ID to recover across database and file-store writes.
-
-When an agent cannot complete a Task, it can submit a failure reason and retry it (`retry`), stop only the Workflow Task for Human Continue execution (`await_human`), or fail the entire WorkItem. Workflow retry creates a new Task, preserving the original failure history and carrying a bounded summary into the new description. Blackboard retry returns the same Task to Pending. Retry prompts provide guidance; agents rediscover and claim the replacement. Failed Workflows require a Human to continue or start over as a new WorkItem. Retries within the same WorkItem retain prior Human review rejection feedback; Start over does not copy review history. Workflow retries store complete guidance in `retry_instructions`, separately from the bounded error summary. Guidance uses the first nonempty value from the current Human instructions, the source attempt’s latest `retry` failure’s `retry_prompt`, and its inherited `retry_instructions`. This also preserves a prompt when a task instance limit blocked automatic retry and a Human later raises the limit and continues. Retry summaries reserve space for the latest failure and interruption before earlier history, without duplicating full retry instructions.
-
-A Human may cancel the owning WorkItem independently of Task execution. Kairos does not expose cancellation as an Agent or MCP action. If heartbeat, submission, Artifact creation, failure reporting, release, or another mutation returns `work_item_cancelled`, the cancellation is authoritative: the agent stops immediately and does not attempt to fail, release, or otherwise update the Task.
-
-## 5. Workflow Capabilities
-
-In Workflow, an agent executes predefined Tasks and makes decisions where configuration allows:
-
-- choose work from multiple candidate Tasks;
-- decide whether optional Tasks connected to the current Task should be retained or skipped;
-- decide whether to request human Review under `executor_decides`.
-
-The agent submits optional Task decisions with the current Task. Kairos aggregates decisions from multiple predecessors; if any executor retains the Task, it enters the candidate set.
-
-Workflow continues guaranteeing the formal Task Graph, required Tasks, and required Review.
-
-## 6. Blackboard Capabilities
-
-In Blackboard, an agent participates in both execution and planning. It can:
-
-- create new Tasks;
-- decompose existing Tasks;
-- create Tasks with discovery tags;
-- add suggested Task Relations;
-- mark Tasks that no longer provide value as Skipped;
-- request human Review based on current results;
-- decide whether the WorkItem objective has been satisfied.
-
-These changes enter the shared Task Graph. Later people and agents see the latest work structure and results.
-
-## 7. Planned Agent Daemon
-
-An Agent Daemon binds one Agent identity to a configured Agent Harness:
-
-```text
-Kairos Candidate Task
-         ↓
-    Agent Daemon
-         ↓
-Codex / Claude Code / Other Harness
-```
-
-A future Agent Daemon can discover Tasks allowed by its bound Agent role, start the Harness, provide context, and return lifecycle operations and results. Proactive Agent participation and Agent Daemon execution use the same Task, Claim, and submission semantics.
-
-The Kairos agent interaction model is therefore independent of a specific Harness and of how an agent begins execution.
-
-## 8. MCP and Skill Surface
-
-Kairos exposes the proactive execution loop through a stateless Streamable HTTP MCP endpoint. Each HTTP request independently resolves the actor through Trusted or Authenticated Mode, so identity does not depend on an MCP session and is never accepted as a tool argument.
-
-The MCP surface contains work discovery, Task context, WorkItem context across all lifecycle states, Task and Coordination Claim lifecycle, external Artifact registration, Base64 managed Artifact upload, submission, failure, and Blackboard planning and closure. Task and Coordination Claim creation and heartbeat accept an optional requested `lease_seconds`; the server returns the granted duration and `lease_until`. In Blackboard task context, the top-level `task` is the current task; `blackboard.tasks` intentionally excludes it and exposes `blackboard.current_task_id` for correlation. Responses use compact `snake_case` execution views instead of exposing the full persistence model. Definition and Identity administration and human Review decisions stay outside the Agent surface. A repository-level Codex Skill supplies the execution and heartbeat loop plus resource-creation retry discipline to compatible harnesses, while `.codex/config.toml` connects Codex to the local project server.
-
-> One execution protocol, two coordination modes.
+See the [API Reference](../api-reference.md) and [OpenAPI](../openapi.yaml) for exact tools, parameters, and errors.

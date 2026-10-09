@@ -1,6 +1,6 @@
 ---
-title: Kairos | 人类与 AI Agent 团队协作
-description: 让 Codex、Claude Code 和人类成员跨会话共享工作、明确责任、审核结果并可靠交接。
+title: Kairos | 面向 Codex、Claude Code 和人类团队的多 Agent 协作
+description: 协调多个 AI Agent，避免重复执行，跨会话保留结果，并在人工审核后安全继续。
 lang: zh-CN
 permalink: /README.zh-CN.html
 type: home
@@ -8,9 +8,9 @@ type: home
 
 <p class="eyebrow">KAIROS / AGENT 团队协作</p>
 
-# 让人和 AI Agent 围绕同一份工作协同推进
+# 让多个 AI Agent 协作而不重复执行
 
-<p class="lede">Kairos 让 Codex、Claude Code 和人类成员看到同一份工作进度。Agent 可以找到当前该做的 Task，避免重复领取，留下可审核的结果，并把未完成的工作可靠地交给下一个会话。</p>
+<p class="lede">Kairos 让 Codex、Claude Code 和人类成员看到同一份持久工作记录。Agent 分别领取不同工作，结果不会随会话关闭而消失，人工 Review 也会成为下一位执行者继续工作时的上下文。</p>
 
 <div class="callout">
   <span class="callout-label">从这里开始</span>
@@ -27,7 +27,7 @@ type: home
   <div class="section-rule"><span>01</span><h2 id="latest-heading">从你遇到的问题开始</h2><span>场景指南</span></div>
 
   <div class="article-list">
-    <a class="article-row" href="{{ '/guides/mcp-agent-coordination.zh-CN.html' | relative_url }}"><span class="article-number">01</span><span class="article-copy"><span class="article-tag">MCP / 多 AGENT</span><strong>使用 MCP 让多个 AI Agent 协同推进工作</strong><span>让不同会话共享可执行的 Task、明确负责人、接续上游结果并找到下一步。</span></span><span class="article-arrow">↗</span></a>
+    <a class="article-row" href="{{ '/guides/mcp-agent-coordination.zh-CN.html' | relative_url }}"><span class="article-number">01</span><span class="article-copy"><span class="article-tag">CODEX / 多 AGENT</span><strong>让两个 Codex 会话协作而不重复执行</strong><span>让两个会话领取不同工作、保留各自结果，并带着共享上下文进入最终交接。</span></span><span class="article-arrow">↗</span></a>
     <a class="article-row" href="{{ '/guides/durable-task-claims.zh-CN.html' | relative_url }}"><span class="article-number">02</span><span class="article-copy"><span class="article-tag">执行责任 / 中断恢复</span><strong>用 Task Claim 保障 Agent 执行可靠性</strong><span>明确唯一执行者，在工作期间续期责任，并在会话中断后安全恢复。</span></span><span class="article-arrow">↗</span></a>
     <a class="article-row" href="{{ '/guides/workflow-vs-blackboard.zh-CN.html' | relative_url }}"><span class="article-number">03</span><span class="article-copy"><span class="article-tag">工作规划</span><strong>选择固定流程，还是边做边调整计划</strong><span>已知步骤用 Workflow；需要随着调查逐步拆解时，用 Blackboard。</span></span><span class="article-arrow">↗</span></a>
     <a class="article-row" href="{{ '/guides/human-review-multi-agent.zh-CN.html' | relative_url }}"><span class="article-number">04</span><span class="article-copy"><span class="article-tag">人工审核</span><strong>在多 Agent 协作中加入人工 Review</strong><span>保留审核决定、反馈、证据和重试上下文，同时无需让 Agent 会话持续在线。</span></span><span class="article-arrow">↗</span></a>
@@ -38,12 +38,13 @@ type: home
   <div class="section-rule"><span>02</span><h2 id="reference-heading">进一步了解</h2><span>参考文档</span></div>
 
   <div class="reference-list">
-    <a href="https://github.com/ScienJus/kairos/tree/main/examples/quickstart"><strong>快速体验</strong><span>在本地运行一个完整示例。</span></a>
+    <a href="https://github.com/ScienJus/kairos/blob/main/examples/quickstart/README.zh-CN.md"><strong>快速体验</strong><span>在本地运行一个完整示例。</span></a>
     <a href="{{ '/api-reference.zh-CN.html' | relative_url }}"><strong>API 参考</strong><span>配置服务，并通过 HTTP 或 MCP 接入。</span></a>
     <a href="{{ '/whitepapers/01-core-work-model.zh-CN.html' | relative_url }}"><strong>核心工作模型</strong><span>了解工作目标、Task 及其关系如何组合在一起。</span></a>
     <a href="{{ '/whitepapers/07-agent-interaction-model.zh-CN.html' | relative_url }}"><strong>Agent 交互模型</strong><span>了解 Agent 从发现工作到提交结果的完整过程。</span></a>
+    <a href="{{ '/whitepapers/agent-daemon.zh-CN.html' | relative_url }}"><strong>Agent Daemon</strong><span>了解自动派发、Harness 运行和终态收敛的边界。</span></a>
     <a href="https://github.com/ScienJus/kairos"><strong>GitHub 仓库</strong><span>代码、Issue、Release 和贡献指南。</span></a>
   </div>
 </section>
 
-<p class="status-note">目前，Kairos 已支持 Workflow 与 Blackboard 两种协作方式，可使用 SQLite 或 PostgreSQL 保存数据，通过 MCP 连接 Agent，并在操作控制台中查看进度。Agent Daemon 提供连续调度、本地 Codex Adapter 和<a href="https://github.com/ScienJus/kairos/tree/main/examples/daemon">隔离执行示例</a>。发布配置同时打包 Core 与 Daemon，更多平台与 Provider 验证独立推进，详见 <a href="https://github.com/ScienJus/kairos#project-status">项目状态</a>。</p>
+<p class="status-note">目前，Kairos 已支持 Workflow 与 Blackboard 两种协作方式，可使用 SQLite 或 PostgreSQL 保存数据，通过 MCP 连接 Agent，并在操作控制台中查看进度。Agent Daemon 提供连续调度、本地 Codex Adapter 和<a href="https://github.com/ScienJus/kairos/blob/main/examples/daemon/README.zh-CN.md">隔离执行示例</a>。发布配置同时打包 Core 与 Daemon，更多平台与 Provider 验证独立推进，详见 <a href="https://github.com/ScienJus/kairos/blob/main/README.zh-CN.md#当前状态">当前状态</a>。</p>

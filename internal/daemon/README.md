@@ -1,266 +1,137 @@
 # Agent Daemon scheduler
 
-This package implements the single-dispatch engine and continuous scheduler.
-For a standalone authenticated Core/Daemon deployment, see the
-[Workflow/Blackboard example](../../examples/daemon/README.md). `make daemon-e2e`
-runs the opt-in binary suite without model calls. Both release binaries expose `--version`.
-Stage 4 adds a [local Codex Adapter](codexadapter/README.md), using credential-specific
-MCP instructions and a structured outcome. Model execution is opt-in; the default and fake diagnostic modes
-do not invoke a model provider. Real-provider smoke validation remains separate.
+This package implements the Daemon's continuous Scheduler and single-candidate Dispatch engine. The [Agent Daemon whitepaper](../../docs/whitepapers/agent-daemon.md) owns the product model; this file records the maintainer-facing runtime contract. For deployment, use the [Daemon example](../../examples/daemon/README.md). The local model-backed implementation is documented in the [Codex Adapter guide](codexadapter/README.md).
 
-## Diagnostic command
+## Run
+
+Build and run a non-model diagnostic against a disposable Core:
 
 ```sh
 make daemon-build
-# Set KAIROS_DAEMON_TOKEN securely in the environment first.
-./bin/kairos-daemon --core-url http://localhost:8080 --adapter fake-decline --slots 1
+# Set KAIROS_DAEMON_TOKEN securely first.
+./bin/kairos-daemon \
+  --core-url http://localhost:8080 \
+  --adapter fake-decline \
+  --slots 1
 ```
 
-Use a disposable Core/workload for this smoke test: `fake-decline` really claims
-work, returns `candidate_declined`, releases the Claim, and quarantines that generation.
-The default `unavailable` Adapter always fails Probe and never claims work.
-The Identity Token is read only from `KAIROS_DAEMON_TOKEN`; it is not a CLI flag
-or passed to the Harness. `--help` lists all configuration.
+`fake-decline` claims real work, returns `candidate_declined`, releases the Claim, and quarantines that candidate generation. The default `unavailable` Adapter fails Probe without claiming work. Use `--adapter codex` only for explicit model-backed execution.
 
-Each CLI process registers a new instance with Core and reports its health,
-active Dispatches and typed lifecycle events independently of work
-coordination. Use `--instance-name` for an optional display name. Humans can
-inspect these reports in the console's **Daemons** page. A missed report becomes
-`stale` after 45 seconds; it does not change a Claim or prove the process has
-exited. If Core is unavailable, the Reporter retries with bounded backoff while
-the Scheduler follows its existing Core error handling. Reporter failures and
-recovery are logged with bounded categories and no response body or credential.
-Shutdown reports `stopping` while Dispatches reconcile, then makes one
-best-effort `stopped` report with a two-second timeout. Normal batch and body
-limits still apply, so queued events may remain unsent. See the
-[API Reference](../../docs/api-reference.md).
+The ordinary Agent Identity Token is read only from `KAIROS_DAEMON_TOKEN`. It stays inside the Core client and is never passed to the Harness. Each claimed Dispatch instead receives a scoped Executor Token. Both release binaries support `--version`; `--help` is the authoritative configuration list.
 
-For model-backed work, use `--adapter codex` with an explicit `--codex-home` and
-`--codex-model`; see the Adapter guide for supported versions, network policy,
-authentication setup, and process cleanup boundaries.
+Important defaults:
 
-Defaults: 1 slot, discovery every 5s with 50 candidates per kind, idle Probe every
-30s, 5m lease, 1s Harness polling, 10s request timeout, 30s stop window, 2 Harness
-attempts per Claim, 1m candidate cooldown, 3 unsuccessful Dispatches per generation,
-and a 30s shutdown window. MCP defaults to Core URL + `/mcp`. `--tags` accepts
-comma-separated canonical tags. `--workspace-root` defaults to `.kairos-daemon`.
-Each Dispatch receives a unique private directory before acquisition. Empty
-directories are removed when acquisition ends without a Claim or Harness,
-including deferred rejection and cancellation; claimed-work
-directories are retained, never automatically reused or recursively removed. Inspect them
-before manual cleanup, especially after an unresolved or lost run.
+| Setting | Default |
+| --- | --- |
+| Slots | 1 |
+| Discovery | every 5s, 50 candidates per kind |
+| Idle Probe | 30s |
+| Claim lease | 5m |
+| Harness observation | 1s |
+| HTTP request timeout | 10s |
+| Stop / shutdown window | 30s |
+| Harness attempts per Claim | 2 |
+| Candidate cooldown | 1m |
+| Unsuccessful Dispatch budget | 3 per generation |
 
-## Continuous scheduling
+`--workspace-root` defaults to `.kairos-daemon`. Every Dispatch receives a unique private directory. Empty pre-Claim directories are removed; directories associated with a Claim or Harness are retained for diagnosis and never automatically reused or recursively removed.
 
-`NewScheduler` accepts a `DiscoveryCore` and runs with `Run(ctx)`. Library callers
-using the Codex Adapter must set both Core and MCP endpoints; only the CLI derives
-MCP from Core. The Scheduler creates absolute per-Dispatch workspaces:
+## Scheduler contract
+
+`NewScheduler` accepts a `DiscoveryCore`; `Run(ctx)` starts one continuous scheduling lifetime. A Scheduler accepts exactly one `Run` call. Cancellation initiates shutdown and is not a resumable pause.
+
+Candidate kinds rotate in this order: acceptance, completion, task, empty Blackboard. Only successful Claims advance the cursor. Conflicts trigger discovery again. A slot remains occupied while acquisition is uncertain or a Dispatch is unresolved.
+
+Probe runs before acquisition and after health backoff. A system-wide Adapter failure pauses new admissions until a later Probe succeeds; existing Dispatches continue their lifecycle guards. Probe must not create a Claim or Harness run. An uncertain acquisition is reconciled with its existing operation ID rather than gated as new work.
+
+Candidate suppression is process-local:
+
+- an unsuccessful claimed Dispatch consumes the generation's budget and enters cooldown;
+- `candidate_declined` quarantines the generation immediately;
+- a successful business outcome clears its record;
+- a changed business generation or Scheduler restart clears applicable suppression;
+- health recovery does not clear cooldown, budgets, or quarantine.
+
+Generation hashes include Definition, shared WorkItem context, Task history and relations, and submitted Artifacts. They exclude Claim churn, timestamps, versions, and the transient `working` state. Discovery is bounded, so suppression can hide candidates beyond the current result limit; no global or cross-Daemon fairness is promised.
+
+During shutdown the Scheduler stops admission and asks active Dispatches to terminate. Unresolved Dispatches remain visible in `Stats().Active`; process exit loses their in-memory state, after which Core eventually reaps unrenewed Claims.
+
+Library callers must set both endpoints explicitly:
 
 ```go
 options := daemon.DefaultSchedulerOptions()
 options.Dispatch.CoreURL = "http://localhost:8080"
 options.Dispatch.MCPURL = "http://localhost:8080/mcp"
 scheduler, err := daemon.NewScheduler(core, adapter, options)
-// Check err before running scheduler.Run(ctx).
+// Check err before scheduler.Run(ctx).
 ```
 
-Candidate kinds rotate acceptance → completion → task →
-empty Blackboard. Only successful Claims advance the cursor. Conflicts trigger
-fresh discovery. Slots include acquisition uncertainty and stopping/reconciliation;
-neither a lost Harness nor an unreachable Core frees a slot on its own.
+## Dispatch contract
 
-Discovery gives each HTTP request its own `RequestTimeout`, rather than sharing
-one deadline across the batch. A later context failure preserves resolved
-candidates; cancellation or an authorization failure prevents using that partial
-batch. Custom `DiscoveryCore` implementations receive the per-request timeout
-explicitly and must honor cancellation.
+`NewDispatch` binds one immutable candidate to one Claim operation ID, one finalization operation ID, one Executor Token, and one private workspace. `Run(ctx)` is the only public lifecycle driver. Concurrent calls fail; a later sequential call may reconcile the same unresolved Dispatch.
 
-Probe precedes acquisition, including cooldown recovery. For the Codex Adapter,
-this includes the minimum CLI version, required option parsing without a model,
-and local login state; it does not prove Provider/model compatibility. Unhealthy Probe pauses
-admissions with exponential backoff (up to 1m plus up to 25% jitter). Adapters mark
-system-wide failures with `SystemError` or `RunObservation.SystemFailure`; ordinary
-errors affect only the current candidate. System failures pause new admissions
-until a successful Probe; existing Dispatches retain their lifecycle guards.
-This includes `SystemError` returned by Start, Observe, or Stop. Probe must not
-create a Claim or a Harness run. An acquisition known never to have been sent
-passes the health gate again on every retry, even when all slots are reserved.
-Probe and Core acquisition have separate timeout budgets. An earlier unknown
-acquisition bypasses this gate for idempotent reconciliation; a later unsent
-retry does not erase that uncertainty or create a new operation ID.
-Probes remain serialized, but waiting for the Probe gate honors cancellation and
-deadlines. A cancelled waiter does not call the Adapter or change health state;
-it cannot hold up shutdown behind other queued probes.
-Caller cancellation or deadline expiry during an active Probe also leaves health
-and suppression unchanged. A Probe's own `RequestTimeout` expiry or an Adapter
-failure still triggers backoff and the normal unhealthy-to-healthy recovery rule.
+The lifecycle is:
 
-Unsuccessful claimed Dispatches consume the cross-Claim budget and enter cooldown;
-exhaustion quarantines the candidate. `candidate_declined` immediately quarantines, even
-though release succeeded. A non-candidate_declined applied business outcome clears the
-record. Health recovery only lifts the global pause; it never clears cooldown,
-failure budgets, or quarantine. A changed business generation or a new Scheduler
-instance (normally a process restart) clears the applicable suppression records.
-Configuration changes require restart. Recovery of an exhausted candidate may
-therefore require an operator restart even after the Harness becomes healthy.
+```text
+acquire Claim → confirm lease → start Harness → observe → apply outcome → end Claim
+```
 
-Generation hashes cover Definition and shared WorkItem business context, Task
-history (including Retry Prompts and Reviews), relations, and submitted Artifacts.
-They omit Claim histories, active Claim pointers, versions and update timestamps,
-and normalize working Tasks to pending. Claim/heartbeat/release/reaper churn thus
-does not reset a budget. Core discovery is a bounded per-kind snapshot: suppressed
-candidates may hide work beyond the limit. There is no global fairness guarantee,
-cross-Daemon suppression, or bypass of Core's Claim-history protection.
+The heartbeat guard remains active during Start, Observe, retries, and finalization. Lease safety uses elapsed local time from the last acknowledged request; local expiry alone never proves that Core ended the Claim.
 
-Cancellation stops admissions and requests termination. During the shutdown
-window, Dispatches continue reconciling. After that window their contexts are
-cancelled; the existing Dispatch engine may use one additional request timeout
-for its bounded cleanup pass. Unresolved Dispatches remain in `Stats().Active`
-for diagnosis, without being marked ended. A Scheduler accepts exactly one `Run`
-call; concurrent calls and calls after it returns fail with `ErrSchedulerAlreadyRun`,
-including when the initial context was already cancelled. Cancellation is shutdown,
-not a resumable pause. The standalone Dispatch engine still supports retaining and
-reconciling its own state. Process exit loses in-memory state; Core reaps unrenewed
-Claims, without promising external process cleanup.
+Mutation retries reuse the same operation ID. If a response is uncertain, the Dispatch reads the bound Claim and business history before retrying. A failed request preflight is distinguished from a request that may have reached Core. Never replace an unresolved Dispatch with a new Claim.
 
-JSON logs include Claim acquisition, Probe results, terminal metadata, duration,
-and periodic `SchedulerStats` (active, paused, Claims, heartbeat attempts/failures,
-Probe counts/failures, terminal retry totals, suppressed selections, finished/lost).
-They exclude credentials, raw Adapter errors, model output, and Artifact contents.
+Adapter behavior:
 
-## Entry points
+- Start errors guarantee that no run remains.
+- Observe errors mean the run state is unknown.
+- Stop success still requires later Observe confirmation.
+- invalid output or runtime failure may retry only after confirmed process exit, up to `MaxAttempts`;
+- an `outcome_ready` run has exited and its typed outcome is frozen before Core mutation.
 
-- `NewHTTPClient` takes a Core base URL and the ordinary Agent Identity Token.
-  Redirects are rejected; transport errors do not include request bodies or tokens.
-- `NewDispatch` validates a candidate and timing options, then generates one
-  Claim operation ID, one finalization operation ID, and an Executor Token.
-- `Run(ctx)` is the public lifecycle driver, with an independent heartbeat guard.
-  Concurrent drivers fail immediately with `ErrDispatchAlreadyRunning`; sequential
-  calls can reconcile the same retained Dispatch after a previous Run returns.
-  Lifecycle `step` and `heartbeat` are internal, not independent public drivers.
-- The Scheduler performs one internal `claimOnce` acquisition before handing the
-  Dispatch to Run. Both entry paths share the same exclusive-driver guard.
-- `Snapshot` contains only execution metadata. `RequestStop` interrupts the
-  current operation and requests cleanup; it does not itself prove termination.
+The engine validates mode-specific outcomes, Role and Tag sets, human-executor constraints, transition data, and history-text byte limits. Graph membership, capacity, and current domain state remain Core checks. Empty request collections are encoded as `[]`.
 
-Snapshot is derived on read: candidate data comes from the immutable candidate,
-Claim ID/end information from the last Core-confirmed Claim, and outcome kind from
-the frozen intent. Execution state and the confirmed `OutcomeApplied` result are
-stored separately. Local lease expiry never establishes Claim termination.
-Only the shared-state mutex and heartbeat serialization mutex remain: startup
-confirmation and the background heartbeat guard can still overlap. Stop requests
-and Snapshot reads remain safe concurrently with the single lifecycle driver.
-Adapters may implement `RunForgetter` to drop terminal in-memory metadata after
-finalization or before replacing a confirmed-ended run. If Adapter cleanup is
-still pending after a lost Dispatch finishes, it remembers the request and reclaims
-the record once the run completes, without a second call. This hook does not stop
-live runs, remove workspaces, or change the four lifecycle operations.
+A Dispatch is terminal only when its run is ended or lost and Core confirms the Claim ended. `OutcomeApplied` means the frozen intent was acknowledged or recovered from history; `false` does not prove no write occurred. Unknown Core state remains `stopping`.
+
+Minimal direct use:
 
 ```go
 options := daemon.DefaultOptions()
 options.CoreURL = "http://localhost:8080"
 options.MCPURL = "http://localhost:8080/mcp"
-options.Workspace = "/absolute/path/to/existing/private/dispatch-workspace"
+options.Workspace = "/absolute/private/dispatch-workspace"
 core, err := daemon.NewHTTPClient(options.CoreURL, daemon.NewSecret(agentToken), httpClient)
-// Check err, then provide an Adapter and a Candidate selected by the caller.
 dispatch, err := daemon.NewDispatch(core, adapter, candidate, options)
-// Check err before running.
 snapshot, err := dispatch.Run(ctx)
 ```
 
-`Run` cancellation performs one bounded cleanup pass and returns. If
-`snapshot.Terminal()` is false, retain the same Dispatch and its occupied slot;
-resume it with `Run` and a fresh context when the Core is reachable. Never replace
-an unresolved Dispatch with a new Claim. All state is process-local: restarting
-the process loses it, and the Core reaper eventually ends unrenewed Claims.
+Check every returned error. If `snapshot.Terminal()` is false, retain the same Dispatch and occupied slot, then call `Run` again with a fresh context when recovery is possible.
 
-## Execution contract
+## Public surfaces
 
-Claim retries reuse the same operation ID and Executor Token. Before starting a
-Harness, a fresh heartbeat confirms the returned Claim: an idempotent Claim
-response alone may describe an old execution. Lease safety uses elapsed local
-time from the start of the last acknowledged request, not server wall-clock time.
-The heartbeat interval is one fifth of the acknowledged Lease, and the safety
-margin is one tenth. Request deadlines are capped at the local safety deadline.
-The guard wakes at the next renewal or safety deadline; `PollInterval` controls
-only Harness observation. Control retries use a separate bounded interval.
+- `NewHTTPClient`: authenticated Core client; rejects redirects and redacts secrets.
+- `NewDispatch`: validates options and creates stable execution identifiers.
+- `Run`: drives and reconciles one Dispatch lifecycle.
+- `RequestStop`: requests cleanup but does not prove termination.
+- `Snapshot`: returns execution metadata derived from immutable candidate data and Core-confirmed state.
+- `Stats`: exposes bounded Scheduler counters and active Dispatches.
+- `RunForgetter`: optional Adapter hook for dropping terminal in-memory run metadata; it never stops a run or deletes workspaces.
 
-The HTTP client distinguishes a failed context preflight (no Claim POST sent)
-from an uncertain Claim mutation. A later preflight/authentication failure cannot
-erase earlier uncertainty. A Core `409 conflict` from the stable idempotent Claim
-POST resolves it: Core would replay an earlier successful operation before
-checking candidate eligibility. The Dispatch can then finish without a Claim.
-Gateway/transport failures remain uncertain and retain the same operation ID.
+## Observation
 
-The heartbeat guard continues during Start, Observe, retries, and finalization.
-The Adapter must honor contexts. Start errors guarantee no remaining run;
-ambiguous or empty-success references are treated as lost and never retried.
-Observe errors mean unknown state. Persistent observation failure requests Stop
-after `StopTimeout` from the first failed response. During this recovery window,
-retry waits and Observe requests are capped at its deadline, independently of the
-normal `PollInterval`. A successful observation before the deadline restores
-normal polling; a late response cannot extend the window. Failure to confirm termination within the stop window marks
-the run lost. A stop signal wakes the execution loop immediately. Even when the
-confirmation window has already elapsed, the engine attempts Stop before
-releasing responsibility. A successful Stop call still requires Observe confirmation.
+Each CLI process registers a Daemon instance and reports health, active Dispatches, and typed lifecycle events. Reports are independent of Claim coordination. A report becomes `stale` after 45 seconds; this neither changes a Claim nor proves process exit.
 
-An `outcome_ready` run has exited. The engine validates and deep-copies its typed
-outcome before choosing the Core operation. `DecodeOutcome` provides strict JSON
-decoding for concrete Adapters. Invalid output and runtime failures may restart
-only after confirmed exit, up to `MaxAttempts` including the initial attempt.
-Exhaustion releases the appropriate Claim, without submitting a business Failure.
-Payload checks include Role/Tag sets, human-executor constraints, transition
-skip/review sets, and Core history-text byte limits. Task-spec Role/Tag values
-must have no surrounding whitespace; root and decomposition-child specs reject
-untrimmed values so exact-match discovery and Claim authorization remain usable.
-Invalid payloads use this
-Harness retry path; graph membership, capacity, and changing domain state remain
-Core checks. The HTTP client encodes all empty request collections as `[]`,
-including nested Task specs and transitions, without changing the frozen intent.
+Reporter failures use bounded retry and redacted logs. Shutdown reports `stopping`, then attempts one bounded `stopped` report. Batch or body limits can leave events unsent. Exact HTTP contracts and retention rules live in the [API Reference](../../docs/api-reference.md).
 
-Finalization retries keep the same intent and operation ID. After any uncertain
-response, the engine inspects the bound Claim and related business history before
-another mutation. Ended Claims are never retried as new work. `OutcomeApplied`
-means the original intent was acknowledged or confirmed by history; false is not
-proof that no write happened (the Claim may have ended externally or evidence
-may no longer suffice). `Outcome` preserves `candidate_declined` for the scheduler
-to quarantine rather than immediately reclaim.
-Completed-result reconciliation requires the exact effective Claim end reason:
-Blackboard uses `request_review`; Workflow also applies the Task's ReviewPolicy.
-In particular, `required` enters Review even when the Harness did not request it.
-A missing or invalid Workflow policy does not establish a successful outcome.
-
-Only an ended/lost run **and** a Core-confirmed ended Claim produce a terminal
-Dispatch. A rejected acquisition, or stopping before acquisition begins, can end
-without a Claim. Unknown Core state retains `stopping`, including when a revoked
-Identity Token prevents reading history. This package does not bypass that
-authorization boundary or infer Claim expiry from elapsed time.
-
-`Probe` belongs to the Adapter contract and is called by the scheduler before
-acquisition. The Executor Token is the only credential passed
-to Start. The ordinary Identity Token remains inside the Core client. Secret
-formatting and JSON encoding redact values; Adapters must explicitly reveal them
-only to their protected credential-injection channel.
+JSON logs contain Claim acquisition, Probe results, terminal metadata, duration, and aggregate Scheduler stats. They exclude credentials, raw Adapter errors, model output, Artifact contents, and response bodies.
 
 ## Verification
 
 ```sh
 go test ./internal/daemon -count=1
 go test -race ./internal/daemon -count=3
+make daemon-e2e
 make go-test
 make go-vet
 ```
 
-Tests use fake Adapters, controllable clocks, `testing/synctest`, and a real
-authenticated HTTP server backed by isolated SQLite. A response-dropping transport
-commits real SQL mutations before losing replies. Tests cover both modes and all
-candidate kinds, outcome legality, Claim and finalization response loss, stable
-idempotency, Artifact binding, Workflow transitions, runtime retries, cancellation,
-reaping, best-effort stopping, lost runs, and continued heartbeat during slow work.
-They do not launch a real Harness or call a model provider.
-
-Codex infrastructure failures can include a bounded diagnostic `reason` in the private
-`run-*/outcome.json`; it is not copied into scheduler logs or Core business results.
-An installed CLI/login probe does not verify browser launch inside the sandbox.
-For reverse-proxied MCP Host failures, correct the proxy’s upstream Host configuration
-as documented in the API reference before resuming a suppressed candidate.
+Automated coverage uses fake Adapters, controllable clocks, real authenticated HTTP with isolated SQLite, and response-dropping transports. It covers both coordination modes, outcome validation, response loss, stable idempotency, retries, cancellation, reaping, lost runs, and heartbeats during slow work. Real-provider smoke tests are separate and opt-in.

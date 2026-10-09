@@ -1,197 +1,65 @@
 # Kairos Execution Collaboration Model
 
-> How one executor owns a Task while the wider team shares context and results
+Collaboration needs room for many people and agents without making responsibility collective and vague. Kairos therefore separates who is allowed to do a Task from who has actually taken it on. Task configuration describes eligibility; a Claim names the current responsible executor.
 
-## Abstract
+The same separation continues after execution. Submissions, Reviews, Failures, and Artifacts record what happened without depending on the executor session that produced them.
 
-A WorkItem may involve many people and agents, but each Task needs one responsible executor at a time. Kairos first checks whether a person or agent is eligible, then records actual ownership with a Claim. The same rule applies whether an executor chooses the Task directly or a future Agent Daemon starts a Harness automatically.
+## The Execution Boundary
 
-Progress does not depend on a chat session staying alive. It is visible through Task state, submitted results, Reviews, failures, and Artifacts that every later executor can use as shared context.
-
-## 1. Task as the Executor Boundary
-
-A WorkItem is a complete objective advanced by multiple executors. A Task is the execution boundary of one executor.
+A Task should be one coherent, deliverable unit of work:
 
 ```text
-WorkItem: Implement login
-├── Task: Confirm login requirements → Person A
-├── Task: Implement login            → Agent B
-└── Task: Test login                 → Agent C
+choose Task → create Claim → execute → submit or end responsibility
 ```
 
-A Task should describe a complete, coherent, deliverable piece of work. Under normal execution, one executor owns it from start through delivery:
+A Task should not represent unbounded team work or require several executors to share responsibility simultaneously. Split parallel work or distinct specialties into separate Tasks.
 
-```text
-Identify Task
-    ↓
-Establish responsibility
-    ↓
-Execute Task
-    ↓
-Submit result
-    ↓
-Complete Task
-```
+## Eligibility and Responsibility: Being Allowed Is Not Owning
 
-Therefore:
+`executor` allows a Human, Agent, or either to execute a Task. `allowed_roles` further restricts Agent roles. These fields define an eligible set; they do not assign responsibility.
 
-> One Task corresponds to one complete, coherent execution process.
+A Claim turns eligibility into responsibility:
 
-## 2. Claim
+- a Task has at most one active Claim;
+- mutations require the current Claim or an explicit Human management action;
+- the Claim ID is a fencing token, so an ended Claim cannot revive or overwrite a later executor's result.
 
-A `Claim` establishes an explicit responsibility relationship between an executor and a Task:
+A Human Claim lasts until submission, failure, release, or a management action. An Agent Claim is a renewable lease: heartbeat extends it, and after expiry the Core reaper ends it transactionally before reopening the Task. Time passing alone does not revoke responsibility outside that transaction.
 
-```text
-Agent  ─┐
-        ├── responsible for ──→ Task
-Person ─┘
-```
+This matters during recovery. If an Agent stops heartbeating, another executor cannot safely assume ownership merely because its local clock passed `lease_until`. Core must first end the old Claim; only then can a new Claim fence the abandoned executor out.
 
-A Claim has two essential properties:
+## Submission, Review, and Failure
 
-- **Explicitness**: Kairos can determine which executor currently owns execution and delivery of the Task.
-- **Uniqueness**: a Task can have only one active Claim at a time.
-- **Recoverability for agents**: an Agent Claim is a renewable lease, so execution responsibility can be recovered after the agent disappears.
+Each formal delivery creates an immutable Submission linked to the Claim that produced it. Rework creates another Submission instead of overwriting the earlier result.
 
-```text
-Task A → Executor 1    valid
+When Review is required, submission ends the Claim and moves the Task to `in_review`. Approval completes it; rejection returns it to `pending`, where a new Claim owns the revision.
 
-Task A → Executor 1
-Task A → Executor 2    invalid
-```
+When an executor cannot complete, Kairos creates a Failure and ends the Claim. Whether the work retries, waits for a Human, or ends the WorkItem depends on the coordination mode and explicit failure action. See the [Agent Interaction Model](07-agent-interaction-model.md) and [API Reference](../api-reference.md) for exact behavior.
 
-Unique execution responsibility prevents duplicated work and conflicting results while giving lifecycle changes and deliverables a clear source.
+## Shared Context Belongs to the Work
 
-> A Claim represents exclusive execution responsibility for a Task, independently of how the Task was distributed.
+Shared context belongs to the WorkItem and Task, not to an executor session. It consists of:
 
-Only Agent Claims use leases. An agent may request a lease duration when claiming and on every heartbeat; the server applies policy bounds and returns the granted `lease_seconds` and `lease_until`. The deadline makes an active Claim eligible for the background reaper; time alone does not change ownership. Before the reaper commits, the current executor may continue operating or renew the Claim, and no other executor may Claim the Working Task. The reaper ends an eligible Claim with `expired` and returns the Task to Pending. Only then may a new executor Claim it; the old Claim ID acts as a fencing token and cannot be revived or used for submission.
+1. intent: WorkItem objective, constraints, acceptance criteria, and Task description;
+2. coordination: related Tasks, Relations, available decisions, and upstream results;
+3. history: Claims, Submissions, Reviews, Failures, and Artifacts.
 
-Human Claims do not use leases or heartbeat. They remain active until submission, failure, explicit release, or administrative revocation. This keeps infrastructure liveness out of the human interaction model.
+An executor need not read every unrelated record, but it must receive the upstream facts and feedback required for its current Task.
 
-A Claim covers only the period during which the executor is working on the Task. When a submission enters human Review, the current Claim ends. The Task requires no liveness during Review and cannot be claimed by another executor. If Review rejects the result, the Task returns to the candidate set and either the original or another executor creates a new Claim.
+## Responsibility Models: Three Ways to Take Work
 
-When an executor cannot complete a Task, Kairos also ends the Claim and creates an immutable Task Failure:
-
-```text
-retry          → Workflow: old Task Failed, new Task Pending; Blackboard: same Task Pending
-await_human    → Workflow Task Failed; other branches continue
-fail_work_item → Task and WorkItem become Failed
-```
-
-`retry` can include a Retry Prompt. Failure history remains on the old Task; Workflow replacements receive a bounded summary and the prior attempt reference. Human Continue execution creates replacement Tasks with the same activation correlation, reusing successful parallel inputs. `fail_work_item` stops new Tasks from being created or claimed and ends other Active Claims as the WorkItem fails.
-
-## 3. Ways to Establish Responsibility
-
-Claim semantics are independent of how work is acquired. `Executor` restricts the eligible actor kind, and `AllowedRoles` further restricts eligible Agent identities. Human identities are never filtered by `AllowedRoles`. These constraints select a class of eligible executors; the Claim records the one concrete actor that takes responsibility.
-
-| Participation method | How responsibility is established |
+| Participation | How responsibility is established |
 | --- | --- |
-| Agent chooses proactively | A matching Agent queries candidate Tasks, chooses one, and creates a Claim |
-| Human execution | A person Claims a Task whose executor policy allows human participation |
-| Agent Daemon dispatch (planned) | An Agent Daemon uses its bound Agent identity, establishes a Claim, and starts its Harness |
+| Proactive Agent | The Agent discovers a matching candidate and creates a Claim |
+| Human execution | A Human Claims a Task whose policy allows Human execution |
+| Agent Daemon dispatch | The Daemon Claims with its bound identity, then starts a Harness |
 
-All methods share the same conceptual process:
+All three use the same Claim, Submission, and invalidation semantics. Distribution does not change execution responsibility.
 
-```text
-Produce candidate Tasks
-        ↓
-Choose executor
-        ↓
-Create Claim
-        ↓
-Execute Task
-```
+## Runtime Boundaries: Core, Daemon, and Harness
 
-Proactive selection fits the current Kairos boundary, which does not control an Agent Harness. A future Agent Daemon can start Codex, Claude Code, or another Harness when a Task becomes executable.
+- **Kairos Core** owns candidate eligibility, Claims, domain lifecycle, and durable context.
+- **Agent Daemon** owns scheduling, renewal, Harness lifecycle, and result convergence.
+- **Agent Harness** performs concrete work under scoped credentials and has no cross-Task coordination authority.
 
-Task organization and executor participation are independent dimensions:
-
-| Task organization | Supported participation methods |
-| --- | --- |
-| Workflow | Role-aware proactive Claim today; external dispatch in the future |
-| Blackboard | Role-aware proactive Claim today; external dispatch in the future |
-
-## 4. Shared Work Context
-
-Context inside an Agent Harness is usually temporary and local. Kairos assigns collaboration information to the work itself:
-
-```text
-WorkItem
-├── Objective, background, constraints, acceptance criteria
-├── Task A
-│   ├── Lifecycle and responsibility
-│   └── Deliverable result
-├── Task B
-│   ├── Lifecycle and responsibility
-│   └── Deliverable result
-└── Task C
-    ├── Lifecycle and responsibility
-    └── Deliverable result
-```
-
-> A Task belongs to a WorkItem. Its lifecycle and results express progress of the shared WorkItem.
-
-Every formal submission creates an immutable Task Submission. The Submission links to the Claim that produced it and stores that delivery result. Rework creates a new Submission instead of overwriting an earlier result. A Review links directly to the reviewed Submission, while a Failure links to the failed Claim, making all submissions, feedback, and failure reasons traceable.
-
-Different executors collaborate through the results of their Tasks:
-
-```text
-Person A executes Task A: confirm requirements
-                 ↓ shared result
-Agent B executes Task B: implement
-                 ↓ shared result
-Agent C executes Task C: test
-```
-
-Each executor takes complete responsibility for its own Task and uses previous Task results to understand upstream work. The resulting shared context allows:
-
-- downstream executors to understand completed work;
-- parallel executors to understand the latest WorkItem state;
-- people to observe each Task’s contribution to the objective;
-- deliverables to remain after an Agent Harness exits.
-
-## 5. Workflow and Blackboard
-
-Workflow and Blackboard use the same execution collaboration model. Their difference is concentrated in how candidate Tasks are produced.
-
-| Dimension | Workflow | Blackboard |
-| --- | --- | --- |
-| Candidate Tasks | Computed from a formal Task Graph | Formed from the shared Task Graph and current context |
-| Prerequisite relations | Limit legal candidates | Provide progression guidance |
-| Executors | Executor kind constrains all claimants; allowed roles constrain Agents only | Executor kind constrains all claimants; allowed roles constrain Agents only |
-| Execution responsibility | Established through one unique Claim | Established through one unique Claim |
-| WorkItem progress | Expressed by Task lifecycle and durable results | Expressed by Task lifecycle and durable results |
-
-Workflow limits the legal choice space. Blackboard provides a dynamically evolving work structure and advisory relations. Both modes allow people and agents to choose proactively and both can integrate with external dispatch.
-
-## 6. Kairos, Agent Daemon, and Agent Harness
-
-The Kairos collaboration semantics apply to people and agents independently of how an agent is run.
-
-```text
-┌──────────────────────────────┐
-│         Kairos Core          │
-│ WorkItem / Task / Claim      │
-│ Shared Context / Result      │
-└───────────────┬──────────────┘
-                │
-             Agent Daemon
-                │
-┌───────────────▼──────────────┐
-│        Agent Harness         │
-│ Codex / Claude Code / Others │
-└──────────────────────────────┘
-```
-
-Kairos Core represents work, provides candidate Tasks, establishes execution responsibility, and persists shared context. People participate through an interaction layer. An Agent Daemon represents one Agent identity, starts its configured Harness, and returns results.
-
-This collaboration model can be summarized in five principles:
-
-1. One collaborative execution is centered on an explicit Task.
-2. One executor is responsible for a Task while it is being executed.
-3. How a Claim is established does not change its responsibility semantics.
-4. Task lifecycle changes and results express progress of the shared WorkItem.
-5. Task organization and executor participation are independent.
-
-> People and agents share the objective and its history. While a Task is running, one executor owns it.
-> That responsibility stays the same whether the executor arrived manually or through automation.
+In short, eligibility says who may execute, a Claim records who is responsible, and Submissions and Artifacts preserve what that executor delivered.

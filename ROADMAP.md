@@ -2,7 +2,7 @@
 
 [简体中文](ROADMAP.zh-CN.md)
 
-Kairos is under active development. This roadmap communicates direction rather than delivery dates. Current implementation status remains documented in the [README](README.md#project-status).
+Kairos is under active development. This roadmap communicates direction rather than delivery dates. Current implementation status remains documented in the [README](README.md#current-status).
 
 ## Current foundation
 
@@ -18,10 +18,10 @@ Kairos is under active development. This roadmap communicates direction rather t
 ## Near-term priorities
 
 1. **Reliable releases**: reproducible binaries and container images, checksums, migration guidance, and upgrade verification.
-2. **Agent Daemon hardening**: expand actual CLI/platform and provider-failure validation, while keeping Kairos independent of model and sandbox management. See the [phased implementation plan (Chinese)](docs/agent-daemon-implementation-plan.zh-CN.md).
+2. **Agent Daemon hardening**: expand actual CLI/platform and provider-failure validation, while keeping Kairos independent of model and sandbox management. See the [implementation and acceptance record (Chinese)](docs/agent-daemon-implementation-plan.zh-CN.md).
 3. **Operational workflows**: complete the remaining console actions, improve failure recovery visibility, and add practical backup and restore guidance.
 4. **Integration examples**: document real multi-agent workflows and provide reusable Workflow and Blackboard templates.
-5. **Observability**: the Daemon instance, dispatch, and event MVP is implemented in Core and the console. Extend it with richer runtime metrics and aggregation while keeping telemetry out of coordination. See the [Daemon platform observability design](docs/daemon-observability-design.zh-CN.md).
+5. **Observability**: the Daemon instance, dispatch, and event MVP is implemented in Core and the console. Extend it with richer runtime metrics and aggregation while keeping telemetry out of coordination. See the [Daemon platform observability design (Chinese)](docs/daemon-observability-design.zh-CN.md).
 
 ## Later exploration
 

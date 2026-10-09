@@ -3,7 +3,7 @@
 [English](README.md)
 
 此示例启动独立的 Authenticated Core/SQLite，创建 Workflow 和 Blackboard WorkItem，
-再启动单 slot 的 Codex Daemon。原生 MCP [quickstart](https://github.com/ScienJus/kairos/tree/main/examples/quickstart) 保持独立。
+再启动单 slot 的 Codex Daemon。原生 MCP [quickstart](https://github.com/ScienJus/kairos/blob/main/examples/quickstart/README.zh-CN.md) 保持独立。
 
 需要 Linux/macOS、curl、jq、openssl、Perl（自带 POSIX 模块）、Codex CLI 0.146.0+ 和专用的 Codex 登录目录。
 支持高于该最低版本的预发布构建（如 0.154.0-alpha.6.2），预发布标识和构建元数据也可含连字符（如 0.154.0-alpha-6+build-macos），仍须通过相同的执行参数和登录状态预检。
@@ -49,4 +49,4 @@ Executor Token，其有效性由 Claim 生命周期控制。Stop 是尽力请求
 
 Workflow 示例中的 `max_task_instances_per_node` 为单节点上限，各节点分别计数，不是整个 WorkItem 的总次数。
 
-Workflow 失败时，等待人类选择继续执行或从头执行，再重新发现并认领任务。操作入口和上下文保留规则见 [API 参考](../../docs/api-reference.zh-CN.md)。
+Workflow 失败时，等待人类选择继续执行或从头执行，再重新发现并认领任务。操作入口和上下文保留规则见 [API 参考](../../docs/api-reference.zh-CN.md#workflow-恢复)。

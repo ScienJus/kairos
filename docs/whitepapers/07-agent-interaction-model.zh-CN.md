@@ -1,163 +1,77 @@
 # Kairos Agent 交互模型
 
-> Agent 如何找到工作、承担责任、在中断后可恢复，并最终交回结果
+Agent 会话是临时的，但它接下的责任必须清楚而且可恢复。Kairos 让主动 Agent 和 Daemon 启动的 Harness 使用同一个循环：找到工作、理解工作、建立 Claim、维持 Claim，最后以明确结果结束。
 
-## 摘要
+这套循环不要求原始会话一直存活。Claim 和随后产生的工作记录会把连续性保留下来。
 
-每个 Agent 都遵循同一条基本路径：找到或接收 Task，读取上下文，领取责任，在执行期间持续续租，最后提交结果。目前 Agent 可以主动发现工作；未来 Agent Daemon 可以使用一个绑定的 Agent Identity 自动运行同一循环。无论从哪里开始，真正记录进度的是 Task 历史，而不是临时的 Agent 会话。
-
-Workflow 和 Blackboard 共用这套执行过程，但给予 Agent 的规划自由不同。Workflow 只开放预先配置好的决策点；Blackboard 允许 Agent 随着理解变化增加和调整 Task。
-
-## 1. 交互过程
-
-Agent 通过两种方式进入执行过程：
-
-```text
-主动参与：发现候选 → 选择 Task ─┐
-                                  ├→ 建立 Claim → 执行 Task
-Agent Daemon：接收 Task ──────────┘
-```
-
-完整过程可以概括为：
+## 执行循环
 
 ```text
 discover / receive
         ↓
-inspect
+inspect context
         ↓
-claim
+claim responsibility
         ↓
-execute
+execute + heartbeat
         ↓
-heartbeat while executing
-        ↓
-submit result
+submit / fail / release
 ```
 
-Agent 在执行前读取必要上下文并确认 Task。Agent 在执行开始前建立带 lease 的 Claim，形成唯一执行责任；Agent Daemon 使用其绑定的 Agent Identity 建立同样的 Claim。执行期间 Agent 通过 heartbeat 续租，并可以为每一段续租请求不同的时长。Claim 与 Task 状态表示工作正在执行，Submission、Review、Failure、推进决策和 Artifact 则持久描述它对 WorkItem 进展的贡献。到达 `lease_until` 只表示 Claim 可以被 reaper 回收，并不会直接撤销执行权；reaper 提交回收前，当前 Agent 仍可续租或提交。回收完成后 Agent 必须停止，不能复活旧 Claim 或继续提交。
+每次生命周期写入都必须使用当前 Claim、正确版本和符合幂等要求的参数。冲突后必须重新读取权威状态，不能用本地猜测继续提交。
 
-Blackboard 生命周期判断使用并行的 WorkItem Coordination Claim。Agent 在读取完整上下文并判断 `empty_blackboard`、`blackboard_completion` 或 `work_item_acceptance` 候选前先领取它；创建所选 Task、提交完成或接受完成时携带该 Claim ID，并在同一事务内结束 Claim。这保护了尚不存在可执行 Task 时的分析窗口。Coordination Claim 与 Agent Task Claim 使用相同的 lease、heartbeat、reaper 回收和 fencing 规则。
+## 发现与协调候选
 
-## 2. 发现工作
+`find_work` 根据协调模式、执行者类型、Agent Role 和查询上下文返回候选。候选不是分配结果；Agent 仍需选择并建立 Claim。
 
-Agent 只发现允许 Agent 执行的 Task：
+Task 候选直接领取 Task。下列 Blackboard 情况使用 WorkItem Coordination Claim：
 
-```text
-executor = agent | either
-+ role matched
-```
+- `empty_blackboard`：创建首个 Task 或直接提交完成；
+- `blackboard_completion`：创建后续 Task 或提交完成结果；
+- `work_item_acceptance`：验收完成，或创建新 Task 重开执行。
 
-候选 Task 的来源由协调模式决定：
+Agent 在读取这些候选的完整上下文前先领取 Coordination Claim，以避免多个 Agent 同时对“尚无具体 Task”的局面做冲突决策。
 
-| 模式 | 候选 Task |
-| --- | --- |
-| Workflow | 前置关系已满足的 required Task，以及决定保留的 optional Task；候选由 role 与图状态决定，不由 tags 过滤 |
-| Blackboard | 符合 tags 和查询上下文的 Task |
+## 当前工作所需的执行上下文
 
-候选结果提供足够的信息帮助 Agent 比较工作，包括 WorkItem 摘要、Task 目标、协调模式、tags 和当前可执行原因。Agent 可以在建立 Task Claim 前读取 Task 上下文；对于 Blackboard 生命周期候选，必须先建立 Coordination Claim，Active Coordination Claim 会让该 WorkItem 从其他发现查询中隐藏。
+Agent 获得的上下文只覆盖当前工作所需信息：
 
-空 Blackboard 直接以 WorkItem 作为候选。Agent 先领取候选，再读取目标与全局说明，并携带 Coordination Claim ID 创建首个 Task；后续发现回到通常的 Task 候选。
+- Definition 与 WorkItem 意图；
+- 当前 Task、验收要求和历史反馈；
+- 相关上游成果与 Artifact；
+- 当前模式中合法的决策与规划能力。
 
-## 3. Task 上下文
+Workflow Context 只给出已配置的路径、optional、continue/exit 和 Review 决策。Blackboard Context 给出当前 Task Graph、建议 Relation 和可追加的规划空间。读取其他 Task 的完整上下文仍受 Role 和 Active Claim 限制。
 
-Agent 执行 Task 时获得五类信息：
+## Claim、续租与受限凭据
 
-```text
-Definition Context
-    Description、Agent Instructions 与 Suggested Tags
+Agent Claim 和 Coordination Claim 都是可续租 lease。Agent 应在服务端返回的 `lease_until` 前 heartbeat；只有 Core reaper 提交回收后，旧 Claim 才正式失去执行权。
 
-WorkItem Context
-    目标、背景、约束与验收标准
+Agent Daemon 为具体 Harness 使用 Claim-bound Executor Credential。该凭据只能读取绑定 WorkItem 内的必要上下文，并执行 Profile 允许的 Artifact 或 Blackboard 非终态写入。终态决定由 Daemon 根据类型化 outcome 调用 Core。
 
-Task Context
-    Task 描述、交付要求、生命周期与已有记录
+## Submit、Fail 或 Release：有意识地结束责任
 
-Related Results
-    相关 Task 的成果与 Artifact
+- **submit**：创建 Submission，关联已暂存 Artifact，并提交当前模式允许的决策。
+- **fail**：记录 Failure，明确请求重试、等待人工或结束 WorkItem。
+- **release**：放弃当前责任且不伪造结果，Task 或协调候选重新开放。
 
-Coordination Context
-    当前模式、Task Relation 与可用决策
-```
+如果操作返回 `work_item_cancelled`、fencing 失效、owner 不匹配或权威认证失效，Agent 必须停止续租和后续写入。网络超时不等于操作失败；可幂等资源创建应复用同一 `operation_id`，终态不确定时先核对历史。
 
-Definition Context 对同一协作空间中的全部 WorkItem 生效。Workflow 的 Coordination Context 包含正式前置关系、optional 判断和 Review 配置。Blackboard 则包含建议关系、tags 和当前共享工作态势。
+## 模式能力：Agent 可以决定什么
 
-Agent 可以按需读取更多历史和成果。默认上下文应优先提供与当前 Task 直接相关的信息。
+| 能力 | Workflow | Blackboard |
+| --- | --- | --- |
+| 选择候选 | 是 | 是 |
+| 改变工作结构 | 只提交预配置决策 | 可创建、拆分、追加、关联或跳过 Task |
+| 请求 Review | 按 Definition 配置 | 可按当前成果请求 |
+| 判断 WorkItem 完成 | 由流程结构收敛 | 需显式提交完成结果 |
 
-Workflow Context 提供按距离排列的受控上游运行时 Task 摘要（包括 durable result）、当前合法的 Choice Group、直接目标、Relation 的可选 Label 与 Agent Guidance，以及本次可判断的 optional Task。Relation Guidance 帮助 Agent 理解已有的推进选择，但不会创建新的条件分支。Agent 提交需要跳过的 Task ID，Kairos 根据 Workflow Definition 负责关系分区和路径展开。Blackboard Context 提供当前共享的 Task 与建议关系，并支持 tags 筛选。直接读取其他 Task 的完整上下文仍受目标 Task 的 role 与 active Claim 限制。
+## 主动 Agent 与 Agent Daemon
 
-## 4. 执行与提交
+主动 Agent 自行调用 MCP/HTTP 完成循环。Agent Daemon 则绑定一个 Agent Identity，自动发现、领取并启动配置的 Harness。两者使用相同的 Core 协议；Daemon 的调度、Adapter 和崩溃边界见 [Agent Daemon 白皮书](agent-daemon.zh-CN.md)。
 
-执行过程中，heartbeat 只续期 Claim，不写入独立的可变进展说明。WorkItem 的进展通过 Claim、拆分、Submission、Review、Failure、Skip 和创建后续 Task 等持久操作发生变化。
+## MCP 接入面
 
-提交 Task 时，Agent 记录已完成工作、与本次交付有关的已发现问题、成果和 Artifact。Kairos 在 Task 下创建不可变的 Submission，并使其成为 WorkItem 的共享上下文。返工后的再次提交形成新的 Submission，不覆盖此前结果。
+Kairos 通过无状态 Streamable HTTP MCP 暴露执行闭环，并在 `.agents/skills/kairos-agent` 提供 Harness 执行纪律。MCP 只覆盖 Agent 执行所需的发现、上下文、Claim、Artifact、提交、失败和 Blackboard 规划；Definition、Identity 管理和人工 Review 决策不属于 Agent 接入面。
 
-提交需要人工 Review 时，当前 Claim 随提交结束，Task 在 `InReview` 期间不再要求 Agent 保活。Review 驳回后 Task 回到候选集合，并在新的 Claim 下继续执行。
-
-```text
-Task
-├── Claim 与生命周期历史
-├── Submission 1
-│   ├── Result
-│   └── Artifacts
-└── Submission 2
-    ├── Result
-    └── Artifacts
-```
-
-提交还可以携带当前协调模式允许的推进决策。Kairos 根据这些决策和模式规则更新 Task Graph。
-
-Operation ID 只用于创建 WorkItem（含 Human 从头执行）、Task Claim、Coordination Claim、Artifact 或 Blackboard Task 的 HTTP 或 MCP 调用。完全相同的重试会返回原资源，避免响应丢失后无法找回服务端生成的 ID；同一 Operation ID 被用于不同参数时返回冲突。Definition 追加使用 base version，生命周期变更不保存旧响应：重试会依据当前 Task 和 WorkItem 状态重新判断，因此首次成功后可能返回冲突。托管 Artifact 上传还会通过 Operation ID 跨数据库与文件 Store 写入恢复。
-
-Agent 无法完成 Task 时，可以提交失败原因并选择重试（`retry`）、只停止当前 Workflow Task 等待 Human 继续执行（`await_human`），或使整个 WorkItem 失败。Workflow 重试创建新 Task，旧失败历史保留，新描述携带有长度限制的摘要；Blackboard retry 仍将原 Task 置回 Pending。Retry Prompt 提供指引，Agent 重新发现并认领替代实例。Failed Workflow 需要 Human 选择继续执行，或创建新 WorkItem 从头执行。 同一 WorkItem 内的重试保留先前 Human Review 驳回意见；从头执行不复制评审历史。Workflow 重试将完整指引单独保存到 `retry_instructions`，不受错误摘要截断影响。依次采用首个非空值：本次 Human 输入、来源尝试最新 `retry` 失败的 `retry_prompt`、来源尝试已继承的 `retry_instructions`。自动 retry 被任务实例数上限阻止后，人类提高上限并继续执行，也会保留该指引。重试摘要优先为最新失败及中断原因保留空间，再携带较早历史，不重复拼接完整重试指引。
-
-Human 可以在 Task 执行之外独立取消所属 WorkItem；Kairos 不向 Agent 或 MCP 提供取消动作。如果 heartbeat、提交、创建 Artifact、报告失败、释放 Claim 或其他变更返回 `work_item_cancelled`，取消决定具有权威性：Agent 立即停止，不再尝试失败、释放或以其他方式更新 Task。
-
-## 5. Workflow 能力
-
-Workflow 中的 Agent 执行已经定义好的 Task，并在配置允许的位置作出判断：
-
-- 从多个候选 Task 中选择工作；
-- 判断当前 Task 所连接的 optional Task 应当保留还是跳过；
-- 在 `executor_decides` 模式下判断是否请求人工 Review。
-
-Agent 对 optional Task 的判断随当前 Task 一并提交。多个前置 Task 的判断由 Kairos 聚合，任意执行者选择保留时，该 Task 进入候选集合。
-
-正式 Task Graph、required Task 和 required Review 继续由 Workflow 保证。
-
-## 6. Blackboard 能力
-
-Blackboard 中的 Agent 同时参与执行与规划，可以：
-
-- 创建新的 Task；
-- 拆分已有 Task；
-- 创建带有发现 tags 的 Task；
-- 添加建议性的 Task Relation；
-- 将失去价值的 Task 标记为 Skipped；
-- 根据当前成果请求人工 Review；
-- 判断 WorkItem 是否已经满足目标。
-
-这些变化进入共享 Task Graph，后续的人和 Agent 都能看到最新的工作结构与成果。
-
-## 7. 规划中的 Agent Daemon
-
-Agent Daemon 将一个 Agent Identity 与配置的 Agent Harness 连接起来：
-
-```text
-Kairos Candidate Task
-         ↓
-    Agent Daemon
-         ↓
-Codex / Claude Code / Other Harness
-```
-
-未来的 Agent Daemon 可以发现其绑定 Agent Role 允许的 Task、启动 Harness、提供上下文并回传生命周期操作与成果。Agent 主动参与和 Agent Daemon 执行使用相同的 Task、Claim 与提交语义。
-
-因此，Kairos 的 Agent 交互模型独立于具体 Harness，也独立于 Agent 如何开始执行。
-
-## 8. MCP 与 Skill 接入面
-
-Kairos 通过无状态 Streamable HTTP MCP 端点暴露主动执行闭环。每个 HTTP 请求都独立通过 Trusted 或 Authenticated Mode 解析 Actor，因此身份不依赖 MCP Session，也不会作为工具参数被接受。
-
-MCP 接入面包含工作发现、Task 上下文、覆盖所有生命周期状态的 WorkItem 上下文、Task 与 Coordination Claim 生命周期、外部 Artifact 登记、Base64 托管 Artifact 上传、提交、失败，以及 Blackboard 规划与关闭。Task 与 Coordination Claim 的创建和 heartbeat 都接受可选的 `lease_seconds`，服务端返回实际批准的时长与 `lease_until`。Blackboard Task 上下文中的顶层 `task` 是当前任务；`blackboard.tasks` 会有意排除当前任务，并通过 `blackboard.current_task_id` 提供关联。响应使用紧凑的 `snake_case` 执行视图，不直接暴露完整持久化模型。Definition 与 Identity 管理、人工 Review 决策仍位于 Agent 接入面之外。仓库级 Codex Skill 为兼容的 Harness 提供执行与 heartbeat 循环及资源创建重试纪律，`.codex/config.toml` 则负责将 Codex 连接到本地项目服务。
-
-> 一套执行协议，两种协调模式。
+精确工具、参数和错误见 [API 参考](../api-reference.zh-CN.md) 与 [OpenAPI](../openapi.yaml)。

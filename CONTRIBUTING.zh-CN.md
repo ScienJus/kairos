@@ -9,7 +9,7 @@
 - 提交前先搜索已有 Issue 和 Pull Request，避免重复讨论。
 - 对于范围明确的 Bug 修复，可以直接提交 Pull Request。
 - 对于较大的功能、Schema 变更、新依赖或公共 API 变更，请先创建 Issue，以便提前确认行为和范围。
-- 怀疑存在安全漏洞时，不要创建公开 Issue，请按照 [SECURITY.md](SECURITY.zh-CN.md)报告。
+- 怀疑存在安全漏洞时，不要创建公开 Issue，请按照[安全策略](SECURITY.zh-CN.md)报告。
 
 ## 开发环境
 

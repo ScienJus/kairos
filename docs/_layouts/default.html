@@ -6,6 +6,13 @@
 {% else %}
   {% assign current_lang = site.lang | default: 'en' %}
 {% endif %}
+{% if current_lang == 'zh-CN' %}
+  {% assign home_url = '/README.zh-CN.html' %}
+  {% assign home_aria = 'Kairos 中文主页' %}
+{% else %}
+  {% assign home_url = '/' %}
+  {% assign home_aria = 'Kairos home' %}
+{% endif %}
 {% assign document_title = page.title %}
 {% unless document_title %}
   {% assign document_title = content | split: '</h1>' | first | strip_html | strip %}
@@ -23,7 +30,7 @@
   <body class="{% if page.type == 'home' %}home{% else %}article-page{% endif %}">
     <header class="site-header">
       <div class="container">
-        <a class="brand" href="{{ '/' | relative_url }}" aria-label="Kairos home">
+        <a class="brand" href="{{ home_url | relative_url }}" aria-label="{{ home_aria }}">
           <img class="brand-mark" src="{{ '/assets/kairos-logo-mark.png' | relative_url }}" alt="">
           <span><strong>Kairos</strong><small>{% if current_lang == 'zh-CN' %}协作指南{% else %}Coordination guides{% endif %}</small></span>
         </a>
@@ -69,7 +76,7 @@
           {% assign language_aria = 'Switch language' %}
         {% endif %}
         <nav aria-label="Primary navigation">
-          <a href="{{ '/' | relative_url }}">{{ home_label }}</a>
+          <a href="{{ home_url | relative_url }}">{{ home_label }}</a>
           <a href="{{ language_url | relative_url }}" aria-label="{{ language_aria }}">{{ language_label }}</a>
           <a href="https://github.com/ScienJus/kairos">GitHub</a>
         </nav>

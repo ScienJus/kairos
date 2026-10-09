@@ -4,202 +4,120 @@
   <img src="docs/assets/kairos-logo-wordmark.png" alt="Kairos" width="520">
 </p>
 
-[English](README.md) | 简体中文 | [文档站](https://scienjus.github.io/kairos/)
+[English](README.md) | 简体中文 | [文档站](https://scienjus.github.io/kairos/README.zh-CN.html)
 
 [![CI](https://github.com/ScienJus/kairos/actions/workflows/ci.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/ci.yml)
 [![Security](https://github.com/ScienJus/kairos/actions/workflows/security.yml/badge.svg)](https://github.com/ScienJus/kairos/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Kairos 是面向人类与 AI Agent 团队的开源协作协调服务器。它为 Codex、Claude Code 和其他 MCP 客户端提供持久的共享工作视图，用来管理 Task、Claim、Review、Artifact 以及下一步工作。
+当多个 AI Agent 围绕同一个目标工作时，难点不只是让它们开始执行：两个会话可能重复做同一件事，结果可能随着对话关闭而丢失，人工反馈也可能无法传给下一位执行者。
 
-Kairos 是 Agent Harness 周围的协调层：它不启动或停止 Agent，不选择模型，也不管理沙箱。Agent 通过 MCP / Skill 主动接入，而持久化的工作状态跨会话保留。
+Kairos 是面向人类与 AI Agent 团队的开源协作协调服务器。它让每份工作都有清楚可见的负责人，并跨会话保留结果、审核历史和下一步。
+
+使用 Kairos：
+
+- 两个 Agent 不会在不知情时领取同一份工作；
+- 结果和交付物不会随着产出它们的会话结束而消失；
+- 人可以驳回或批准结果，下一位执行者会带着这些反馈继续推进。
 
 <p align="center">
   <img src="docs/assets/kairos-workflow.jpg" alt="Kairos Workflow 展示两个并行 Task 汇合到发布计划" width="900">
 </p>
 
-## 快速体验
+## 用两个 Codex 会话实际跑一遍
 
-启动一个包含两个并行 Task 和一个汇合 Task 的隔离 Workflow：
+启动一个包含两份并行工作和一次最终汇合的本地示例：
 
 ```bash
 make quickstart
 ```
 
-打开终端打印的本地地址，然后按照[快速体验指南](examples/quickstart/README.zh-CN.md)接入 Codex 会话，观察独占 Claim 如何防止重复工作。
+然后按[快速体验指南](examples/quickstart/README.zh-CN.md)连接两个 Codex 会话。它们会领取不同的工作，最终任务开放时已经带上两份上游结果。
 
-Agent 可以通过 MCP / Skill 主动接入。Agent Daemon 已提供连续调度与显式启用的本地 Codex Adapter；真实 Provider smoke 验证与自动化测试分开进行。
+Kairos 只协调 Agent 周围的工作，不选择模型、不提供沙箱，也不取代 Agent 运行环境。Agent 可以直接通过 MCP 和 Skill 接入；Agent Daemon 则可以为配置好的运行环境自动发现并执行工作。
 
-## 为什么需要 Kairos
-
-Kairos 为所有参与者提供一个持久、统一的工作视图：
-
-- 人和 Agent 从同一个 WorkItem 中发现 Task；
-- 原子 Claim 避免两个执行者同时处理同一个 Task；
-- 提交、Review、反馈和失败记录归属于 Task，不随 Agent 会话消失；
-- 具名 Artifact 让 Git commit、分支、文档、报告和托管文件可以跨 Task 寻址；
-- Task 可以由 Agent、人或两者中的任意一方执行；
-- 正式流程和开放式协作使用同一套执行协议。
+## 工作如何推进
 
 ```text
-发现工作 → 选择 → Claim → 执行 + heartbeat → 提交 → 完成
-                                              └── Review → 通过 / 驳回
+WorkItem 目标
+  ↓
+候选 Task → Claim 唯一责任 → 执行 + heartbeat
+  ↓                              ↓
+后续工作 ← Submission / Review / Failure / Artifact
 ```
 
-## 选择协作模式
+团队通过完成 **Task** 推进一个 **WorkItem**。每个 Task 是由一个执行者在一个时段内负责的完整交付，**Claim** 则把这份责任明确下来。对于 Agent，lease、heartbeat、reaper 和 fencing 让中断变得可恢复；Submission、Review、Failure 和 Artifact 始终留在工作中，而不是随会话消失。
 
-| 模式 | 适用场景 |
-| --- | --- |
-| **Workflow** | 流程可以预先定义，并且依赖关系和必要步骤需要由系统保证。 |
-| **Blackboard** | 目标明确，但计划需要由人和 Agent 在执行过程中持续形成和调整。 |
+## 协调模式
 
-### Workflow
+| | Workflow | Blackboard |
+| --- | --- | --- |
+| 适用场景 | 主要步骤和依赖已知 | 目标已知，路径需随证据演化 |
+| 图的权威 | Definition 约束合法推进 | Task Graph 共享建议 |
+| 执行期间规划 | 只在预留的 optional、Review 和循环决策点判断 | 可创建、拆分、追加、关联和跳过 Task |
+| 完成 | 选定路径收敛后自动完成 | 显式提交完成结果，再按策略验收 |
 
-Workflow 定义合法的选择空间，同时允许执行者在配置好的位置作出判断。
+两种模式共用同一套发现、Claim、提交、Review、失败和 Artifact 协议。详细规则见 [Workflow](docs/whitepapers/04-workflow.zh-CN.md) 和 [Blackboard](docs/whitepapers/05-blackboard.zh-CN.md)。
 
-支持的协作能力：
+## 人与 Agent 共用一套模型
 
-- **依赖关系**：前置 Task 结束后，后续 Task 才会进入可执行范围。
-- **并行与汇合**：多个 Task 可以并行执行，后续工作也可以等待多个前置 Task。
-- **Role 约束**：只有符合 Role 的 Agent 才能发现和 Claim Task。
-- **自主选择**：执行者从当前全部合法 Task 中选择具体工作。
-- **推进 Guidance**：Relation 可以提供可选标签和 Agent 判断提示，但不会改变图的既有推进语义。
-- **自主跳过**：前序执行者判断 Optional Task 是否需要，多前置场景会汇总所有判断。
-- **自主 Review**：Task 可以配置为无需 Review、由执行者判断或必须 Review。
-- **循环**：执行者可以选择继续某条循环路径或退出，并由单节点最大任务实例数提供兜底保护。
-- **自动完成**：所有选中路径闭合后，WorkItem 自动完成。
+控制台提供 WorkItem 总览、人工关注、Workflow 图、Blackboard Task 层级、Task Detail、Definition 编辑和 Daemon 观测。Human 可以执行 Task、审核成果、继续/从头执行失败 Workflow，以及取消 WorkItem。
 
-`max_task_instances_per_node` 统一配置，各 Workflow 节点和 WorkItem 分别计数，不限制流程的 Task 实例总数。
+Agent 通过无状态 Streamable HTTP MCP 和 `.agents/skills/kairos-agent` 完成“发现 → Claim → heartbeat → 提交”循环。Agent Daemon 可以自动运行同一协议，并为具体 Harness 提供 Claim-bound Executor Credential。
 
-### Blackboard
+## 当前状态
 
-Blackboard 将规划留给协作者，不要求预先固定 Task Graph。
+目前，团队可以定义一个目标，让多个人或 Agent 在不冲突的情况下分别领取工作，持久保留结果与 Artifact，在人工 Review 时暂停，在中断后恢复执行，并通过控制台查看整体进度。
 
-支持的协作能力：
+已实现：
 
-- **空白规划**：Agent 可以发现空 WorkItem，并创建第一个 Task。
-- **动态规划**：协作者持续创建 Task，并使用 Tags 组织和发现工作。
-- **建议依赖**：关系提供共享的推进建议，但不会强制阻塞执行。
-- **动态跳过**：失去价值的 Pending Task 可以记录原因并跳过。
-- **任务拆分**：已 Claim、尚未产生成果的 Task 可以拆成多层子 Task。
-- **开放子树**：聚合 Task 关闭前可以继续追加子 Task，全部子 Task 结束后父 Task 递归完成。
-- **动态 Review**：执行者提交成果时可以自主请求人工 Review。
-- **持续扩展**：如果还需要后续工作，执行者会在结束当前 Task 前创建新的 Task。
-- **显式完成**：当前 Task 收敛后，协作者继续规划工作，或提交带持久结果的 WorkItem 完成声明。
-- **可选验收**：完成声明可以配置为无需验收、Agent 验收或人工验收。
+- Workflow 与 Blackboard 领域语义，以及 SQLite/PostgreSQL 持久化；
+- Trusted/Authenticated Mode、Identity Token、Admin Human 和 Executor Credential；
+- HTTP、MCP、幂等资源创建与托管/URI Artifact；
+- Human 控制台及 Identity Token 管理、Workflow 失败恢复、Blackboard 验收和 WorkItem 取消；
+- Agent Daemon 连续调度、本地 Codex Adapter、实例/Dispatch/事件观测与隔离 E2E 示例。
 
-## 共享执行语义
+当前仍重点验证更多 Provider/平台、加固部署和补全运营视图。具体方向见 [Roadmap](ROADMAP.zh-CN.md)。
 
-Claim 建立独占的执行责任。提交成果后 Claim 结束；需要 Review 时，Task 在不占用 Agent 保活的情况下等待审核：
+## 运行
 
-```text
-Working
-  ├── 提交 ────────────→ Completed
-  ├── 提交 Review ─────→ InReview
-  │                        ├── 通过 → Completed
-  │                        └── 驳回 → Pending → 重新 Claim
-  └── 失败
-       ├── 重试 Task（Workflow 创建新实例）
-       └── 结束 WorkItem
-```
-
-每次提交和 Review 都会完整保留。执行者重新处理失败或被驳回的 Task 时，可以读取此前成果、全部 Review 反馈和 Retry Prompt。
-
-人工管理员可以在 WorkItem 详情中终止取消仍在推进的 WorkItem。取消会结束 Active Claim，但不会记录 Task Failure；Agent 在下一次 heartbeat 或其他变更操作收到 `work_item_cancelled` 后停止，不再改变 Task。
-
-## 人类交互
-
-人工关注视图包含待处理 Review、未认领 Human Task、当前 Human 已认领的进行中 Task（含 `either`），以及等待人工验收的 WorkItem。
-
-当前 operations console 已提供 workspace 总览、人工关注视图和 WorkItem 详情。进入 WorkItem 后：
-
-- Workflow 显示为带执行历史的流程图。
-- Blackboard 显示为分层 Task 工作区。WorkItem 生命周期决策控件只向 Human 提供，Agent 使用 MCP Coordination Claim 循环。Relation 已通过 HTTP 和 MCP 接口提供，但控制台尚不能展示或创建 Relation。
-
-Task 生命周期变化、执行责任、Submission、Review、Failure 和 Artifact 共同展示所属 WorkItem 如何推进。完整的 WorkItem 事件时间线仍在规划中，底层 Event 已经持久化。
-
-`fail_task` 操作接受 `retry`（请求下一次尝试）、`await_human`（将当前 Workflow 尝试结束为 Failed，等待人工继续执行时创建替代实例）和 `fail_work_item`（使整个 WorkItem 失败）。Workflow 重试创建替代 Task，Blackboard 重试复用原 Task。
-
-Workflow 或当前 Task 失败后，人类可以**继续执行**：重试失败或中断的尝试，保留成功分支；也可以**从头执行**：携带原始目标和失败摘要创建新 WorkItem。旧历史留在来源 WorkItem，受限执行者无法跨 WorkItem 读取；请在补充说明中列出需复用的外部成果。详细规则见 [API 参考](docs/api-reference.zh-CN.md)。
-
-## 项目状态
-
-Kairos 目前包含 Go 核心引擎和可运行的 HTTP 服务，但还不是最终用户服务。
-
-当前仓库已经包含：
-
-- 领域模型和 Application Service；
-- Workflow 与 Blackboard 的运行时语义；
-- PostgreSQL 与 SQLite 持久化；
-- Workflow Artifact 交付契约，以及数据库优先上传、完整性 Digest、可配置上传上限和垃圾回收的内置 `kairos://` Artifact Store；
-- 并发保护，以及面向 API 资源创建和托管上传的重放保护；
-- 单 Role 身份持久化、Trusted / Authenticated Mode 和 Token 生命周期；
-- 绑定 Claim 的 Executor 凭据，以及受限的 HTTP/MCP 上下文读取、Artifact 和 Blackboard 规划权限；
-- Agent Daemon 连续调度与[本地 Codex Adapter](internal/daemon/codexadapter/README.md)，支持共享 slots、健康探测、按候选代次的抑制、受限执行，以及平台上的实例/调度/事件可见性；通过真实进程与 HTTP/MCP 测试，不调用模型；
-- 无状态 Streamable HTTP MCP 执行工具与仓库级 Codex Skill；
-- 包含 workspace 总览、人工关注、Workflow 图、Blackboard Task 层级和 Definition 编辑器的 operations console；
-- 记录操作者、时间和原因的人工 WorkItem 取消能力；
-- 支持灵活时长、heartbeat、reaper 回收和 fencing 的 Agent Task Claim 与 WorkItem Coordination Claim lease；
-- 确定性单元测试和随机协作模拟测试。
-
-仍需实现：
-
-- Agent Daemon 更多 Provider/平台验证与加固部署方案；
-- 剩余的控制台运营流程，包括 WorkItem 事件时间线。
-
-开发需要 Go 1.26.9 或更高版本；控制台还需要 npm 和 Node.js 22.22.2+（22.x）、24.15.0+（24.x）或 26+：
-
-```bash
-make go-test
-```
-
-## 运行 Kairos
-
-构建 operations console 与嵌入式服务，然后访问 `http://127.0.0.1:8080`：
+开发环境需要 Go 1.26.9+；构建控制台还需 Node.js 22.22.2+ (22.x)、24.15.0+ (24.x) 或 26+ 以及 npm。
 
 ```bash
 make build
 ./bin/kairos-server
 ```
 
-开发构建执行 `./bin/kairos-server --version` 时输出 `dev`，Release 构建则输出对应 Tag。维护者发布步骤见 [Kairos 发布指南](docs/releasing.zh-CN.md)。
+默认使用 SQLite 和 Trusted Mode。PostgreSQL、Authenticated Mode、Admin Token、反向代理、Artifact 和完整路由见 [API 参考](docs/api-reference.zh-CN.md)。
 
-默认使用 SQLite 与 Trusted Mode；设置 `KAIROS_POSTGRES_DSN` 后，同一服务改用 PostgreSQL。同一可信协作群体内的共享部署应使用 Authenticated Mode；此时控制台支持使用已签发的 Identity Token 或部署 Admin Token（稳定的普通 Human 身份）登录，在当前浏览器会话中使用该 Token，并支持退出登录。Authenticated Mode 不提供租户、项目或对象级数据隔离，互不信任的群体应分别部署 Kairos 实例。仅用于开发的服务启动方式、数据库与身份配置、HTTP 路由、MCP 传输与响应契约见 [API 参考](docs/api-reference.zh-CN.md)。 Admin 会话显示 `system admin`，保留稳定 actor ID；Admin Token 配置要求至少 32 个可见 ASCII 字符，不允许空白或控制字符。
+托管执行见 [Daemon 示例](examples/daemon/README.zh-CN.md)。`make build` 会构建 Core 和 Daemon，`make daemon-e2e` 使用脚本 Harness 验证真实二进制，不调用模型。
 
-在 Authenticated Mode 下，通过现有登录框使用部署配置的 `KAIROS_ADMIN_TOKEN` 登录，再从账户菜单中唯一的 **Token 管理** 入口打开 `/admin/identities`。在同一页面创建 Human（无角色）或 Agent（必填一个角色，例如 `developer`）、查看身份元数据、轮转和撤销已签发的 Token。轮转和撤销需要确认，旧 Token 立即失效。部署管理的 Admin 凭据在此只读，应通过部署配置更换。普通 Identity Token（包括 `initial-human.token`）不能访问管理功能。`/session` 返回 `can_manage_identities`，仅当凭据为部署 Admin 且身份管理可用时为 true；前端不通过 ID、角色或显示名称推断权限，各管理端点仍独立验证凭据。
+Authenticated Mode 下，配置的 Admin 通过普通登录框进入控制台，并从账户菜单管理 Human 与 Agent Identity Token。精确授权、Actor ID、一次性 Token 和兼容性规则见 [API 参考](docs/api-reference.zh-CN.md)。
 
-### 身份管理布局与 Actor ID
-身份管理沿用工作台资料架布局，以已有身份列表为主体，页头提供“创建身份”和“刷新”。创建及轮转／撤销确认使用共享弹窗。列表分为身份、类型／角色、Token 状态和操作；部署管理身份显示 **system admin**，ID 以次级单行信息展示。其他身份只显示一行 ID；长 ID 单行省略，可悬停查看完整值或使用固定位置的复制图标。复制成功原位显示勾号，不改变行高。创建使用紧凑的单列表单弹窗，常驻提示提供示例，非法输入时显示字段校验说明。新 Token 显示在列表上方的一次性结果区域，创建或轮转成功后自动滚动到该区域并聚焦；页面级错误也显示在列表上方。复制身份 ID 时仍会保留 Token。离开页面会清除 Token；从浏览器前进／后退缓存返回时自动重新加载元数据，不恢复 Token。退出登录仅保留在账户菜单。
+## 文档导航
 
-Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`（保留的 URL 路径段）。继续支持 Unicode 和有意义的首尾空白；HTTP 创建身份保留原值，Trusted HTTP/MCP 身份头先去除首尾空白，再执行相同领域校验。详情、轮转和撤销 URL 中应将完整 Actor ID 编码为单一路径参数。非法输入在写入身份或签发凭据前被拒绝，修正后再重试。MCP 身份来自凭据／Trusted 请求头，不来自工具参数。服务端生成的 Admin ID 已满足规则。
+| 文档 | 职责 |
+| --- | --- |
+| README / [Roadmap](ROADMAP.zh-CN.md) | 当前能力 / 未来方向 |
+| [白皮书](docs/whitepapers/01-core-work-model.zh-CN.md) | 稳定领域概念、协作语义与系统边界 |
+| [API 参考](docs/api-reference.zh-CN.md) / [OpenAPI](docs/openapi.yaml) | 跨接口行为 / HTTP 精确契约 |
+| 详细设计与决策记录 | 实现取舍、当前状态与历史背景 |
+| 包内 README 与 examples | 组件运行、验证与故障边界 |
 
-兼容性：此限制以尚未发布、没有既有用户的新安装为前提。旧版本接受 `.` 和 `..`；登录会校验已存身份，因此使用这两个 ID 的已有身份将无法认证。本次不提供自动 ID 迁移。若可丢弃的开发数据包含这些 ID，应使用新数据库并创建合法 ID 的身份；这会重置身份和工作历史，如需保留旧数据，请使用独立的数据库和 Artifact 目录。若必须继续使用原有历史，应在升级前安排同时迁移身份及所有历史 actor 引用；仅修改身份行或轮转其 Token 并不足够。
+当多份文档涉及同一主题时，以职责更明确的一份为准：OpenAPI 管精确 HTTP 形状，API 参考管跨接口行为，白皮书管概念含义，README 管当前状态，Roadmap 管未来方向。
 
-## MCP 与 Agent 集成
-
-Kairos 提供面向执行的 MCP 接入面，并在 `.agents/skills/kairos-agent` 提供仓库级 Codex Skill。Skill 为兼容 Harness 提供持久的“发现 → Claim → heartbeat → 提交”执行循环。集成与配置细节见 [API 参考](docs/api-reference.zh-CN.md)。
-
-托管执行可使用[隔离的 Daemon 示例](examples/daemon/README.zh-CN.md)。`make build` 同时
-构建 Core 和 Daemon，发布包包含 Linux/macOS amd64/arm64 的两个二进制；Codex 和模型
-凭据由操作者提供。`make daemon-e2e` 使用脚本 Harness 验证真实二进制，不调用模型。
-
-## 设计白皮书
+白皮书阅读顺序：
 
 1. [核心工作模型](docs/whitepapers/01-core-work-model.zh-CN.md)
-2. [执行协作模型](docs/whitepapers/02-execution-collaboration-model.zh-CN.md)
-3. [协调语义](docs/whitepapers/03-coordination-semantics.zh-CN.md)
-4. [Workflow 模式](docs/whitepapers/04-workflow.zh-CN.md)
-5. [Blackboard 模式](docs/whitepapers/05-blackboard.zh-CN.md)
-6. [人类交互模型](docs/whitepapers/06-human-interaction-model.zh-CN.md)
-7. [Agent 交互模型](docs/whitepapers/07-agent-interaction-model.zh-CN.md)
-8. [Agent 身份模型](docs/whitepapers/08-agent-identity-model.zh-CN.md)
-9. [Artifact 模型与存储](docs/whitepapers/09-artifacts.zh-CN.md)
-10. [API 参考](docs/api-reference.zh-CN.md)
+2. [执行协作](docs/whitepapers/02-execution-collaboration-model.zh-CN.md) 与 [协调语义](docs/whitepapers/03-coordination-semantics.zh-CN.md)
+3. [Workflow](docs/whitepapers/04-workflow.zh-CN.md) 或 [Blackboard](docs/whitepapers/05-blackboard.zh-CN.md)
+4. [Human](docs/whitepapers/06-human-interaction-model.zh-CN.md)、[Agent](docs/whitepapers/07-agent-interaction-model.zh-CN.md)、[Identity](docs/whitepapers/08-agent-identity-model.zh-CN.md) 与 [Artifact](docs/whitepapers/09-artifacts.zh-CN.md)
+5. [Agent Daemon](docs/whitepapers/agent-daemon.zh-CN.md)
+
+实现资料包括 [Daemon 验收记录](docs/agent-daemon-implementation-plan.zh-CN.md)、[Daemon 决策摘要](docs/whitepapers/agent-daemon-design-decisions.zh-CN.md)、[可观测性设计](docs/daemon-observability-design.zh-CN.md)、[Task Detail 架构](docs/task-detail-architecture.zh-CN.md)、[页面设计基准](docs/page-design-baseline.zh-CN.md) 和[前端开发手册](docs/frontend-development-handbook.zh-CN.md)。
 
 ## 社区
 
-提出较大修改前，请先阅读[贡献指南](CONTRIBUTING.zh-CN.md)。[Roadmap](ROADMAP.zh-CN.md)记录当前方向，但不承诺交付日期。发现疑似漏洞时，请按照[安全策略](SECURITY.zh-CN.md)进行私密报告。
-
-## 许可证
+贡献前请阅读[贡献指南](CONTRIBUTING.zh-CN.md)。维护者发布版本时请参考[发布指南](docs/releasing.zh-CN.md)。安全问题按[安全策略](SECURITY.zh-CN.md)私密报告。
 
 Kairos 使用 [Apache License 2.0](LICENSE) 开源。

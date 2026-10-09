@@ -1,197 +1,65 @@
 # Kairos 执行协作模型
 
-> 单个执行者如何负责一个 Task，同时让整个团队共享上下文和结果
+协作需要容纳多个人和 Agent，又不能让责任变成模糊的“大家负责”。因此 Kairos 把“谁可以做”与“谁已经接手”分开：Task 配置描述执行资格，Claim 则指出当前真正负责的执行者。
 
-## 摘要
+执行结束后仍沿用同样的原则。Submission、Review、Failure 和 Artifact 记录发生过什么，不依赖产生它们的执行会话继续存在。
 
-一个 WorkItem 可以由许多人和 Agent 共同推进，但每个 Task 在同一时间只能有一个负责人。Kairos 先判断某个人或 Agent 是否具备执行资格，再通过 Claim 记录实际责任。无论执行者主动领取 Task，还是未来由 Agent Daemon 自动启动 Harness，这条规则都不变。
+## 执行边界
 
-工作进度不依赖聊天会话持续在线。Task 状态、提交结果、Review、失败记录和 Artifact 会共同留下可共享的上下文，供后续执行者继续使用。
-
-## 1. Task 是执行者的执行边界
-
-WorkItem 是多个执行者共同推进的完整目标，Task 是单个执行者的执行边界。
+Task 应当是一段连贯、可交付的工作：
 
 ```text
-WorkItem：实现登录功能
-├── Task：确认登录需求    → 人 A
-├── Task：实现登录功能    → Agent B
-└── Task：测试登录功能    → Agent C
+选择 Task → 建立 Claim → 执行 → 提交或结束责任
 ```
 
-一个 Task 应当描述一段完整、连贯且可交付的工作。正常情况下，它由一个执行者从开始执行到交付完成：
+一个 Task 不用来表示整个团队的无边界工作，也不应需要多个执行者同时共享责任。需要并行或不同专长时，拆成多个 Task。
 
-```text
-确定 Task
-    ↓
-建立执行责任
-    ↓
-执行 Task
-    ↓
-提交成果
-    ↓
-完成 Task
-```
+## 资格与责任：可以执行不等于已经负责
 
-因此：
+`executor` 限定 Task 允许 Human、Agent 或两者执行；`allowed_roles` 进一步限定 Agent Role。这些字段只定义资格集合，不代表已有人承担责任。
 
-> 一个 Task 对应一次完整、连贯的执行过程。
+Claim 把资格变成实际责任：
 
-## 2. Claim
+- 一个 Task 同时最多只有一个 Active Claim；
+- 所有变更都必须由当前 Claim 或明确的人工管理操作授权；
+- Claim ID 是 fencing token，已结束 Claim 不能复活或覆盖新负责人的结果。
 
-`Claim` 建立执行者与 Task 之间明确的责任关系：
+Human Claim 持续到提交、失败、释放或管理操作结束。Agent Claim 是可续租的 lease：heartbeat 延长租期，租期过后由 Core reaper 以事务结束 Claim 并重新开放 Task。时间到达本身不会在事务之外瞬间撤销责任。
 
-```text
-Agent ─┐
-       ├──负责执行──→ Task
-人 ────┘
-```
+这一区别在恢复时很重要。某个 Agent 停止 heartbeat 后，另一位执行者不能因为自己的时钟已经越过 `lease_until` 就直接接手；Core 必须先结束旧 Claim，新的 Claim 才能用 fencing 把遗留执行者挡在外面。
 
-Claim 具有两个基本性质：
+## Submission、Review 与 Failure
 
-- **明确性**：Kairos 能够确定当前由哪个执行者对 Task 的执行和交付负责；
-- **唯一性**：同一个 Task 在同一时间只能存在一个有效 Claim。
-- **Agent 可恢复性**：Agent Claim 是可续期的 lease，Agent 失联后执行责任可以被回收。
+每次正式交付创建不可变的 Submission，并关联产生它的 Claim。重做会新建 Submission，不覆盖旧结果。
 
-```text
-Task A → 执行者 1    合法
+需要 Review 时，提交会结束 Claim，Task 进入 `in_review`。审核通过后 Task 完成；拒绝后回到 `pending`，由新 Claim 承担修改责任。
 
-Task A → 执行者 1
-Task A → 执行者 2    不合法
-```
+执行者无法完成时创建 Failure 并结束当前 Claim。后续是重试、等待人工还是结束 WorkItem，由协调模式和明确的失败动作决定；精确规则见 [Agent 交互模型](07-agent-interaction-model.zh-CN.md) 和 [API 参考](../api-reference.zh-CN.md)。
 
-唯一的执行责任可以避免重复工作与结果冲突，同时让生命周期变化和成果具有清晰的来源。
+## 共享上下文属于工作
 
-> Claim 表示 Task 的独占执行责任，与任务采用何种分发方式无关。
+共享上下文归属 WorkItem 与 Task，不归属执行者会话。它由三类信息组成：
 
-只有 Agent Claim 使用 lease。Agent 可以在领取 Task 和每次 heartbeat 时请求 lease 时长；服务端按策略限制并返回实际批准的 `lease_seconds` 与 `lease_until`。到达该时间只表示 Active Claim 可以被后台 reaper 回收，时间本身不会改变执行权。reaper 提交回收事务前，当前执行者仍可继续操作或续租，其他执行者不能 Claim 这个 Working Task。reaper 会以 `expired` 结束可回收 Claim 并将 Task 恢复为 Pending；只有此后新的执行者才能领取，旧 Claim ID 作为 fencing token，不能复活或继续提交结果。
+1. 意图：WorkItem 目标、约束、验收标准与 Task 说明；
+2. 协调：相关 Task、Relation、可用决策和已有结果；
+3. 历史：Claim、Submission、Review、Failure 和 Artifact。
 
-Human Claim 不使用 lease 或 heartbeat。它持续有效，直到提交、失败、主动释放或管理员撤销，从而避免将基础设施存活机制暴露给人类交互。
+执行者不需要读取无关的全部历史，但必须能获得完成当前 Task 所需的上游事实和反馈。
 
-Claim 只覆盖执行者正在处理 Task 的阶段。执行者提交 Task 进入人工 Review 时，当前 Claim 结束；等待 Review 期间 Task 不需要保活，也不能被新的执行者领取。Review 驳回后 Task 重新进入候选集合，由原执行者或其他执行者建立新的 Claim。
-
-执行者无法完成 Task 时也会结束当前 Claim，并创建不可变的 Task Failure：
-
-```text
-retry          → Workflow：旧 Task Failed，新 Task Pending；Blackboard：原 Task Pending
-await_human    → Workflow 当前 Task Failed，其他分支继续
-fail_work_item → Task 与 WorkItem 进入 Failed
-```
-
-`retry` 可以携带 Retry Prompt。失败历史保留在旧 Task；Workflow 新实例通过摘要和来源引用获取上下文，Human 继续执行为当前失败 Task 创建新实例，保留原激活关联以复用成功的并行输入。`fail_work_item` 停止产生和领取新 Task，其他 Active Claim 随 WorkItem 失败而结束。
-
-## 3. 责任建立方式
-
-Claim 与任务获取方式相互独立。`Executor` 限定允许参与的 Actor 类型，`AllowedRoles` 进一步限定允许参与的 Agent Identity；Human Identity 永远不受 `AllowedRoles` 筛选。它们选择的是一组有资格的执行者，Claim 才记录其中实际承担责任的具体 Actor。
+## 责任模型：三种接手方式
 
 | 参与方式 | 责任建立过程 |
 | --- | --- |
-| Agent 主动选择 | 符合 Role 的 Agent 查询候选 Task，自主选择并建立 Claim |
-| 人工执行 | 人 Claim 执行者策略允许人工参与的 Task |
-| Agent Daemon 派发（规划中） | Agent Daemon 使用其绑定的 Agent Identity 建立 Claim 并启动 Harness |
+| Agent 主动参与 | Agent 发现匹配候选并创建 Claim |
+| Human 执行 | Human 在界面中领取允许人工执行的 Task |
+| Agent Daemon 派发 | Daemon 使用绑定 Identity 领取，再启动 Harness |
 
-这些方式共享同一个概念过程：
+三种方式共用同一套 Claim、Submission 和失效语义。分发方式不改变执行责任。
 
-```text
-产生候选 Task
-      ↓
-确定执行者
-      ↓
-建立 Claim
-      ↓
-执行 Task
-```
+## 运行边界：Core、Daemon 与 Harness
 
-主动选择适合当前不控制 Agent Harness 的 Kairos。未来也可以通过 Agent Daemon 在 Task 满足执行条件后启动 Codex、Claude Code 或其他 Agent Harness。
+- **Kairos Core** 管理候选资格、Claim、领域生命周期和持久上下文。
+- **Agent Daemon** 管理调度、续租、Harness 生命周期和结果收敛。
+- **Agent Harness** 在受限凭据下完成具体工作，不拥有跨 Task 的协调权限。
 
-任务的组织方式与执行者的参与方式是两个独立维度：
-
-| Task 组织方式 | 可采用的参与方式 |
-| --- | --- |
-| Workflow | 当前按 Role 主动 Claim；未来支持外部派发 |
-| Blackboard | 当前按 Role 主动 Claim；未来支持外部派发 |
-
-## 4. 共享工作上下文
-
-Agent Harness 中的上下文通常是临时且局部的。Kairos 将协作信息归属于工作本身：
-
-```text
-WorkItem
-├── 目标、背景、约束与验收标准
-├── Task A
-│   ├── 生命周期与执行责任
-│   └── 交付成果
-├── Task B
-│   ├── 生命周期与执行责任
-│   └── 交付成果
-└── Task C
-    ├── 生命周期与执行责任
-    └── 交付成果
-```
-
-> Task 属于 WorkItem，Task 的生命周期与成果共同表达共享 WorkItem 的进展。
-
-每次正式提交形成一条不可变的 Task Submission。Submission 关联产生它的 Claim，并保存该轮交付结果；后续返工产生新的 Submission，不覆盖此前成果。Review 直接关联被审核的 Submission，Failure 关联失败的 Claim，使全部提交、反馈和失败原因都能够追溯。
-
-不同执行者通过各自 Task 的成果形成协作链条：
-
-```text
-人 A 执行 Task A：确认需求
-          ↓ 共享成果
-Agent B 执行 Task B：实现
-          ↓ 共享成果
-Agent C 执行 Task C：测试
-```
-
-每个执行者对自己的 Task 承担完整责任，并通过已有 Task 的成果理解前置工作。由此形成的共享上下文具有以下作用：
-
-- 后续执行者可以理解已经完成的工作；
-- 并行执行者可以了解 WorkItem 的最新态势；
-- 人类可以观察各个 Task 对整体目标的贡献；
-- Agent Harness 结束后，交付成果仍然保留在工作模型中。
-
-## 5. Workflow 与 Blackboard
-
-Workflow 和 Blackboard 使用相同的执行协作模型，区别集中在候选 Task 如何产生。
-
-| 维度 | Workflow | Blackboard |
-| --- | --- | --- |
-| 候选 Task | 由正式 Task Graph 计算 | 根据共享 Task Graph 和当前上下文形成 |
-| 前置关系 | 限定合法候选 | 提供推进建议 |
-| 执行者 | 执行者类型限制全部参与者；allowed roles 只限制 Agent | 执行者类型限制全部参与者；allowed roles 只限制 Agent |
-| 执行责任 | 通过唯一 Claim 建立 | 通过唯一 Claim 建立 |
-| WorkItem 进展 | 由 Task 生命周期与持久成果表达 | 由 Task 生命周期与持久成果表达 |
-
-Workflow 限定合法的选择空间。Blackboard 提供动态演化的工作结构和建议关系。两种模式都支持人或 Agent 主动选择，也都可以接入外部派发。
-
-## 6. Kairos、Agent Daemon 与 Agent Harness
-
-Kairos 的核心协作语义适用于人和 Agent，并独立于 Agent 如何被运行。
-
-```text
-┌──────────────────────────────┐
-│         Kairos Core          │
-│ WorkItem / Task / Claim      │
-│ Shared Context / Result      │
-└───────────────┬──────────────┘
-                │
-             Agent Daemon
-                │
-┌───────────────▼──────────────┐
-│        Agent Harness         │
-│ Codex / Claude Code / Others │
-└──────────────────────────────┘
-```
-
-Kairos Core 表达工作、提供候选 Task、建立执行责任并保存共享上下文。人通过交互界面参与执行；Agent Daemon 代表一个 Agent Identity，启动配置的 Harness 并回传结果。
-
-这一协作模型可以归纳为五项原则：
-
-1. 一次协作执行围绕明确的 Task 展开。
-2. 一个 Task 在执行期间仅由一个执行者负责。
-3. Claim 的建立方式不影响其责任语义。
-4. Task 生命周期变化与成果共同表达共享 WorkItem 的进展。
-5. Task 的组织方式与执行者的参与方式彼此独立。
-
-> 人和 Agent 共享同一个目标及其工作记录；Task 执行期间只由一个执行者负责。
-> 无论执行者主动参与还是由自动化流程启动，这份责任都保持一致。
+简而言之，资格决定谁可以执行，Claim 记录谁正在负责，Submission 和 Artifact 则保留这个执行者交付了什么。

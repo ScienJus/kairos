@@ -1,98 +1,63 @@
 # Kairos API Reference
 
-[简体中文](api-reference.zh-CN.md)
+[Chinese](api-reference.zh-CN.md)
 
-Use this page when you are configuring a Kairos server or integrating a client. It documents authentication, HTTP resources, MCP tools, request limits, and exact response shapes. For an introduction to the product, start with the README; for the reasoning behind the model, use the whitepapers.
+This page explains deployment, authentication, resource boundaries, and cross-interface behavior. [OpenAPI 3.1](openapi.yaml) is authoritative for HTTP paths, fields, request bodies, status codes, enums, and limits; this page does not duplicate field-by-field schemas.
 
-## Start the server
+## Startup and Storage
 
-For a Core plus managed Harness setup, see the [isolated Daemon example](https://github.com/ScienJus/kairos/tree/main/examples/daemon).
-The Daemon uses an Agent Identity Token; each Harness receives an Executor Token with
-credential-specific MCP tools/instructions. The HTTP/MCP operations below are unchanged.
-
-The default server uses SQLite and Trusted Mode:
+The default uses SQLite and Trusted Mode:
 
 ```bash
 KAIROS_SQLITE_PATH=kairos.db \
 KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
-KAIROS_AGENT_CLAIM_LEASE=5m \
-KAIROS_ARTIFACT_DIR=artifacts \
-KAIROS_ARTIFACT_MAX_UPLOAD_BYTES=16777216 \
-KAIROS_ARTIFACT_GC_RETENTION=24h \
-KAIROS_ARTIFACT_GC_INTERVAL=15m \
-KAIROS_HTTP_READ_TIMEOUT=60s \
-KAIROS_HTTP_WRITE_TIMEOUT=120s \
-KAIROS_HTTP_IDLE_TIMEOUT=120s \
 go run ./cmd/kairos-server
 ```
 
-Set `KAIROS_POSTGRES_DSN` to use PostgreSQL instead of SQLite:
+Set `KAIROS_POSTGRES_DSN` to use PostgreSQL; it takes precedence over `KAIROS_SQLITE_PATH`. The server validates the connection and applies embedded migrations before accepting requests.
 
-```bash
-KAIROS_POSTGRES_DSN='postgres://kairos:<password>@127.0.0.1:5432/kairos?sslmode=disable' \
-go run ./cmd/kairos-server
-```
+| Configuration | Default | Purpose |
+| --- | --- | --- |
+| `KAIROS_AGENT_CLAIM_LEASE` | `5m` | Default Agent Claim lease |
+| `KAIROS_ARTIFACT_DIR` | `artifacts` | Managed Artifact root |
+| `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` | `16777216` | HTTP/MCP content limit |
+| `KAIROS_ARTIFACT_GC_RETENTION` | `24h` | Retention for unsubmitted Artifacts and idempotency records |
+| `KAIROS_ARTIFACT_GC_INTERVAL` | `15m` | Artifact GC interval |
+| `KAIROS_HTTP_READ_TIMEOUT` | `60s` | Total request-read time |
+| `KAIROS_HTTP_WRITE_TIMEOUT` | `120s` | Shared deadline for body read, handler, and response |
+| `KAIROS_HTTP_IDLE_TIMEOUT` | `120s` | Keep-alive idle time |
 
-When `KAIROS_POSTGRES_DSN` is non-empty it takes precedence over `KAIROS_SQLITE_PATH`. Startup verifies the connection and applies the embedded PostgreSQL migrations before serving requests; an invalid or unavailable explicitly configured database causes startup to fail.
+SQLite files use `0600`. The Artifact root must be a dedicated, non-root, non-symlink directory with `0700`; managed files use `0600`. Kairos fails startup instead of weakening unsafe permissions.
 
-The built-in local persistence is private to the operating-system user running Kairos. SQLite database, WAL, and shared-memory files are forced to mode `0600`; existing database files are tightened when opened. The managed Artifact root must be a dedicated non-root, non-symlink directory with mode `0700`; Kairos rejects an existing root with broader permissions instead of changing it. Hash directories and managed files are created with `0700` and `0600`, including files replaced by a retry. Deployments that intentionally share these paths between operating-system users must configure access outside Kairos rather than relying on group-readable defaults.
+Public deployments should terminate TLS and enforce connection, rate, and body limits at a reverse proxy. Proxy timeouts should be slightly longer than Kairos. When forwarding MCP to loopback, send the loopback upstream as `Host` while preserving `Authorization` and `Origin`. `403 invalid Host header` indicates proxy/loopback configuration, not a business conflict or expired Token.
 
-The HTTP read timeout bounds the total time spent reading a request, including JSON, MCP, and managed Artifact uploads. Go applies the absolute write deadline after reading the request headers, so reading the body, running the handler, and writing the response share that budget; it is not a separate response-only timer. The default write timeout is therefore twice the read timeout and also bounds Artifact downloads. The idle timeout bounds the gap between requests on a keep-alive connection. All three settings use Go duration syntax and must be positive.
+`GET /healthz` needs no authentication. HTTP API lives under `/api/v1`; Streamable HTTP MCP lives at `/mcp`. See [`examples/daemon`](https://github.com/ScienJus/kairos/blob/main/examples/daemon/README.md) for complete Core and Daemon startup.
 
-For an internet-facing deployment, place Kairos behind a reverse proxy that terminates TLS and enforces connection and request-rate limits. Configure the proxy's upstream timeouts slightly above the corresponding Kairos timeouts so Kairos closes slow requests predictably. A proxy may intentionally impose a smaller upload limit; otherwise its request-body limit must allow `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` plus multipart overhead.
+## HTTP Conventions
 
-For MCP forwarded to a loopback listener, the proxy must send the upstream authority as Host. For example, in the Nginx server block for `kairos.example.com`, use a dedicated location (retain your existing rate, body-size and timeout limits):
+- JSON fields use `snake_case`, and request objects reject unknown fields.
+- JSON success uses `{ "data": ... }`; errors use `{ "error": { "code": string, "message": string } }`.
+- Empty collections are `[]`; only optional singular values are `null`.
+- Claim release, Daemon reports, and Token revocation return bodyless `204`.
+- Lists use `{ "data": [...], "next_cursor": string | null }`; cursors are opaque and bound to the collection and filters.
 
-```nginx
-location = /mcp {
-    if ($host != kairos.example.com) { return 421; }
-    proxy_pass http://127.0.0.1:8080;
-    proxy_http_version 1.1;
-    proxy_set_header Host $proxy_host;
-    proxy_buffering off;
-}
-```
-
-This supports non-browser MCP clients such as Codex without changing the SDK's default localhost protection. Keep the public Host for the console and REST routes. Preserve Authorization and Origin headers; do not remove Origin to bypass cross-origin checks. Browser MCP requests carrying the public Origin require separate origin-aware proxy configuration because that Origin differs from the rewritten upstream Host. A `403` containing `invalid Host header` indicates proxy/loopback configuration, not an expired Token or business failure. Correct deployment configuration before retrying the client.
-
-Runtime fields used by discovery, authorization narrowing, filtering, or ordering are stored in dedicated columns as well as in the aggregate payload. PostgreSQL uses native `TEXT[]` columns for WorkItem/Task tags and Task allowed roles, with GIN indexes for the current containment queries. SQLite stores the same logical fields as validated JSON-array `TEXT` columns and evaluates containment through `json_each`; SQLite is intended for local and smaller deployments. Empty collections are stored and returned as arrays, never `null`.
-
-Database timestamps are normalized at the application boundary to UTC with microsecond precision, so API values, aggregate payloads, and query columns use the same instant. PostgreSQL uses `TIMESTAMPTZ`; SQLite uses a fixed-width RFC 3339 UTC representation so textual range comparisons preserve chronological order. Definitions, WorkItems, Tasks, Workflow activations, and Identities have `created_at` and `updated_at` matching their domain metadata. Task Relations persist their immutable `created_at`; mutable Claims, staged Artifacts, and idempotency records update `updated_at` when their state changes. Rows with a more specific immutable-event or lifecycle timestamp retain names such as `occurred_at`, `claimed_at`, or `applied_at` instead of adding a meaningless duplicate timestamp.
-
-`GET /healthz` is unauthenticated. HTTP management and execution routes use `/api/v1`; Streamable HTTP MCP uses `/mcp`.
-
-## HTTP response contract
-
-The machine-readable <a href="{{ '/openapi.yaml' | relative_url }}">OpenAPI 3.1 document</a> is the exact contract for all 53 registered HTTP operations. It defines authentication, path and query parameters, JSON and multipart request bodies, response status codes, enums, defaults, binary Artifact downloads, and every response field. This guide keeps the behavioral context that does not belong in a schema.
-
-All API JSON field names use `snake_case`. JSON request objects are closed contracts; an unknown field is rejected with `400 invalid_request`, including unknown fields inside nested objects. JSON success responses use `{ "data": ... }`; JSON errors use `{ "error": { "code": string, "message": string } }`. Release, Daemon report, and token-revocation operations return `204` without a body, `/healthz` returns `{ "status": "ok" }`, and Artifact content is returned as `application/octet-stream`.
-
-Collection fields and list responses are always arrays, including when empty. Optional single values such as `active_claim_id`, `parent_task_id`, `current_review`, `workflow`, `blackboard`, completion timestamps, and cancellation actor/time are `null` when absent. Repeated `status`, `mode`, and `tag` query parameters are represented as repeated query keys. Common error codes are:
-
-| Status | Code |
+| HTTP | Common error code |
 | --- | --- |
 | `400` | `invalid_request` |
 | `401` | `unauthenticated` |
 | `403` | `forbidden` |
 | `404` | `not_found` |
-| `409` | `conflict` |
-| `409` | `work_item_cancelled` |
+| `409` | `conflict` or `work_item_cancelled` |
 | `413` | `artifact_too_large` |
 | `500` | `internal_error` |
 
-## Daemon observations
+Requests creating WorkItems, Claims, Artifacts, and Blackboard Tasks may use a stable `Idempotency-Key`; managed uploads require one. Same key and parameters return the original resource. Lifecycle mutations evaluate current state instead of replaying an old response.
 
-`kairos-daemon` registers a fresh process ID at startup and sends a snapshot and bounded event batch to Core about every 15 seconds. Its Agent Identity Token owns the instance; a different Agent cannot report to it. Telemetry failures do not change Claim, heartbeat, or outcome handling; the Daemon logs bounded failure categories and recovery without response bodies or credentials. During shutdown it reports `stopping` while active Dispatches reconcile, then makes one best-effort `stopped` report with a two-second timeout. The final report uses the normal event and body limits and may leave queued events unsent. `--instance-name` sets an optional display name (128 UTF-8 bytes maximum); surrounding whitespace is removed. No host name, path, credential, model output, or raw log is uploaded.
+## Identity and Authentication
 
-The console's **Daemons** page and the read APIs are Human-only. `GET /api/v1/daemon-instances` lists instances with a report in the last 30 days by default; `include_history=true` includes older retained instances, and `agent_id` narrows the list. `GET /api/v1/daemon-instances/{id}` gives the latest snapshot; `GET /api/v1/daemon-instances/{id}/events` gives a descending, paginated event history. All three use Core receive time for `last_report_at`. `reporting` means a report arrived within 45 seconds, `stale` means no recent report, and `stopped` requires an explicit final report. A stale instance does not imply its Claim has ended. The page polls every 15 seconds and links dispatches and events to WorkItems.
+### Trusted Mode
 
-Agent-only `POST /api/v1/daemon-instances` registers an instance (`201` new, `200` matching replay). `POST /api/v1/daemon-instances/{id}/reports` accepts a 64 KiB maximum body with a monotonic snapshot revision, up to 100 active dispatch details and 50 typed events. Daemon-generated candidate events carry the relevant WorkItem, Task, Dispatch, and Claim references; process events leave them null. Core validates known event kinds, non-empty supplied references, shared enums, and non-negative values. Explicit `false` and `0` facts are retained. A `204` response accepts the whole submitted batch. Duplicate `(instance_id, sequence)` events keep the first stored event and do not create another row, so a Daemon can resend after losing a response. An old revision can deliver missing events but cannot refresh online status. Event references are navigation hints and are not checked against mutable Claim state during ingestion. Event history is retained for 30 days and inactive instances for 90 days, with daily cleanup. There are no new MCP tools.
-
-The [detailed design](daemon-observability-design.zh-CN.md) records the status model and planned extensions.
-
-## Choose an identity mode
-
-Trusted Mode accepts transport headers inside a trusted boundary:
+Trusted Mode accepts headers supplied by a trusted boundary:
 
 ```text
 X-Kairos-Actor-Id: codex-backend
@@ -100,9 +65,9 @@ X-Kairos-Actor-Kind: agent
 X-Kairos-Actor-Role: backend
 ```
 
-`X-Kairos-Actor-Kind` defaults to `agent`. Agent identities must provide `X-Kairos-Actor-Role`; Human identities must omit it. HTTP requests that create a WorkItem, Blackboard Task, Claim, external Artifact, decomposition, or child Task may provide a stable `Idempotency-Key`; an identical retry returns the original resource, while changed arguments require a new key. Definition appends use `base_version`, and lifecycle transitions evaluate current state instead of replaying an old response. Managed Artifact upload requires a stable key because file storage and database persistence cannot be committed in one transaction.
+`kind` defaults to `agent`. Agents require a role; Humans must omit it.
 
-Authenticated Mode is intended for shared environments within one trusted collaboration group:
+### Authenticated Mode
 
 ```bash
 KAIROS_AUTH_MODE=authenticated \
@@ -110,131 +75,135 @@ KAIROS_ADMIN_TOKEN='<at-least-32-visible-ASCII-high-entropy-token>' \
 go run ./cmd/kairos-server
 ```
 
-Admin identity routes require `Authorization: Bearer <admin-token>`. Work routes accept an issued Identity Token or the deployment Admin Token as an ordinary Human. Authenticated Mode ignores trusted actor headers.
+Authenticated Mode ignores Trusted headers. Business routes accept an Identity Token, the deployment Admin Token as a Human, or an Executor Token bound to an active Claim. Identity administration accepts only the Admin Token.
 
-### Admin Token business identity
+`GET /api/v1/auth/config` is public. `GET /api/v1/session` returns the transport-resolved `id`, `kind`, `role`, optional `display_name`, and `can_manage_identities`; clients must not infer them from Token or ID prefixes.
 
-`KAIROS_ADMIN_TOKEN` also signs in through the console's existing login form and authenticates HTTP and MCP business requests as an ordinary Human (`kind=human`, empty `role`, no Executor scope). It can create WorkItems and execute Human/either Tasks; Agent-only Tasks, other actors' Claims and ended Claims retain ordinary Human restrictions. Only the configured Admin credential can manage identities; a Human identity alone grants no administration rights.
+### Admin Token Business Identity
 
-At authenticated startup, migration 005 and a transaction create or load the single identity with `credential_source=admin`. Its random `admin-` ID is independent of the Token. A conflicting Human ID is retried without adopting or overwriting it; the same text in an Agent ID is a separate actor. A unique partial index makes concurrent initialization converge. Constraints and startup validation reject invalid kind, role or stored credential state. Existing databases are upgraded without rewriting migrations 001–004 or existing identities. Back up the complete database, including this row; deleting or manually changing it is unsupported. A new database has a new Human identity.
+The Admin Token maps to one stable, database-bound ordinary Human actor. Business permissions follow Human rules; only the configured credential can administer Identities.
 
-Restarting against the same database preserves the actor. To rotate the Admin Token, change deployment configuration and restart every instance: the new Token resolves to the same Human and the old Token fails business and management authentication once all old processes stop. There is no hot reload. The Admin credential/hash is never stored as an ordinary Identity credential. Startup rejects collisions with an existing Identity Token and rejects canonical Executor-format credentials. Configuration requires at least 32 visible ASCII characters (0x21–0x7E), no whitespace or control characters, and should be generated with high entropy; invalid or missing configuration fails without printing it.
+The Token requires at least 32 visible ASCII characters with no whitespace or controls. Rotation requires restarting every server instance and preserves the Human actor in the same database. Backups must include the complete database; manually deleting or editing this actor row is unsupported.
 
-The console account menu displays `system admin` for this credential. `/session` includes the optional presentation field `display_name: "system admin"`; ordinary Identity sessions and Trusted Mode omit it and display their actor ID. The stable `id`, Human `kind` and empty `role` remain the business identity over both HTTP and MCP. Names and ID prefixes never grant permissions. Previously accepted non-ASCII/control-character Admin configurations must be replaced with a random visible-ASCII credential before restarting; the database-bound actor is preserved.
+The console stores credentials only in the current tab's `sessionStorage`. Sign-out or a `401` for the current credential clears credentials and business caches. Never place credentials in URLs, WorkItems, logs, or screenshots.
 
-Identity management responses include `credential_source` (`identity` or `admin`). `token_active` describes an issued Identity Token only, so it is false for the deployment-managed Human. Rotating or revoking that row through `/identities/{kind}/{actor_id}/token` returns 403; use deployment configuration instead. Ordinary identity issuance, rotation and revocation are unchanged.
+### Executor Token
 
-The console stores either accepted credential in the current tab's sessionStorage. Refresh restores the session; sign-out or a current credential's 401 clears the credential and cached business state. Submitting a login clears its password input, including failures. Late session responses cannot restore an invalidated session. Storage failures are shown explicitly. Never put credentials in URLs, WorkItems, logs or screenshots.
+When creating a Task or Coordination Claim, an Agent may supply a 256-bit random Token prefixed `krs_claim_`. Core stores only its SHA-256 hash. While the Claim is active, it reads bound WorkItem context; a Task Executor may also create Artifacts and allowed nonterminal Blackboard writes, while a Coordination Executor is read-only.
 
-An Agent may include an optional client-generated `executor_token` when it creates a Task Claim or Coordination Claim. The token must use the `krs_claim_` prefix followed by 256 random bits encoded as unpadded base64url; Core stores only its SHA-256 hash. In Authenticated Mode the token can then be used as the Bearer credential for the lifetime of that exact active Claim. It can read Task and WorkItem contexts and submitted Artifacts inside the bound WorkItem. A Task Executor may also create or upload Artifacts for its exact Task Claim and extend a Blackboard plan; a Coordination Executor is read-only. All other operations are denied. Ending or reaping the Claim invalidates the token, while rotating or revoking the Agent's identity token does not affect an already active Executor token.
+The Token fails after Claim end. A credential matching Executor format but failing authentication never falls back to Identity lookup.
 
-Only a complete, canonical Executor Token format routes to Claim authentication; all other formats use Identity authentication. A failed Claim lookup never falls back to Identity authentication. This preserves the built-in generator's legacy 43-character Identity Tokens, including prefix collisions. Custom legacy Tokens matching the complete Executor format must be rotated before upgrading.
+Authenticated Mode is one global trust domain, not multi-tenant isolation. Mutually untrusted groups require separate deployments.
 
-Authentication establishes caller identity and operation-specific rules still constrain actions such as Task discovery, claiming, and Claim-owned execution. It is not a data-isolation boundary: all issued identities belong to one global trust domain, and Kairos does not currently partition reads or writes by tenant, team, project, or object. Deploy separate Kairos instances when groups must not access one another's data.
+### Identity Administration and Console
 
-The operations console discovers the configured mode through the public `GET /api/v1/auth/config` endpoint. In Authenticated Mode it presents a Token login before loading any workspace data, validates the Token through `GET /api/v1/session`, and then uses it as the Bearer credential for API requests, managed uploads, and Artifact downloads. The Token is held only in browser `sessionStorage`, so it is scoped to the current tab session rather than persisted as a durable browser login; the console reports an unavailable state if the browser blocks that storage. Signing out clears the Token and cached API data. A business API `401` response, including one caused by Token revocation or rotation, also clears the session and returns the console to login.
+In Authenticated Mode, the configured Admin opens **Token management** at `/admin/identities` to create Human or Agent Identities and rotate or revoke their Tokens. Ordinary Identity Tokens cannot manage Identities. `/session` returns `can_manage_identities`; the UI uses that capability only for presentation, while every endpoint still authenticates the Admin credential.
 
-In Authenticated Mode, sign in with the deployment `KAIROS_ADMIN_TOKEN` using the existing login form, then open the single **Token management** entry in the account menu (`/admin/identities`). Create a Human (no role) or an Agent (one required role, such as `developer`), inspect identity metadata, and rotate or revoke issued Tokens on this page. Rotation and revocation require confirmation and invalidate the previous Token immediately. The deployment-managed Admin credential is read-only here; change it through deployment configuration. Ordinary Identity Tokens, including `initial-human.token`, cannot access management. The server returns `can_manage_identities` on `/session`, true only for the configured Admin credential when identity management is available; the UI never derives access from an ID, role or display name. Every management endpoint still checks the credential.
+The management page reuses the current-tab login rather than creating a second admin session. Newly issued Tokens exist only in page memory and never return from list or detail APIs. Copy them before dismissing the result, starting another credential operation, navigating away, or refreshing. Mutation requests are not automatically retried because the first request may already have committed; refresh metadata before deciding whether to rotate a replacement.
 
-Management uses the existing login credential in current-tab sessionStorage, with no second administrator session. Sign-out and a current-credential 401 clear login and cached workspace state. Newly issued Tokens stay only in page memory and are never placed in URLs, browser storage or Query/Mutation caches. Copy and save them before dismissing the result, starting another credential operation, navigating away or refreshing. Copying an identity ID preserves the issued Token and its copy feedback. Returning from the browser back/forward cache reloads identity metadata automatically without restoring Tokens or replaying writes. Clipboard failure allows manual copying. List and detail responses never return plaintext Tokens. Failed write requests are not automatically retried because the operation may already have succeeded; refresh metadata before deciding whether to rotate a replacement. Trusted Mode retains local identity settings and does not expose management.
+Actor IDs must contain a non-whitespace character and cannot equal `.` or `..`. Unicode and meaningful surrounding whitespace are allowed. HTTP identity creation preserves the supplied value; Trusted HTTP/MCP headers trim surrounding whitespace before validation. Encode the complete Actor ID as one URL path component for detail, rotation, and revocation.
 
-`GET /api/v1/auth/config` is unauthenticated and returns `{ "data": { "mode": "trusted" | "authenticated" } }`. `GET /api/v1/session` uses the normal work-route authentication and returns the transport-resolved identity as `{ "data": { "id": string, "kind": "human" | "agent", "role": string } }`. Clients should use this resolved identity rather than deriving identity fields from a Token.
+Installations created by older unreleased builds may contain `.` or `..` IDs that can no longer authenticate. No automatic migration is provided. Disposable data should use a fresh database; retained history requires migrating the Identity and every historical Actor reference together.
 
-## HTTP resources
+## HTTP Resource Index
 
-| Resource | Routes |
+| Domain | Main routes |
 | --- | --- |
-| Authentication and session | `GET /api/v1/auth/config`, `GET /api/v1/session` |
-| Workflow Definitions | catalog `GET /api/v1/definitions/workflows`; latest `GET /{id}`; history and append `GET/POST /{id}/versions`; exact version `GET /{id}/versions/{version}` |
-| Blackboard Definitions | catalog `GET /api/v1/definitions/blackboards`; latest `GET /{id}`; history and append `GET/POST /{id}/versions`; exact version `GET /{id}/versions/{version}` |
-| WorkItems | `GET/POST /api/v1/work-items`, `GET /api/v1/work-items/{id}/context`, `POST /completion`, `POST /acceptance`, `POST /cancellation`, `POST /continue`, `POST /start-over`; Coordination Claims use `POST /{id}/coordination-claims`, `POST /{id}/coordination-claims/{claim_id}/heartbeat`, and `DELETE /{id}/coordination-claims/{claim_id}` |
-| Artifacts | `GET /api/v1/work-items/{id}/artifacts`, `POST /api/v1/tasks/{id}/artifacts`, `POST /api/v1/tasks/{id}/artifact-uploads`, `GET /api/v1/artifacts/{id}/content` |
-| Discovery | `GET /api/v1/work` |
-| Task detail and execution | `GET /api/v1/tasks/{id}`, `/context`, `/claims`, `/submissions`, `/failures`, `/reviews` |
-| Blackboard planning | WorkItem Tasks, relations, completion; Task decomposition, children, and skipping |
-| Human attention | `GET /api/v1/human-attention` |
-| Identities | `GET/POST /api/v1/identities`, token rotation and revocation routes |
+| Authentication | `/auth/config`, `/session` |
+| Identity | `/identities`, `/identities/{kind}/{actor_id}`, and `/token` |
+| Workflow Definition | `/definitions/workflows`, `/{id}`, `/{id}/versions`, `/{id}/versions/{version}` |
+| Blackboard Definition | `/definitions/blackboards`, `/{id}`, `/{id}/versions`, `/{id}/versions/{version}` |
+| Discovery and Human attention | `/work`, `/human-attention` |
+| WorkItem | `/work-items`, `/{id}/context`, `/completion`, `/acceptance`, `/continue`, `/start-over`, `/cancellation` |
+| Coordination Claim | `/work-items/{id}/coordination-claims`, `/{claim_id}/heartbeat`, `/{claim_id}` |
+| Blackboard planning | `/work-items/{id}/tasks`, `/relations`; Task `/decomposition`, `/children`, `/skip` |
+| Task detail and execution | `/tasks/{id}`, `/context`, `/claims`, `/submissions`, `/failures`, `/reviews/{review_id}/decision` |
+| Artifact | `/work-items/{id}/artifacts`, `/tasks/{id}/artifacts`, `/artifact-uploads`, `/artifacts/{id}/content` |
+| Daemon observation | `/daemon-instances`, `/{id}`, `/{id}/reports`, `/{id}/events` |
 
-`GET /api/v1/human-attention` includes pending Reviews, unclaimed Pending Human Tasks, Working Tasks with an active Claim owned by the requesting Human (including `executor=either`), and WorkItems awaiting human acceptance. For Human callers, it also includes Failed Tasks in Open Workflows that have no replacement attempt; creating a retry replacement removes the old failed Task from this list. Another actor’s Working Tasks and unclaimed `either` Tasks are excluded. The existing `human_task` kind covers pending, owned working, and these failed Tasks; `task.status` distinguishes them. Ownership and replacement filtering precede cursor pagination. Non-open WorkItems do not contribute Task entries; a WorkItem awaiting Human acceptance can still contribute an acceptance entry.
+Paths are relative to `/api/v1`. See OpenAPI for exact methods and schemas.
 
-The WorkItem, Human Attention, Definition catalog, Definition version-history, and submitted Artifact list routes use cursor pagination. `limit` defaults to 50 and accepts 1-200. A page returns `{ "data": [...], "next_cursor": string | null }`; pass a non-null value back as `cursor` on the same collection route, preserving any filters. Cursors are opaque and collection-specific. An invalid cursor or limit returns `400 invalid_request`. WorkItems are ordered by `updated_at DESC, id ASC`, Human Attention puts Reviews first and otherwise orders by item update time, Definition catalogs by `id ASC`, version histories by `version DESC`, and Artifacts by `created_at ASC, id ASC`.
+## Key Resource Semantics
 
-The operations console loads active and settled WorkItems through separate status-filtered cursors, so loading older history does not affect the active-work queue.
+### Definition and WorkItem
 
-Each Definition catalog returns the maximum stored version for every ID. `GET /definitions/{mode}/{id}` returns that latest version, while `GET /definitions/{mode}/{id}/versions` pages that ID's immutable history. The console resolves an unknown ID or version directly and does not scan unrelated catalog pages.
+Definition IDs use lowercase ASCII letters, digits, and hyphens. Omit `base_version` to create an ID; appending requires the current base and conflicts on stale input. Versions are immutable.
 
-Definition IDs contain only lowercase ASCII letters, digits, and hyphens (`^[a-z0-9-]+$`).
+WorkItem creation submits Definition ID and mode. The server binds the latest version transactionally. Workflow instantiates initial Tasks; Blackboard may begin empty.
 
-Creating a new Definition ID omits `base_version` and receives version 1. Appending a version must send the latest version the editor was based on as `base_version`. The server compares it under the Definition lock and assigns `max(version) + 1`; a missing or stale base for an existing ID returns `409 conflict`.
+### Workflow Recovery
 
-Creating a WorkItem intentionally accepts a Definition ID and mode rather than a version. At creation time the server resolves and binds the maximum stored version for that ID.
+`continue` keeps the WorkItem, successful branches, joins, and Reviews, then creates replacements for current failed or interrupted work. `start-over` creates a new WorkItem from the same Definition version and original intent and retains a source reference.
 
-Definition versions are immutable. Workflow WorkItems instantiate start Tasks from the graph; empty Blackboard WorkItems remain planning candidates. After Blackboard Tasks converge, `find_work` returns `blackboard_completion`; a collaborator either creates more Tasks or posts a durable completion result. That submission then applies `acceptance_mode`: `none` (default) completes immediately, `agent` returns `work_item_acceptance`, and `human` enters human acceptance. Acceptance is a separate `POST /acceptance` action. Agent acceptance candidates are visible only to Agent identities. Before an Agent reasons about `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance`, it must create a WorkItem Coordination Claim. The active Claim hides that candidate from discovery; the chosen Task creation, completion submission, or acceptance must carry its ID and ends it atomically.
+Neither revives Claims, replays an arbitrary stage, or copies old Artifacts, Reviews, or external side effects. Humans must describe external outcomes the new executor needs. Recovery is a WorkItem operation; there is no separate Task retry-management API.
 
-The operations console exposes these WorkItem lifecycle decisions only to Human identities. Agents execute them through the MCP discovery and Coordination Claim loop, which establishes the Claim before full context is loaded and reasoning begins.
+### Blackboard Completion
 
-Workflow Definitions accept at most 100 Task Definitions and 1,000 Relation Definitions. Start Task IDs must be unique, refer to required Tasks in the graph, and are therefore bounded by the Task Definition limit. `max_task_instances_per_node` is one shared limit applied separately to each Task Definition node within a WorkItem. It defaults to 100 when sent as zero and may not exceed 500. Each new Task instance counts once, including start and skipped instances; releasing or reclaiming the same Task does not add a count; Workflow retries create a new Task and count again. Other nodes and other WorkItems have independent counts. There is no separate total runtime Task limit. These limits protect graph size and cyclic execution without adding duplicate runtime graph checks. Attempting the next instance of an exhausted node fails the WorkItem and ends active Claims; the source submission/decision remains committed and the failure event identifies the target node and limit. Retries within the same WorkItem retain prior Human review rejection feedback; Start over does not copy review history. Workflow retries store complete guidance in `retry_instructions`, separately from the bounded error summary. Guidance uses the first nonempty value from the current Human instructions, the source attempt’s latest `retry` failure’s `retry_prompt`, and its inherited `retry_instructions`. This also preserves a prompt when a task instance limit blocked automatic retry and a Human later raises the limit and continues. Retry summaries reserve space for the latest failure and interruption before earlier history, without duplicating full retry instructions. If a generated node-limit message would exceed 32 KiB, it uses a brief explanation while `failure.workflow_task_id` retains the complete node ID; the failure state and Claim termination still commit.
+Task convergence leaves the WorkItem `open`. A collaborator creates follow-up work or submits a durable completion result. Only then does `acceptance_mode` apply: `none` completes, `agent` creates an Agent acceptance candidate, and `human` enters Human acceptance.
 
-Workflows with a failed WorkItem or current failed Tasks offer two Human actions: **Continue execution** keeps the current WorkItem, successful branches, waiting joins and pending reviews, creates new Task attempts for failed/interrupted work, and delivers only missing inputs from committed decisions. **Start over** creates a new WorkItem at the initial nodes, copying the original intent and pinned Workflow version plus a bounded failure summary and operator instructions. The source ends Failed and retains its execution history; remaining Claims end in the same transaction. A retry of A joins the successful B from the same activation; if both failed, both need successful replacements before C runs. No arbitrary-stage replay is offered. Continue retains per-node counts; retries count as new instances and may require a higher limit (at most 500). Start over has independent counts. Ended Claims never revive; rediscover and claim fresh work after recovery. Start over retains a source WorkItem reference and current failure summary, without scanning or copying earlier URLs, Artifacts, Reviews, Submissions, or recovery summaries. Scoped executors cannot read another WorkItem, so Humans must list external outcomes to reuse in the current instructions; external actions are not undone. See the API reference for `/continue` and `/start-over`.
+Agents create a Coordination Claim before handling `empty_blackboard`, `blackboard_completion`, or `work_item_acceptance`. Creating work, submitting completion, or accepting it consumes the Claim transactionally.
 
-WorkItem responses include `failure` (null before failure and after continue), `workflow_max_task_instances_per_node` (0 inherits the binding; always 0 for Blackboard), `started_over_from_work_item_id` (null unless copied), `start_over_context` and `recovery_instructions` (empty strings by default). Failure snapshots contain `kind`, `message`, `workflow_task_id`, `task_instances`, `limit`; a present snapshot requires a nonblank message. Start-over sources must refer to another Workflow WorkItem with exactly the same Definition ID and version. The source reference and Definition binding are immutable after creation. Task responses include `retry_of_task_id` (null unless a replacement), `retry_context`, `retry_instructions` (empty strings by default). Recovery is a WorkItem action; there is no separate Task retry capability or endpoint. Additive migration `007_workflow_attempts` stores retry/source relationships in dedicated columns and enforces at most one direct replacement per Task. HTTP WorkItem context includes `recovery_task_ids` (`[]` when none or in Blackboard), calculated by the same selection used by Continue. The console counts these replacements when suggesting a per-node limit and detects when an interrupted node would exceed 500; the server revalidates capacity on submission. This projection is not stored and is omitted from Agent MCP views.
+### Failure and Cancellation
 
-Human management endpoints:
-- `POST /api/v1/work-items/{id}/continue`: `{ "version": <current WorkItem version>, "max_task_instances_per_node": 0, "instructions": "..." }`. Continue accepts a Failed Workflow with unfinished work, or an Open Workflow with unreplaced failed Tasks. It replaces all current failed attempts in one transaction, preserving running branches. Only Claims revoked by whole-workflow failure identify interrupted Pending attempts; released, expired and review-rejected attempts stay in place (except a Task that has exhausted its Claim history capacity). Zero/omitted limit keeps the current effective limit; explicit values must not decrease it, must be at most 500, and must leave room for every required replacement/blocked node. Success returns 200, records `work_item.continued` and clears the current failure snapshot, retaining failure events.
-- `POST /api/v1/work-items/{id}/start-over`: `{ "version": <current WorkItem version>, "instructions": "..." }`, with a required `Idempotency-Key`. Returns 201 with the new WorkItem; identical replay with the same key returns the same resource. An Open source with current failed Tasks is first failed and its remaining Claims are revoked atomically; an already Failed source stays Failed. The source advances its version to fence concurrent continue/start-over requests, and records `work_item.started_over`. The original immutable Definition version and current limit override are copied, execution state is not.
+`fail_task` supports `retry`, `await_human`, and `fail_work_item`. Workflow retry creates a replacement Task; Blackboard retry reopens the same Task. `await_human` is Workflow-only. `fail_work_item` ends the WorkItem and other Claims.
 
-Operator instructions are optional and limited to 32 KiB UTF-8 bytes, stored separately from generated summaries. Generated recovery summaries truncate safely at the same byte limit and flag omitted details; source history remains complete. Start-over summaries contain the source WorkItem ID, its current failure reason and the latest reasons of current failed Task attempts, under one UTF-8-safe 32 KiB limit. The new WorkItem separately stores only the Human instructions submitted with this Start over request. Earlier execution history and Human instructions remain on the source; they are not scanned or copied. A URL inside a current failure reason remains part of that reason, not an extracted reference list. No recovery API is an Agent MCP mutation. MCP context tools include WorkItem recovery information in `work_item.context` and Task retry information in its description, so scoped executors receive guidance without reading a different WorkItem. `find_work` returns the original context and description without generated recovery summaries. Invalid parameters return 400, Agents receive 403, and stale versions/ineligible state/insufficient retry capacity return 409. Continue rolls back all changes on conflict, including any limit override; ended Claims remain invalid.
+`cancellation` is Human-only and requires a reason. It ends active Task and Coordination Claims and prevents later mutation without rewriting old results or inventing a Task Failure. Agents stop writes on `work_item_cancelled`.
 
-The Claim failure endpoint/MCP `fail_task` accepts `retry`, `await_human` and `fail_work_item`. In Workflow, `retry` ends the old Task as Failed and immediately creates a replacement; if the per-node cap is exhausted, the recorded failure commits and the WorkItem fails with a Task instance limit reason. `await_human` (Workflow only) ends that Task as Failed while other branches continue, leaving it for Human Continue execution. `fail_work_item` fails the whole WorkItem and revokes other Claims. Blackboard `retry` continues to return the same Task to Pending. The `await_human` action is rejected for Blackboard before history-capacity handling, leaving the WorkItem, Task, Claims and events unchanged even when failure history is full. The endpoint returns the failure record; discover the replacement separately. Blackboard retry records `task.retry_requested`; Workflow retry records `task.failed` and, when capacity permits, `task.created` for the replacement.
+### History and Detail
 
-`find_work` returns unclaimed candidates in `work_item_acceptance`, `blackboard_completion`, `task`, then `empty_blackboard` groups. Its `limit` applies independently to each group, defaults to 5 when omitted or zero, and accepts values up to 50. An Agent can therefore receive at most four times the limit; a Human does not receive Agent-acceptance candidates. Each group is bounded in its database query rather than after loading the complete candidate set.
+`GET /work-items/{id}/context` is readable in every lifecycle state and returns normalized Tasks and Relations, complete Claim history, and active-Claim projections.
 
-One Blackboard WorkItem may contain at most 1,000 Task instances and 10,000 suggested Relations, including completed history and Tasks created as decomposition children. The server checks these hard ceilings inside the write transaction for root Task creation, decomposition, child creation, and Relation creation; an operation that would exceed a ceiling returns `409 conflict` and does not create a partial result.
+`GET /tasks/{id}` is a viewer-oriented Detail containing responsibility, outcome, current Review, history, submitted Artifacts, and capabilities. It does not require execution eligibility. `/tasks/{id}/context` is protected execution context and should not load ordinary detail pages.
 
-To keep executor and WorkItem contexts bounded without truncating history, each WorkItem accepts at most 128 Coordination Claims, and each Task accepts at most 128 Claims, 64 Submissions, 64 Reviews, 64 ordinary Failures, 64 Transition Decisions, and 64 Artifacts. Attempting to append beyond any history ceiling fails the WorkItem and ends active Claims; the rejected operation does not append another history record. A `fail_work_item` Failure that ends the current Task may add one final record, so the Failure history can contain 65 records in that case. Accepted history remains complete in context responses. Result, reason, retry prompt, feedback, transition reason, and event message values retained in history are limited to 32 KiB of UTF-8 encoded bytes. A Task Submission can bind longer deliverables as Artifacts through `artifact_ids` while keeping a concise Result. For text-only lifecycle actions that do not accept Artifact IDs, including failure and retry details, Review feedback, cancellation reasons, and skip reasons, store longer material in durable external storage and include a concise summary and absolute URI in the text field.
+### Artifacts
 
-Each Workflow Definition `graph.relations[]` entry accepts optional `label` and `agent_guidance` strings. Empty strings mean no additional guidance. Neither field changes graph compilation or progression semantics. HTTP Workflow Task context exposes complete guidance in each Choice Group's `relations`. MCP `get_task_context` annotates the corresponding `targets[]` entry with merged `relation_guidance` (preferring `agent_guidance`, then `label`), avoiding duplicate target structures.
+Workflow Task Definitions may require named Artifacts. An executor registers an absolute external URI or uploads to the single managed Store, then submits the staged IDs. Staged Artifacts belong to one Claim; submitted Artifacts are visible across the WorkItem.
 
-For Blackboard, `work_item.result` contains the submitted completion proposal while acceptance is pending and the accepted final outcome after acceptance. Reopening Agent acceptance by creating another Task clears the stale proposal. Workflow completion is structural, so Workflow WorkItems keep `result` empty; their durable outcomes remain on Task Submissions and Artifacts.
+Managed uploads use stable `kairos://` URIs, SHA-256 digests, and a recoverable register-before-write flow. GC removes old unsubmitted Artifacts, pending uploads, and expired idempotency records; submitted Artifacts remain. Large files should use durable external storage and URI registration.
 
-`POST /api/v1/work-items/{id}/cancellation` is a Human-only management action for `open`, `awaiting_agent_acceptance`, and `awaiting_human_acceptance` WorkItems. It requires a non-empty `reason` and records `cancelled_at`, `cancelled_by`, and `cancellation_reason`; any pending completion proposal is cleared. In the same transaction, every active Task Claim and Coordination Claim ends with `work_item_cancelled`, each claimed Task loses `active_claim_id`, and a `working` Task returns to `pending`. Existing Task outcomes are not rewritten and no Task Failure is created. A cancelled WorkItem remains readable, while subsequent Task mutations return `409 work_item_cancelled`; agents should stop when they receive that response. Cancellation is not exposed as an MCP tool.
+## Key Limits
 
-`GET /api/v1/work-items/{id}/context` is available across all WorkItem lifecycle states and returns the WorkItem, normalized Task and relation collections, complete Task Claim history in `claims`, the currently live Task subset in `active_claims`, complete WorkItem decision history in `coordination_claims`, and its optional live value in `active_coordination_claim`. Empty histories are encoded as `[]`; the optional active Coordination Claim is `null` when absent. The returned `work_item.result` follows the mode-specific semantics above: it contains the completion proposal or accepted outcome for Blackboard and remains empty for Workflow, whose outcomes are available through Task Submissions and Artifacts. A completed Task's executor can be resolved through `submission.claim_id -> claims[].id -> executor`.
+The table helps operational planning. OpenAPI and server validation remain authoritative.
 
-Workflow Task Definitions may declare required `artifacts[]` entries with only `name` and `description`. The description is an execution instruction, not a file-type schema. An executor creates external Artifacts with an absolute URI or uploads managed content while holding a Claim, then passes their IDs in `artifact_ids` to `submit_task`. Submission atomically binds the staged Artifacts and rejects a Workflow result missing a declared name. Blackboard Tasks have no structured Artifact contract. Submitted Artifacts are visible throughout the WorkItem; staged Artifacts remain with their creating Claim.
+| Scope | Limit |
+| --- | --- |
+| Workflow Definition | 100 Task Definitions; 1,000 Relations |
+| Workflow node instances | Default 100 per node and WorkItem; configurable to 500 |
+| Blackboard WorkItem | 1,000 Tasks; 10,000 Relations |
+| Claim history | 128 Coordination Claims per WorkItem; 128 Claims per Task |
+| Task-associated history | 64 each of Submissions, Reviews, ordinary Failures, Transition Decisions, and Artifacts |
+| Historical text field | 32 KiB UTF-8 |
+| `find_work` | Default 5 and maximum 50 per candidate kind |
 
-Managed upload always targets the server's single managed Store; callers cannot select a Store. The bundled implementation registers a stable `kairos://` upload URI in the pending database record before writing bytes below `KAIROS_ARTIFACT_DIR`, then flushes the file and directory chain before completing the database operation; the resulting Blob metadata stores a SHA-256 integrity digest separately.
+Reaching a history safety limit fails the WorkItem and ends active Claims while retaining accepted history. Store long content in Artifacts or durable external storage and keep a summary plus absolute URI in lifecycle text.
 
-`POST /tasks/{id}/artifacts` accepts JSON fields `claim_id`, `name`, and `uri`. `POST /tasks/{id}/artifact-uploads` accepts multipart fields `claim_id`, `name`, and `file`; it has no Store field. `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` sets the uploaded file content limit and defaults to 16 MiB; an oversized upload returns `413 artifact_too_large`. The bundled managed upload is a small-file convenience path. Large deliverables should be published to durable external storage such as S3 and registered through the URI endpoint. External-URI creation accepts the optional resource-creation key; managed upload requires one so the server can persist the upload URI and pending state before writing content to the Store. The Store computes and returns the digest and size, which are persisted in the pending record before the final transaction creates Blob metadata, the staged Artifact, and the completed operation. A pending retry rewrites the registered URI and verifies the previously recorded digest and size, so it can recover even when cleanup removed the file but failed to delete the pending record. An identical completed retry can recover its retained staged Artifact after the Claim ends while the upload record remains inside the configured retention window.
+## Claim Leases
 
-Artifact GC runs every `KAIROS_ARTIFACT_GC_INTERVAL` (15 minutes by default). An unsubmitted Artifact becomes eligible when its Claim is no longer active and the Artifact is older than `KAIROS_ARTIFACT_GC_RETENTION` (24 hours by default). Pending managed-upload records older than the same retention are deleted together with the file at their registered upload URI; completed external-registration and managed-upload replay records expire after that retention window as well. Submitted Artifacts are retained. Managed Blob content and metadata are deleted only after no Artifact URI references that Blob. All three Artifact numeric or duration settings must be positive.
+Agent Task and Coordination Claims use leases; Human Claims do not. An Agent may request 15 seconds to 30 minutes; omission uses the server default.
 
-`GET /api/v1/tasks/{id}` is a viewer-facing Task Detail endpoint and does not require the current identity to be able to execute the Task. It returns backend-projected `responsibility`, `outcome`, `current_review`, normalized `history`, submitted `artifacts` belonging to that Task, and identity-specific `capabilities`. The `artifacts` collection is `[]` when the Task has no submitted deliverables. `GET /api/v1/tasks/{id}/context` remains an executor context protected by execution authorization; clients must not use it to load ordinary detail or human Review operations.
+`lease_until` is when the reaper may first recover the Claim, not an instant revocation. Until recovery commits, the current Agent may renew or perform protected operations. Afterwards the old Claim ID remains a fencing token and cannot revive.
 
-## Claim leases and recovery
+## Daemon Platform Observation
 
-Agent Task Claims and WorkItem Coordination Claims use leases; human operations do not. Agent claim and heartbeat requests may choose a duration from 15 seconds through 30 minutes. Omitted durations use `KAIROS_AGENT_CLAIM_LEASE`, five minutes by default. `lease_until` is the earliest time when the background reaper may end the Claim and return its Task or lifecycle candidate to discovery; reaching that timestamp does not itself change ownership. Until the reaper commits that transition, the current Agent may continue the protected operation or renew the Claim, while every other Agent remains unable to claim that work. After reaping, the old Claim ID remains fenced and cannot be renewed or used for a lifecycle mutation.
+Each `kairos-daemon` start creates a new instance ID, registers with its Agent Identity Token, and reports snapshots and meaningful events about every 15 seconds. Telemetry failure never changes scheduling, Claims, heartbeats, or business outcomes.
 
-## MCP tools
+Core computes connectivity from receipt time: `reporting` within 45 seconds, `stale` afterwards, and `stopped` only after an explicit report. Lost contact does not mean a Claim ended. Events are retained for 30 days and inactive instances for 90 days.
 
-MCP shares the HTTP identity resolver. Trusted Mode supplies actor headers at transport level; Authenticated Mode supplies `Authorization: Bearer <identity-token>` or a Claim-bound Executor token. Identity never appears in tool arguments. Executor sessions expose only the tools allowed by their profile and receive matching instructions in the `initialize` response, leaving Claim lifecycle management to the Agent Daemon. Ordinary Identity sessions retain the full Agent instructions. The application layer enforces the same boundary for HTTP and MCP.
+Only the owning Agent reports; only Humans read. Snapshots and events are operational observations, while WorkItem, Task, and Claim records remain authoritative. See the [observability design (Chinese)](daemon-observability-design.zh-CN.md) for the full contract.
 
-Agents use twenty MCP tools to discover work, hold responsibility, submit results, and extend a Blackboard:
+## MCP Tools
 
-- discovery and context: `find_work`, `get_task_context`, `get_work_item_context`;
-- Task Claim lifecycle and delivery: `claim_task`, `heartbeat_claim`, `create_artifact`, `upload_artifact`, `release_claim`, `submit_task`, `fail_task`;
-- Coordination Claim lifecycle: `claim_work_candidate`, `heartbeat_coordination_claim`, `release_coordination_claim`;
-- Blackboard planning and closure: `create_blackboard_task`, `add_blackboard_relation`, `decompose_blackboard_task`, `add_blackboard_child_task`, `skip_blackboard_task`, `submit_blackboard_completion`, `accept_blackboard_completion`.
+MCP and HTTP share identity resolution and application authorization. Identity comes from transport, never tool arguments. Executor sessions expose only profile-allowed tools, and Agent Daemon owns Claim lifecycle.
 
-Only resource-creating MCP tools require `operation_id`: `claim_task`, `claim_work_candidate`, `create_artifact`, `upload_artifact`, `create_blackboard_task`, `decompose_blackboard_task`, and `add_blackboard_child_task`. These tools replay an identical retry so a lost response does not orphan a server-generated ID; changed arguments require a new ID. Lifecycle transitions and relation creation instead evaluate the current domain state and may return a conflict when retried after success. Workflow discovery is determined by role and graph state and ignores tag filters; Blackboard discovery may use tags. Workflow Task context exposes controlled upstream summaries, durable results, and optional Relation guidance without granting arbitrary access to other Tasks or creating branches absent from the Definition.
+| Category | Tools |
+| --- | --- |
+| Discovery and context | `find_work`, `get_task_context`, `get_work_item_context` |
+| Task Claim and delivery | `claim_task`, `heartbeat_claim`, `create_artifact`, `upload_artifact`, `release_claim`, `submit_task`, `fail_task` |
+| Coordination Claim | `claim_work_candidate`, `heartbeat_coordination_claim`, `release_coordination_claim` |
+| Blackboard planning and closure | `create_blackboard_task`, `add_blackboard_relation`, `decompose_blackboard_task`, `add_blackboard_child_task`, `skip_blackboard_task`, `submit_blackboard_completion`, `accept_blackboard_completion` |
 
-`upload_artifact` accepts standard Base64 bytes in `content_base64` without a data URI prefix, decodes them into the server-configured Artifact Store, and returns the staged Artifact ID used by `submit_task.artifact_ids`. Its decoded size limit is the same `KAIROS_ARTIFACT_MAX_UPLOAD_BYTES` used by HTTP multipart uploads; the MCP request-body limit includes the corresponding Base64 expansion. This tool is intended for small files only because Base64 adds roughly one third to the transfer size and the MCP request is buffered in memory. Use `create_artifact` with an S3 or other durable external URI for large files.
+Resource-creating tools require `operation_id`: `claim_task`, `claim_work_candidate`, `create_artifact`, `upload_artifact`, `create_blackboard_task`, `decompose_blackboard_task`, and `add_blackboard_child_task`. Same retries return the original resource; changed parameters require a new ID.
 
-Project Codex configuration is in `.codex/config.toml`; execution guidance is in `.agents/skills/kairos-agent/SKILL.md`.
+`upload_artifact` accepts standard Base64 without a data-URI prefix and is intended for small files. Register a durable external URI with `create_artifact` for large content.
 
-### Identity management layout and Actor IDs
-Identity management uses the workbench library layout: existing identities are the main list, with **Create identity** and **Refresh** in the page header. Creation and rotation/revocation confirmations use the shared dialog. Rows separate identity, type/role, Token status and actions; deployment-managed credentials show **system admin**, with a secondary, truncated ID below and a fixed copy action. Other identity IDs are shown once; hover or copy to read the full value. New Tokens appear above the identity list in a one-time result area that receives focus and scrolls into view after creation or rotation; page-level errors also appear above the list. Sign out remains in the account menu.
-
-Actor IDs must contain a non-whitespace character and cannot equal `.` or `..` (reserved URL path segments). Unicode and meaningful surrounding whitespace remain supported; HTTP identity creation preserves the value, while Trusted HTTP/MCP headers trim surrounding whitespace before the same domain validation. Encode an Actor ID as one URL path component for detail/rotation/revocation. Invalid input is rejected before identity persistence or issuance; correct it before retrying. MCP derives identity from credentials/Trusted headers, not tool arguments. Generated Admin IDs already satisfy the rule.
-
-Compatibility: this restriction assumes unreleased/new installations with no existing users. Earlier versions accepted `.` and `..`; stored identities with those IDs can no longer authenticate because login validates the stored identity. No automatic ID migration is provided. For disposable development data containing these IDs, start with a fresh database and create identities with valid IDs; this resets identities and work history, so use a separate database and Artifact directory if retaining the old data. If that history must remain usable, arrange a migration of the identities and all historical actor references before upgrading; renaming only the identity row or rotating its Token is not sufficient.
+Project Codex configuration lives in `.codex/config.toml`; execution guidance lives in `.agents/skills/kairos-agent/SKILL.md`.
