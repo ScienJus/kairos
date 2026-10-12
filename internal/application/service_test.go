@@ -73,8 +73,12 @@ func TestGetWorkflowTaskExecutionContext(t *testing.T) {
 		t.Fatalf("context for non-owner: got %v", err)
 	}
 
+	parentArtifact, err := service.CreateArtifact(context.Background(), CreateArtifactCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Name: "report", URI: "https://example.test/ancestor"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := service.SubmitTask(context.Background(), SubmitTaskCommand{
-		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Result: "Implementation complete",
+		TaskID: task.ID, ClaimID: claim.ID, Identity: agent, Result: "Implementation complete", ArtifactIDs: []domain.ArtifactID{parentArtifact.ID},
 		Transition: &WorkflowTransitionCommand{
 			ChoiceGroupID: "exit:implement", SkipOptionalTaskIDs: []domain.WorkflowTaskID{"docs", "examples"},
 		},
@@ -105,6 +109,9 @@ func TestGetWorkflowTaskExecutionContext(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("get integration context: %v", err)
+	}
+	if len(integrationContext.InputArtifacts) != 0 {
+		t.Fatalf("skipped direct sources must not fall back to ancestor artifacts: %+v", integrationContext.InputArtifacts)
 	}
 	if got := runtimeWorkflowTaskIDs(integrationContext.Workflow.UpstreamTasks); !slices.Equal(got, []domain.WorkflowTaskID{"examples", "docs", "implement"}) {
 		t.Fatalf("integration upstream tasks: got %v", got)
@@ -146,7 +153,7 @@ func TestWorkflowArtifactsGuideAndGateSubmission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get task context: %v", err)
 	}
-	if len(contextView.ExpectedArtifacts) != 2 || len(contextView.Artifacts) != 1 || contextView.Artifacts[0].SubmissionID != nil {
+	if len(contextView.ExpectedArtifacts) != 2 || len(contextView.StagedArtifacts) != 1 || contextView.StagedArtifacts[0].SubmissionID != nil {
 		t.Fatalf("artifact context: %#v", contextView)
 	}
 	_, err = service.SubmitTask(context.Background(), SubmitTaskCommand{
@@ -548,8 +555,8 @@ func TestSubmittedArtifactIsVisibleToOtherBlackboardTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get consumer context: %v", err)
 	}
-	if len(contextView.Artifacts) != 1 || contextView.Artifacts[0].ID != artifact.ID {
-		t.Fatalf("consumer Artifacts = %#v", contextView.Artifacts)
+	if len(contextView.SharedArtifacts) != 1 || contextView.SharedArtifacts[0].Artifacts[0].ID != artifact.ID {
+		t.Fatalf("consumer Artifacts = %#v", contextView.SharedArtifacts)
 	}
 }
 

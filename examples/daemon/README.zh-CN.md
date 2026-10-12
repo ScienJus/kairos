@@ -27,6 +27,8 @@ PostgreSQL DSN 会被清空。凭据不会打印或出现在命令参数中。�
 的清理顺序。Ctrl-C 先停止 Daemon 再停止 Core，清理期间重复信号不会中断等待，之后可手动
 检查并删除目录。
 
+Task Harness 使用 `input_artifacts` 读取本次 Workflow 直接输入，使用 `shared_artifacts` 查看 Blackboard 共享证据，使用 `staged_artifacts` 找到当前 Claim 的待提交产物。不要从同名历史文件中按时间猜输入；字段说明见 [API 参考](../../docs/api-reference.zh-CN.md#artifact)。
+
 ## 不调用模型的验证
 
 ```sh

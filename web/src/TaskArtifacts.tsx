@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Download, ExternalLink, Paperclip } from "lucide-react";
+import { Download, ExternalLink } from "lucide-react";
 import { api } from "./api";
 import { useI18n } from "./i18n";
 import type { Identity, TaskDetailView } from "./types";
 import { FormError } from "./ui";
 
-export function TaskArtifacts({
+export function ArtifactLinks({
   artifacts,
   identity,
 }: {
@@ -31,11 +31,7 @@ export function TaskArtifacts({
   }
 
   return (
-    <section className="task-artifacts" aria-label={t("taskArtifacts")}>
-      <div className="task-artifacts-heading">
-        <Paperclip size={15} />
-        <span>{t("taskArtifacts")}</span>
-      </div>
+    <div>
       <div className="task-artifact-list">
         {artifacts.map((artifact) => (
           <div key={artifact.id}>
@@ -61,6 +57,6 @@ export function TaskArtifacts({
         ))}
       </div>
       {error && <FormError error={error} />}
-    </section>
+    </div>
   );
 }

@@ -203,7 +203,9 @@ type taskContextOutput struct {
 	Responsibility    responsibilityView       `json:"responsibility"`
 	Outcome           outcomeView              `json:"outcome"`
 	ExpectedArtifacts []artifactDefinitionView `json:"expected_artifacts"`
-	Artifacts         []artifactView           `json:"artifacts"`
+	StagedArtifacts   []artifactView           `json:"staged_artifacts"`
+	InputArtifacts    []artifactSubmissionView `json:"input_artifacts"`
+	SharedArtifacts   []artifactSubmissionView `json:"shared_artifacts"`
 }
 
 type responsibilityView struct {
@@ -300,7 +302,9 @@ func taskContextView(value application.TaskExecutionContext) taskContextOutput {
 		Claims:            claimViews(value.Claims),
 		Definition:        definitionViewFrom(value.Definition),
 		ExpectedArtifacts: artifactDefinitionViews(value.ExpectedArtifacts),
-		Artifacts:         artifactViews(value.Artifacts),
+		StagedArtifacts:   artifactViews(value.StagedArtifacts),
+		InputArtifacts:    artifactSubmissionViews(value.InputArtifacts),
+		SharedArtifacts:   artifactSubmissionViews(value.SharedArtifacts),
 	}
 	result.WorkItem.Context = workItemRecoveryContext(value.WorkItem)
 	result.Task.Description = taskRecoveryDescription(value.Task)
@@ -632,4 +636,21 @@ func taskRecoveryDescription(value domain.Task) string {
 		return value.Description
 	}
 	return value.Description + "\n\nRetry context:\n" + value.RetryContext + "\nRetry instructions:\n" + value.RetryInstructions
+}
+
+// Submission provenance and review status accompany shared/input artifacts.
+type artifactSubmissionView struct {
+	TaskID       string         `json:"task_id"`
+	SubmissionID string         `json:"submission_id"`
+	SubmittedAt  string         `json:"submitted_at"`
+	ReviewStatus string         `json:"review_status"`
+	Artifacts    []artifactView `json:"artifacts"`
+}
+
+func artifactSubmissionViews(values []application.ArtifactSubmission) []artifactSubmissionView {
+	result := make([]artifactSubmissionView, 0, len(values))
+	for _, value := range values {
+		result = append(result, artifactSubmissionView{TaskID: string(value.TaskID), SubmissionID: string(value.SubmissionID), SubmittedAt: value.SubmittedAt.UTC().Format(time.RFC3339Nano), ReviewStatus: value.ReviewStatus, Artifacts: artifactViews(value.Artifacts)})
+	}
+	return result
 }

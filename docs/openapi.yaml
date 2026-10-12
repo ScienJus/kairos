@@ -2001,14 +2001,36 @@ components:
         tasks: { type: array, items: { $ref: '#/components/schemas/Task' } }
         relations: { type: array, items: { $ref: '#/components/schemas/TaskRelation' } }
         can_decompose: { type: boolean }
+    ArtifactSubmission:
+      type: object
+      description: Artifacts grouped by the exact originating Submission; none means no Review was requested.
+      required: [task_id, submission_id, submitted_at, review_status, artifacts]
+      properties:
+        task_id: { type: string }
+        submission_id: { type: string }
+        submitted_at: { type: string, format: date-time }
+        review_status: { type: string, enum: [none, pending, approved, rejected] }
+        artifacts: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/Artifact' } }
     TaskContext:
       type: object
-      required: [work_item, task, claims, artifacts, expected_artifacts, definition, responsibility, outcome, workflow, blackboard]
+      required: [work_item, task, claims, staged_artifacts, input_artifacts, shared_artifacts, expected_artifacts, definition, responsibility, outcome, workflow, blackboard]
       properties:
         work_item: { $ref: '#/components/schemas/WorkItem' }
         task: { $ref: '#/components/schemas/Task' }
         claims: { type: array, maxItems: 128, items: { $ref: '#/components/schemas/Claim' } }
-        artifacts: { type: array, maxItems: 64, items: { $ref: '#/components/schemas/Artifact' } }
+        staged_artifacts:
+          type: array
+          maxItems: 64
+          description: Unsubmitted artifacts of the current Active Task Claim, visible only to its owner. Empty without an owned active Claim.
+          items: { $ref: '#/components/schemas/Artifact' }
+        input_artifacts:
+          type: array
+          description: Workflow only. Exact direct input Submissions selected by this activation's applied decision receipts. No global newest-by-name selection or ancestor fallback; skipped sources and sources without artifacts contribute no group. Empty in Blackboard.
+          items: { $ref: '#/components/schemas/ArtifactSubmission' }
+        shared_artifacts:
+          type: array
+          description: Blackboard only. All submitted WorkItem artifact history grouped by Submission, including pending and rejected Reviews. Shared evidence is not an authoritative dependency input. Empty in Workflow.
+          items: { $ref: '#/components/schemas/ArtifactSubmission' }
         expected_artifacts: { type: array, items: { $ref: '#/components/schemas/ArtifactDefinition' } }
         definition: { $ref: '#/components/schemas/DefinitionContext' }
         responsibility: { $ref: '#/components/schemas/Responsibility' }

@@ -155,15 +155,16 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal tool definitions: %v", err)
 	}
-	if len(toolPayload) > 37_000 {
-		t.Fatalf("tool definitions are %d bytes, want at most 37000", len(toolPayload))
+	// Provenance groups add input/shared artifact schemas to get_task_context.
+	if len(toolPayload) > 39_000 {
+		t.Fatalf("tool definitions are %d bytes, want at most 39000", len(toolPayload))
 	}
 	prettyToolPayload, err := json.MarshalIndent(tools.Tools, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal formatted tool definitions: %v", err)
 	}
-	if len(prettyToolPayload) > 86_000 {
-		t.Fatalf("formatted tool definitions are %d bytes, want at most 86000", len(prettyToolPayload))
+	if len(prettyToolPayload) > 92_000 {
+		t.Fatalf("formatted tool definitions are %d bytes, want at most 92000", len(prettyToolPayload))
 	}
 
 	find := callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{})
@@ -222,6 +223,22 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	})
 	if taskContext.Task.Status != string(domain.TaskStatusWorking) || taskContext.Blackboard == nil {
 		t.Fatalf("task context = %+v", taskContext)
+	}
+	encodedContext, err := json.Marshal(taskContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var artifactFields map[string]json.RawMessage
+	if err := json.Unmarshal(encodedContext, &artifactFields); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"staged_artifacts", "input_artifacts", "shared_artifacts"} {
+		if string(artifactFields[field]) != "[]" {
+			t.Fatalf("%s = %s, want []", field, artifactFields[field])
+		}
+	}
+	if _, exists := artifactFields["artifacts"]; exists {
+		t.Fatal("obsolete flat execution artifact field is present")
 	}
 	if taskContext.Blackboard.CurrentTaskID != created.Task.ID {
 		t.Fatalf("blackboard current_task_id = %q, want %q", taskContext.Blackboard.CurrentTaskID, created.Task.ID)
@@ -300,6 +317,9 @@ func TestTrustedMCPBlackboardLifecycle(t *testing.T) {
 	})
 	if taskContext.Task.Status != string(domain.TaskStatusCompleted) || taskContext.WorkItem.Status != string(domain.WorkItemStatusOpen) || len(taskContext.Task.Failures) != 1 {
 		t.Fatalf("converged context = %+v", taskContext)
+	}
+	if len(taskContext.SharedArtifacts) != 1 || len(taskContext.SharedArtifacts[0].Artifacts) != 1 || taskContext.SharedArtifacts[0].Artifacts[0].ID != uploaded.Artifact.ID || taskContext.SharedArtifacts[0].TaskID != uploaded.Artifact.TaskID || taskContext.SharedArtifacts[0].SubmissionID == "" || taskContext.SharedArtifacts[0].ReviewStatus != "none" || taskContext.SharedArtifacts[0].SubmittedAt == "" {
+		t.Fatalf("MCP shared artifact provenance = %+v", taskContext.SharedArtifacts)
 	}
 	find = callTool[findWorkOutput](t, ctx, session, "find_work", findWorkInput{Tags: []string{"mcp"}})
 	if len(find.Candidates) != 1 || find.Candidates[0].Kind != string(application.WorkCandidateBlackboardCompletion) {

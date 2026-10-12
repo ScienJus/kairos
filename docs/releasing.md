@@ -21,7 +21,7 @@ Suggested GitHub metadata:
 
 ## Validate a release candidate
 
-1. Confirm the README implementation status and Roadmap still match the code.
+1. Confirm the README implementation status and Roadmap still match the code; review [unreleased changes](release-notes.md).
 2. Search English and Chinese documentation for obsolete tool counts, lifecycle states, configuration, and planned features.
 3. Run the complete repository checks:
 

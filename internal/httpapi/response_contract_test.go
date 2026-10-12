@@ -91,6 +91,20 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 		"coordination_claim_id": planningClaim.ID, "title": "Inspect response", "executor": "human", "allowed_roles": []string{}, "tags": []string{},
 	}, "create-contract-task", http.StatusCreated)
 
+	contextBody := rawTrustedResponse(t, server.Client(), http.MethodGet, server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", http.StatusOK)
+	var executionEnvelope map[string]any
+	if err := json.Unmarshal(contextBody, &executionEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	executionData := executionEnvelope["data"].(map[string]any)
+	for _, field := range []string{"staged_artifacts", "input_artifacts", "shared_artifacts"} {
+		if values, ok := executionData[field].([]any); !ok || len(values) != 0 {
+			t.Fatalf("%s = %#v, want []", field, executionData[field])
+		}
+	}
+	if _, exists := executionData["artifacts"]; exists {
+		t.Fatal("obsolete flat execution artifact field is present")
+	}
 	body := rawTrustedResponse(t, server.Client(), http.MethodGet, server.URL+"/api/v1/tasks/"+string(task.ID), http.StatusOK)
 	var envelope map[string]any
 	if err := json.Unmarshal(body, &envelope); err != nil {

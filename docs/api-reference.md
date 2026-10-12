@@ -157,6 +157,8 @@ Agents create a Coordination Claim before handling `empty_blackboard`, `blackboa
 
 ### Artifacts
 
+HTTP `GET /tasks/{id}/context` and MCP `get_task_context` expose `staged_artifacts`, `input_artifacts`, and `shared_artifacts`, replacing the former flat `artifacts` field. Staged artifacts are unsubmitted artifacts of the caller-owned Active Claim. Task Executor Credentials can also read their bound Claim's staged metadata; their content downloads still require submission. Input/shared lists are grouped by Submission with `task_id`, `submission_id`, `submitted_at`, `review_status`, and `artifacts`. Review status is `none` (no Review requested), `pending`, `approved`, or `rejected`. Workflow populates direct inputs only; Blackboard populates shared history only. Empty collections are `[]`. See the [Artifact model](whitepapers/09-artifacts.md#what-later-collaborators-can-see) for historical visibility versus input selection. WorkItem Context and artifact listing retain complete submitted history; viewer Task Detail still exposes `artifacts`.
+
 Workflow Task Definitions may require named Artifacts. An executor registers an absolute external URI or uploads to the single managed Store, then submits the staged IDs. Staged Artifacts belong to one Claim; submitted Artifacts are visible across the WorkItem.
 
 Managed uploads use stable `kairos://` URIs, SHA-256 digests, and a recoverable register-before-write flow. GC removes old unsubmitted Artifacts, pending uploads, and expired idempotency records; submitted Artifacts remain. Large files should use durable external storage and URI registration.

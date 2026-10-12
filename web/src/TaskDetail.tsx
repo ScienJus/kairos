@@ -4,7 +4,7 @@ import { ShieldCheck } from "lucide-react";
 import { api } from "./api";
 import { BlackboardTaskActions } from "./BlackboardTaskActions";
 import { useI18n } from "./i18n";
-import { TaskArtifacts } from "./TaskArtifacts";
+import { ArtifactHistory } from "./ArtifactHistory";
 import { TaskExecutionActions } from "./TaskExecutionActions";
 import {
   TaskOperationPanel,
@@ -95,7 +95,6 @@ export function TaskDetail({
   useEffect(() => {
     setActiveOperation(defaultOperation);
   }, [defaultOperation]);
-  const latestResult = detail.data?.history.submissions.at(-1)?.result;
   const reviewStatus = (status: Review["status"]) =>
     t(
       status === "approved"
@@ -116,6 +115,12 @@ export function TaskDetail({
         <FormError error={detail.error ?? new Error(t("unreachable"))} />
       </div>
     );
+  // Artifact history owns the result and feedback for submissions with files.
+  // Keep the standalone sections for text-only submissions and skip Reviews.
+  const artifactSubmissionIDs = new Set(detail.data.artifacts.flatMap(artifact => artifact.submission_id === null ? [] : [artifact.submission_id]));
+  const latestSubmission = detail.data.history.submissions.at(-1);
+  const latestResult = latestSubmission && !artifactSubmissionIDs.has(latestSubmission.id) ? latestSubmission.result : undefined;
+  const standaloneReviews = detail.data.history.reviews.filter(review => review.submission_id === null || !artifactSubmissionIDs.has(review.submission_id));
   return (
     <div className="task-detail">
       <div className="task-identity">
@@ -182,12 +187,12 @@ export function TaskDetail({
         </div>
       )}
       {detail.data.artifacts.length > 0 && (
-        <TaskArtifacts artifacts={detail.data.artifacts} identity={identity} />
+        <ArtifactHistory artifacts={detail.data.artifacts} tasks={[detailTask]} identity={identity} taskSpecific />
       )}
-      {detail.data.history.reviews.length > 0 && (
+      {standaloneReviews.length > 0 && (
         <div className="timeline">
           <span>{t("reviewChannel")}</span>
-          {detail.data.history.reviews.map((item) => (
+          {standaloneReviews.map((item) => (
             <div className="timeline-item" key={item.id}>
               <i />
               <div>
