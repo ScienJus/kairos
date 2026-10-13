@@ -79,8 +79,12 @@ export interface WorkflowChoiceOption {
   relations: Array<{ relation_id: string; target: { id: string; title: string }; label: string; agent_guidance: string }>
   skippable_optional_tasks: Array<{ id: string; title: string }>
 }
+export interface ArtifactSubmission {
+  task_id: string; submission_id: string; submitted_at: string
+  review_status: 'none' | 'pending' | 'approved' | 'rejected'; artifacts: Artifact[]
+}
 export interface TaskExecutionContext {
-  work_item: WorkItem; task: Task; claims: Claim[]; artifacts: Artifact[]; expected_artifacts: ArtifactDefinition[]
+  work_item: WorkItem; task: Task; claims: Claim[]; staged_artifacts: Artifact[]; input_artifacts: ArtifactSubmission[]; shared_artifacts: ArtifactSubmission[]; expected_artifacts: ArtifactDefinition[]
   responsibility: { kind: string; actor: ActorRef | null }; outcome: { kind: string; actor: ActorRef | null; reason: string; occurred_at: string | null }
   workflow: { upstream_tasks: Task[]; choice_groups: WorkflowChoiceOption[] } | null
   blackboard: { tasks: Task[]; relations: TaskRelation[]; can_decompose: boolean } | null

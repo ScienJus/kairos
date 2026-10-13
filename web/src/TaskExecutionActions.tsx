@@ -22,7 +22,7 @@ import { FormError } from "./ui";
 
 type ArtifactDeliveryMode = "upload" | "uri";
 
-function uniqueArtifactIDsByName(artifacts: TaskExecutionContext["artifacts"]) {
+function uniqueArtifactIDsByName(artifacts: TaskExecutionContext["staged_artifacts"]) {
   const names = new Set<string>();
   return artifacts.flatMap((artifact) => {
     if (names.has(artifact.name)) return [];
@@ -94,10 +94,7 @@ export function TaskExecutionActions({
   }, [activeClaim?.id]);
   const choices = execution.data?.workflow?.choice_groups ?? [];
   const expectedArtifacts = execution.data?.expected_artifacts ?? [];
-  const stagedArtifacts = (execution.data?.artifacts ?? []).filter(
-    (artifact) =>
-      artifact.claim_id === activeClaim?.id && !artifact.submission_id,
-  );
+  const stagedArtifacts = execution.data?.staged_artifacts ?? [];
   const selectedTransition = transitionID || choices[0]?.id || "";
   const submit = useMutation({
     mutationFn: async () => {

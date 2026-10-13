@@ -42,7 +42,7 @@ function makeWorkItem(): WorkItem {
 function execution(task: Task, claims: Claim[] = []): TaskExecutionContext {
   const actor = task.skipped_by ?? claims[0]?.executor ?? null
   const kind = task.status === 'skipped' ? 'skipped_by' : task.status === 'completed' ? 'executed_by' : task.status === 'working' ? 'claimed_by' : 'unclaimed'
-  return { work_item: makeWorkItem(), task: task, claims: claims, artifacts: [], expected_artifacts: [], responsibility: { kind: kind, actor: actor }, outcome: { kind: task.status, actor: actor, reason: task.skip_reason, occurred_at: task.completed_at }, workflow: null, blackboard: { tasks: [task], relations: [], can_decompose: false } }
+  return { work_item: makeWorkItem(), task: task, claims: claims, staged_artifacts: [], input_artifacts: [], shared_artifacts: [], expected_artifacts: [], responsibility: { kind: kind, actor: actor }, outcome: { kind: task.status, actor: actor, reason: task.skip_reason, occurred_at: task.completed_at }, workflow: null, blackboard: { tasks: [task], relations: [], can_decompose: false } }
 }
 
 function detail(task: Task, claims: Claim[] = []): TaskDetailView {
@@ -95,7 +95,7 @@ describe('Task detail operations', () => {
   })
 
   it('shows artifacts delivered by the selected task', async () => {
-    const task = makeTask({ status: 'completed', active_claim_id: null })
+    const task = makeTask({ status: 'completed', active_claim_id: null, submissions: [{ id: 'submission-1', task_id: 'task-1', claim_id: 'claim-1', result: 'Released', submitted_at: '2026-08-17T09:00:00Z' }] })
     const view = detail(task)
     view.artifacts = [
       { id: 'artifact-1', work_item_id: task.work_item_id, task_id: task.id, claim_id: 'claim-1', submission_id: 'submission-1', name: 'release-notes', uri: 'https://example.test/releases/notes', created_at: '2026-08-17T09:00:00Z' },
@@ -111,6 +111,31 @@ describe('Task detail operations', () => {
     expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
     expect(screen.getByText('release-notes')).toBeInTheDocument()
     expect(screen.getByText('release-package')).toBeInTheDocument()
+  })
+
+  it('shows each artifact submission result and review feedback once while retaining other reviews', async () => {
+    const timestamp = '2026-08-17T09:00:00Z'
+    const task = makeTask({ status: 'completed', active_claim_id: null,
+      submissions: [
+        { id: 'text-only', task_id: 'task-1', claim_id: 'old-claim', result: 'First report', submitted_at: timestamp },
+        { id: 'with-artifacts', task_id: 'task-1', claim_id: 'new-claim', result: 'Release is ready.', submitted_at: timestamp },
+      ],
+      reviews: [
+        { id: 'skip-review', task_id: 'task-1', submission_id: null, status: 'rejected', requested_by: 'agent', requested_at: timestamp, decided_by: identity.id, decided_at: timestamp, feedback: 'Retain the task.' },
+        { id: 'text-review', task_id: 'task-1', submission_id: 'text-only', status: 'rejected', requested_by: 'agent', requested_at: timestamp, decided_by: identity.id, decided_at: timestamp, feedback: 'Needs more detail.' },
+        { id: 'artifact-review', task_id: 'task-1', submission_id: 'with-artifacts', status: 'approved', requested_by: 'agent', requested_at: timestamp, decided_by: identity.id, decided_at: timestamp, feedback: 'Evidence checked.' },
+      ],
+    })
+    const view = detail(task)
+    view.artifacts = [{ id: 'report', task_id: task.id, work_item_id: task.work_item_id, claim_id: 'new-claim', submission_id: 'with-artifacts', name: 'report', uri: 'https://example.test/report', created_at: timestamp }]
+    vi.spyOn(api, 'getTaskDetail').mockResolvedValue(view)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><I18nProvider><TaskDetail task={task} activeClaim={null} identity={identity} mode="workflow" /></I18nProvider></QueryClientProvider>)
+    await screen.findByRole('region', { name: 'Task artifacts' })
+    expect(screen.getAllByText('Release is ready.')).toHaveLength(1)
+    expect(screen.getAllByText('Evidence checked.')).toHaveLength(1)
+    expect(screen.getByText('Needs more detail.')).toBeInTheDocument()
+    expect(screen.getByText('Retain the task.')).toBeInTheDocument()
   })
 
   it('shows the executor from the completed task submission claim', async () => {
@@ -303,7 +328,7 @@ describe('Task detail operations', () => {
     const context = execution(task, [claim])
     context.work_item.definition.mode = 'workflow'
     context.expected_artifacts = [{ name: 'release-package', description: 'Upload the release archive.' }]
-    context.artifacts = [
+    context.staged_artifacts = [
       { id: 'artifact-first', work_item_id: task.work_item_id, task_id: task.id, claim_id: claim.id, submission_id: null, name: 'release-package', uri: 'kairos://blobs/uploads/first', created_at: '2026-08-17T09:00:00Z' },
       { id: 'artifact-duplicate', work_item_id: task.work_item_id, task_id: task.id, claim_id: claim.id, submission_id: null, name: 'release-package', uri: 'kairos://blobs/uploads/duplicate', created_at: '2026-08-17T09:01:00Z' },
     ]

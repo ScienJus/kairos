@@ -157,6 +157,8 @@ Agent 在处理 `empty_blackboard`、`blackboard_completion` 或 `work_item_acce
 
 ### Artifact
 
+HTTP `GET /tasks/{id}/context` 与 MCP `get_task_context` 使用 `staged_artifacts`、`input_artifacts`、`shared_artifacts`，替代旧的扁平 `artifacts` 字段。暂存列表只包含当前执行者拥有的 Active Claim 的未提交产物，Task Executor Credential 也可读取其绑定 Claim 的暂存元数据（内容下载仍要求已提交）；输入与共享列表按 Submission 分组，包含 `task_id`、`submission_id`、`submitted_at`、`review_status` 和 `artifacts`。`review_status` 为 `none`（未请求审核）、`pending`、`approved` 或 `rejected`。Workflow 只填充直接输入列表，Blackboard 只填充共享历史列表；空集合均为 `[]`。历史与输入的区别见 [Artifact 模型](whitepapers/09-artifacts.zh-CN.md#后续协作者能看到什么)。WorkItem Context 和产物列表接口仍保留所有已提交历史；查看者 Task Detail 的 `artifacts` 也保持不变。
+
 Workflow Task Definition 可以声明必交 Artifact 名称与说明。执行者可以登记绝对外部 URI，或上传到唯一托管 Store，再在 `submit_task.artifact_ids` 中提交。暂存 Artifact 只属于创建它的 Claim，已提交 Artifact 对整个 WorkItem 可见。
 
 托管上传使用稳定 `kairos://` URI、SHA-256 digest 和先登记后写文件的恢复流程。未提交 Artifact、pending 上传和已完成的幂等重放记录按 retention 回收；已提交 Artifact 不由该生命周期删除。大文件应使用外部持久存储并登记 URI。

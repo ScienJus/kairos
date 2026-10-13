@@ -25,7 +25,11 @@ The Artifact remains staged to its creating Claim until `submit_task` includes i
 
 A staged Artifact is visible only inside its creating Claim. A submitted Artifact is visible throughout the WorkItem and remains attached to its Submission even when Review rejects that result.
 
-Context responses expose Artifact metadata, not file bytes. Managed content is downloaded through its dedicated authenticated endpoint.
+The WorkItem artifact list is complete submission history, not a set of current effective deliverables. Loops, retries, and Review revisions can produce repeated names; names are unique only within a Submission. The console groups Workflow artifact history by Definition node, then Task execution instance and Submission. Blackboard history groups independent Tasks without merging equally titled Tasks. Submission time, Review status and feedback remain visible, with older executions/submissions collapsed by default. Node execution counts are not global WorkItem rounds.
+
+Execution context separates the active Claim's staged artifacts, the Workflow's direct input artifacts, and Blackboard shared submission history. Workflow inputs resolve the exact Submission referenced by each applied decision in the current activation's input receipts. They never select the newest artifact by name or time or fall back to ancestors. Skipped sources and inputs without artifacts contribute no group; replacement attempts retain their input receipts. Blackboard shared history includes pending and rejected submissions with provenance and Review status; advisory Task Relations do not restrict this shared scope.
+
+Context responses expose Artifact metadata, not file bytes. Managed content is downloaded through its dedicated authenticated endpoint. Exact fields are defined in the [API reference](../api-reference.md#artifacts).
 
 Retries never overwrite submitted Artifacts. A later attempt creates new Artifacts and a new Submission, preserving the earlier evidence.
 

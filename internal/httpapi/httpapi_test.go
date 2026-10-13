@@ -348,8 +348,8 @@ func TestTrustedHTTPBlackboardExecutionEndToEnd(t *testing.T) {
 		t.Fatalf("staged Artifact page = %#v, want an empty terminal page", stagedArtifactPage)
 	}
 	executionContext = requestData[application.TaskExecutionContext](t, client, http.MethodGet, server.URL+"/api/v1/tasks/"+string(task.ID)+"/context", nil, "", http.StatusOK)
-	if len(executionContext.Artifacts) != 2 || executionContext.Artifacts[0].ID != artifact.ID {
-		t.Fatalf("task context Artifacts = %#v", executionContext.Artifacts)
+	if len(executionContext.StagedArtifacts) != 2 || executionContext.StagedArtifacts[0].ID != artifact.ID {
+		t.Fatalf("task context Artifacts = %#v", executionContext.StagedArtifacts)
 	}
 
 	submission := requestData[domain.TaskSubmission](t, client, http.MethodPost, server.URL+"/api/v1/tasks/"+string(task.ID)+"/submissions", map[string]any{

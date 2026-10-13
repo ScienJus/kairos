@@ -34,7 +34,7 @@ Probe does not validate provider quota, model availability, network reachability
 
 ## Execution boundary
 
-Every Start creates a private `run-*` directory beneath the Dispatch workspace and writes a candidate-specific output schema. A short prompt supplies the execution identity and outcome convention; the scoped MCP server supplies work context and operations. No separate managed Skill is installed.
+Every Start creates a private `run-*` directory beneath the Dispatch workspace and writes a candidate-specific output schema. A short prompt supplies the execution identity and outcome convention; the scoped MCP server supplies work context and operations. No separate managed Skill is installed. Task context exposes exact Workflow `input_artifacts`, Blackboard `shared_artifacts`, and current Claim `staged_artifacts`; the WorkItem artifact collection remains history. Artifact metadata is separate from authenticated content downloads.
 
 Codex runs non-interactively with:
 

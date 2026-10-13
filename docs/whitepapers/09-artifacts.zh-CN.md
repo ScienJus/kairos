@@ -25,7 +25,11 @@ Artifact 在 `submit_task` 携带其 ID 前只暂存于创建它的 Claim。提�
 
 暂存 Artifact 只在创建它的 Claim 内可见。提交后 Artifact 对整个 WorkItem 可见；即使 Review 驳回结果，它仍保留在对应 Submission 历史中。
 
-Context 只返回 Artifact 元数据，不直接注入文件内容。托管内容通过独立的认证端点下载。
+WorkItem 的产物列表是完整提交历史，并不表示“当前有效成果”。循环、重试和审核修订可以产生同名 Artifact，名称只在同一次 Submission 内唯一。控制台的 Workflow 产物历史以 Definition node 为一级入口，节点内按 Task 执行实例和 Submission 展示；Blackboard 按独立 Task 分组，不合并同名 Task。显示提交时间、审核状态和反馈，并默认折叠较早的执行或提交。节点执行次数不是整个 WorkItem 的全局轮次。
+
+执行上下文将产物分成三类：当前 Active Claim 的暂存产物；Workflow 本次直接输入的产物；Blackboard 的共享提交历史。Workflow 输入来自当前 Activation 记录的已应用推进决策所绑定的具体 Submission，不按名称或时间选最新版，也不自动补入祖先产物。跳过来源或没有 Artifact 的输入不产生分组；失败重试保留原输入关联。Blackboard 共享历史包含待审核和已驳回材料，以来源和审核状态区分；Task Relation 不用于裁剪这个共享范围。
+
+Context 只返回 Artifact 元数据，不直接注入文件内容。托管内容通过独立的认证端点下载。精确字段见 [API 参考](../api-reference.zh-CN.md#artifact)。
 
 重试不会覆盖已提交 Artifact。新的执行尝试会创建新的 Artifact 和 Submission，保留之前的证据。
 

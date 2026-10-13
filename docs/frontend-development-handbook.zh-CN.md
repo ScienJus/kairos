@@ -49,6 +49,8 @@ Task 的 Claim、Submit、Release、Fail、Review、Decompose、Append Child 和
 - 切换同一 Task 内的操作时可保留草稿；切换 Task ID 时必须隔离；
 - Mutation 失败不关闭面板或清空输入，成功只清理对应表单。
 
+WorkItem 产物历史用默认折叠的整体 disclosure 展示，标题与来源链接允许窄屏换行，保持工作图和验收入口易于到达。展开后，Workflow 产物以 `workflow_task_id` 分组，节点内按执行实例与 Submission 展示；Blackboard 使用 Task ID 分组，不按标题合并。节点执行序号包含没有产物的实例，较早执行默认折叠；Task Detail 直接展示该实例的提交历史，较早提交默认折叠。有产物的提交在分组中统一呈现结果与审核，不重复渲染独立结果/Review 区块；无产物提交和跳过审核仍保留。展示时间、审核状态和反馈，无反馈时保留发起者。执行操作只从 `staged_artifacts` 恢复当前 Claim 的上传草稿；`input_artifacts` 与 `shared_artifacts` 的模式语义见 [API 参考](api-reference.zh-CN.md#artifact)，不得当成当前 Claim 可提交的 Artifact。
+
 Artifact 上传和外部 URI 登记先取得 Artifact ID，再随 Submission 提交。响应丢失后复用同一幂等 key；文件、URI 或 Claim 改变后生成新 key。
 
 ## 5. 组件与请求状态

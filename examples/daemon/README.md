@@ -34,6 +34,8 @@ process group, so terminal SIGINT/SIGTERM cannot bypass this ordering; repeated
 signals during cleanup do not interrupt the waits. Inspect then remove that
 directory manually. Do not point another service at its database while it runs.
 
+Task Harnesses read exact Workflow inputs from `input_artifacts`, Blackboard shared evidence from `shared_artifacts`, and current Claim uploads from `staged_artifacts`. Do not guess inputs from the newest same-name history file; see the [API reference](../../docs/api-reference.md#artifacts).
+
 ## No-model verification
 
 ```sh

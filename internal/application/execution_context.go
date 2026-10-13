@@ -68,7 +68,9 @@ type TaskExecutionContext struct {
 	WorkItem          domain.WorkItem             `json:"work_item"`
 	Task              domain.Task                 `json:"task"`
 	Claims            []domain.Claim              `json:"claims"`
-	Artifacts         []domain.Artifact           `json:"artifacts"`
+	StagedArtifacts   []domain.Artifact           `json:"staged_artifacts"`
+	InputArtifacts    []ArtifactSubmission        `json:"input_artifacts"`
+	SharedArtifacts   []ArtifactSubmission        `json:"shared_artifacts"`
 	ExpectedArtifacts []domain.ArtifactDefinition `json:"expected_artifacts"`
 	Definition        DefinitionExecutionContext  `json:"definition"`
 	Responsibility    TaskResponsibility          `json:"responsibility"`
@@ -137,17 +139,19 @@ func (s *Service) GetTaskExecutionContext(
 			}
 		}
 
-		artifacts, err := store.ListArtifacts(ArtifactFilter{WorkItemID: workItem.ID})
+		artifacts, err := store.ListArtifacts(ArtifactFilter{WorkItemID: workItem.ID, TaskID: task.ID})
 		if err != nil {
-			return fmt.Errorf("list artifacts for work item %q: %w", workItem.ID, err)
+			return fmt.Errorf("list task artifacts: %w", err)
 		}
-		visibleArtifacts := make([]domain.Artifact, 0, len(artifacts))
+		result = TaskExecutionContext{
+			WorkItem: workItem, Task: task, Claims: claims,
+			StagedArtifacts: []domain.Artifact{}, InputArtifacts: []ArtifactSubmission{}, SharedArtifacts: []ArtifactSubmission{},
+		}
 		for _, artifact := range artifacts {
-			if artifact.SubmissionID != nil || claimOwnedByIdentity(claims, artifact.ClaimID, query.Identity) {
-				visibleArtifacts = append(visibleArtifacts, artifact)
+			if artifact.SubmissionID == nil && task.ActiveClaimID != nil && artifact.ClaimID == *task.ActiveClaimID && claimOwnedByIdentity(claims, artifact.ClaimID, query.Identity) {
+				result.StagedArtifacts = append(result.StagedArtifacts, artifact)
 			}
 		}
-		result = TaskExecutionContext{WorkItem: workItem, Task: task, Claims: claims, Artifacts: visibleArtifacts}
 		switch workItem.CoordinationMode() {
 		case domain.CoordinationModeWorkflow:
 			definition, err := store.GetWorkflowDefinition(workItem.Definition.ID, workItem.Definition.Version)
@@ -168,6 +172,10 @@ func (s *Service) GetTaskExecutionContext(
 			if err != nil {
 				return err
 			}
+			result.InputArtifacts, err = workflowInputArtifacts(store, workItem, task)
+			if err != nil {
+				return err
+			}
 			result.Workflow = &workflow
 		case domain.CoordinationModeBlackboard:
 			definition, err := store.GetBlackboardDefinition(workItem.Definition.ID, workItem.Definition.Version)
@@ -179,6 +187,11 @@ func (s *Service) GetTaskExecutionContext(
 			if err != nil {
 				return fmt.Errorf("list blackboard tasks: %w", err)
 			}
+			shared, err := store.ListArtifacts(ArtifactFilter{WorkItemID: workItem.ID, SubmittedOnly: true})
+			if err != nil {
+				return fmt.Errorf("list shared artifacts: %w", err)
+			}
+			result.SharedArtifacts = artifactSubmissions(tasks, shared)
 			otherTasks := make([]domain.Task, 0, len(tasks))
 			for _, sharedTask := range tasks {
 				if sharedTask.ID != task.ID {
@@ -208,9 +221,6 @@ func (s *Service) GetTaskExecutionContext(
 	result.WorkItem = normalizeWorkItemCollections(result.WorkItem)
 	result.Responsibility, result.Outcome = projectTaskLifecycle(result.Task, result.Claims)
 	result.Task = normalizeTaskCollections(result.Task)
-	if result.Artifacts == nil {
-		result.Artifacts = []domain.Artifact{}
-	}
 	if result.ExpectedArtifacts == nil {
 		result.ExpectedArtifacts = []domain.ArtifactDefinition{}
 	}
@@ -232,7 +242,7 @@ func (s *Service) GetTaskExecutionContext(
 }
 
 func claimOwnedByIdentity(claims []domain.Claim, claimID domain.ClaimID, identity Identity) bool {
-	if identity.Executor != nil {
+	if identity.Executor != nil && (identity.Executor.Profile != credential.TaskExecutor || identity.Executor.ClaimID != string(claimID)) {
 		return false
 	}
 	for _, claim := range claims {
