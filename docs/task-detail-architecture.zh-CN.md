@@ -34,6 +34,8 @@ Detail 由后端解释生命周期，前端只负责呈现：
 | `artifacts` | 属于该 Task 的已提交 Artifact，按 Submission 与审核反馈展示 |
 | `capabilities` | 当前查看者在当前版本下可执行的操作 |
 
+Task Detail 中最近一次提交默认展开；WorkItem 总览的完整产物历史整体默认折叠。
+
 有 Artifact 的 Submission 在产物分组内统一显示结果与审核反馈，避免与独立结果、Review 区块重复；文本提交和跳过决策的审核仍保留独立展示。无反馈时显示审核发起者。
 
 集合字段始终为 `[]`；可选单值才使用 `null`。Responsibility 和 Outcome 是读模型，不用于反向重建持久对象。

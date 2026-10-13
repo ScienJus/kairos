@@ -48,7 +48,7 @@ export function ArtifactHistory({ artifacts, tasks, identity, taskSpecific = fal
   })
   const label = t(taskSpecific ? 'taskArtifacts' : 'workArtifacts')
   return <section className="task-artifacts artifact-history" aria-label={label}>
-    <div className="task-artifacts-heading"><Paperclip size={15} /><span>{label}</span></div>
+    {taskSpecific && <div className="task-artifacts-heading"><Paperclip size={15} /><span>{label}</span></div>}
     {[...nodes].filter(([, executions]) => executions.some(hasArtifacts)).map(([key, executions]) => (
       <div className="artifact-node-history" key={key}>
         {!taskSpecific && <div className="artifact-source-heading">

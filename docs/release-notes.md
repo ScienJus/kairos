@@ -10,4 +10,4 @@ HTTP Task Context and MCP `get_task_context` replace the flat `artifacts` field 
 
 This change assumes no formally released API version. It requires no database migration: stored Artifacts, Submissions, and Workflow input receipts are unchanged. WorkItem Context, artifact history listing, and viewer Task Detail retain their `artifacts` collections.
 
-The console groups Workflow artifact history by node → execution instance → Submission, and Blackboard history by independent Task → Submission. Task Detail directly displays submission history. Review status and feedback remain visible, with older executions and submissions collapsed.
+WorkItem artifact history is collapsed as a whole by default to keep work maps and acceptance controls accessible; source titles containing paths wrap on narrow screens. The console groups Workflow artifact history by node → execution instance → Submission, and Blackboard history by independent Task → Submission. Task Detail directly displays submission history. Review status and feedback remain visible, with older executions and submissions collapsed.

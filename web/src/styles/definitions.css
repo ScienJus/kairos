@@ -231,9 +231,11 @@
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 
 .artifact-history { margin: 20px 0; }
+.work-artifact-history .artifact-history { margin: 12px 0 0; }
 .task-detail .artifact-history { margin-inline: 20px; }
 .artifact-node-history, .artifact-task-history { display: grid; gap: 8px; min-width: 0; }
 .artifact-source-heading { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; font-size: 12px; }
+.artifact-source-heading strong, .artifact-source-heading a { min-width: 0; overflow-wrap: anywhere; }
 .artifact-source-heading span, .artifact-submission summary span, .artifact-submission time { color: var(--muted); font-size: 11px; }
 .artifact-source-heading a { color: var(--signal); font-size: 11px; }
 .artifact-submission { min-width: 0; border: 1px solid var(--border-soft); border-radius: 6px; }

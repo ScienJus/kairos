@@ -55,6 +55,35 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear() })
 
 describe('WorkItem lifecycle actions', () => {
+  it('collapses artifact history by default while keeping human acceptance available', async () => {
+    const item = workItem({ status: 'awaiting_human_acceptance', acceptance_mode: 'human', result: 'Ready for acceptance.' })
+    const tasks = Array.from({ length: 5 }, (_, index) => {
+      const id = `task-${index}`
+      return { ...completedTask(), id, position: index, title: `Stage ${index + 1}`, submissions: [{ id: `submission-${index}`, task_id: id, claim_id: `claim-${index}`, submitted_at: '2026-08-19T09:00:00Z', result: `Evidence for stage ${index + 1}\n`.repeat(20) }] }
+    })
+    const view = context(item, tasks)
+    view.artifacts = tasks.map((task, index) => ({ id: `artifact-${index}`, work_item_id: item.id, task_id: task.id, claim_id: `claim-${index}`, submission_id: task.submissions[0].id, name: 'report', uri: `https://example.test/report/${index}`, created_at: '2026-08-19T09:00:00Z' }))
+    vi.spyOn(api, 'getWorkItem').mockResolvedValue(view)
+    const accept = vi.spyOn(api, 'acceptBlackboardCompletion').mockResolvedValue({ ...item, status: 'completed' })
+    const user = userEvent.setup()
+    renderPage()
+
+    const summary = await screen.findByText('Artifact history', { selector: 'summary' })
+    const disclosure = summary.closest('details')!
+    expect(disclosure).not.toHaveAttribute('open')
+    const acceptance = screen.getByRole('button', { name: 'Accept and complete' })
+    expect(acceptance).toBeVisible()
+    await user.click(acceptance)
+    await waitFor(() => expect(accept).toHaveBeenCalledWith(identity, item.id))
+
+    await user.click(summary)
+    expect(disclosure).toHaveAttribute('open')
+    const history = within(disclosure).getByRole('region', { name: 'Artifact history' })
+    expect(within(history).getAllByText('report')).toHaveLength(5)
+    await user.click(summary)
+    expect(disclosure).not.toHaveAttribute('open')
+  })
+
   it('submits a converged Blackboard result and preserves it when submission fails', async () => {
     vi.spyOn(api, 'getWorkItem').mockResolvedValue(context(workItem(), [completedTask()]))
     const submit = vi.spyOn(api, 'submitBlackboardCompletion').mockRejectedValue(new Error('Completion could not be submitted'))

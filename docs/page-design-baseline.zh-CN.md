@@ -103,4 +103,4 @@ Workflow Editor 的未连接 Task 使用紧凑布局；新增节点只聚焦新�
 
 ## 产物历史
 
-WorkItem 的 Workflow 产物按稳定 node 分组，节点内展示执行实例与 Submission；Blackboard 按独立 Task 分组。Task Detail 直接展示提交历史。显示提交时间、Review 状态和对应反馈，并提供来源 Task 链接。较早执行默认折叠，展开执行后默认显示其最近一次提交；较早提交仍折叠。同名文件保持来源可辨识，不将 node 执行次数称作全局轮次。完整历史与执行输入的语义以 [Artifact 模型](whitepapers/09-artifacts.zh-CN.md) 为准。
+WorkItem 产物历史整体默认折叠，避免历史结果挤占当前工作和人工验收入口；来源标题和链接允许在窄屏收缩、长词换行。展开后，Workflow 产物按稳定 node 分组，节点内展示执行实例与 Submission；Blackboard 按独立 Task 分组。Task Detail 直接展示提交历史。显示提交时间、Review 状态和对应反馈，并提供来源 Task 链接。较早执行默认折叠，展开执行后默认显示其最近一次提交；较早提交仍折叠。同名文件保持来源可辨识，不将 node 执行次数称作全局轮次。完整历史与执行输入的语义以 [Artifact 模型](whitepapers/09-artifacts.zh-CN.md) 为准。
