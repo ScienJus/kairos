@@ -90,7 +90,7 @@ make build
 
 默认使用 SQLite 和 Trusted Mode。PostgreSQL、Authenticated Mode、Admin Token、反向代理、Artifact 和完整路由见 [API 参考](docs/api-reference.zh-CN.md)。
 
-托管执行见 [Daemon 示例](examples/daemon/README.zh-CN.md)。`make build` 会构建 Core 和 Daemon，`make daemon-e2e` 使用脚本 Harness 验证真实二进制，不调用模型。
+托管执行见 [Daemon 示例](examples/daemon/README.zh-CN.md)。带 Writer/Checker 修订、人工恢复与 Review 的交付见[修订循环示例](examples/review-loop/README.zh-CN.md)。`make build` 会构建 Core 和 Daemon，`make daemon-e2e` 使用脚本 Harness 验证真实二进制，不调用模型。
 
 Authenticated Mode 下，配置的 Admin 通过普通登录框进入控制台，并从账户菜单管理 Human 与 Agent Identity Token。精确授权、Actor ID、一次性 Token 和兼容性规则见 [API 参考](docs/api-reference.zh-CN.md)。
 

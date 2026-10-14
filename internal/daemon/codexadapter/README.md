@@ -88,6 +88,8 @@ KAIROS_TEST_CODEX_EXECUTABLE=/absolute/path/codex \
   -run '^TestRealCodexShellLifecycle$' -count=1 -v
 ```
 
+The [Writer/Checker revision-loop example](../../../examples/review-loop/README.md) runs two role-bound Daemons with managed Artifacts and Human Review; its binary regression cases also exercise Continue and crash recovery.
+
 Live-model smoke testing is a separate operator action. Validate the exact CLI, model, platform, sandbox, and reviewed commit; one successful combination does not establish support for others.
 
 References:

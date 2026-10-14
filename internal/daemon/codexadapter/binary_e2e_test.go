@@ -146,8 +146,12 @@ func TestDaemonBinaryE2E(t *testing.T) {
 			t.Fatalf("build %s: %v %s", name, err, output)
 		}
 	}
-	for _, scenario := range []string{"complete", "failure-task", "failure-coordination", "cancel-task", "cancel-coordination", "crash-task", "crash-coordination", "example-interrupt", "example-terminate"} {
+	for _, scenario := range []string{"complete", "failure-task", "failure-coordination", "cancel-task", "cancel-coordination", "crash-task", "crash-coordination", "example-interrupt", "example-terminate", "review-loop", "review-loop-crash"} {
 		t.Run(scenario, func(t *testing.T) {
+			if strings.HasPrefix(scenario, "review-loop") {
+				checkReviewLoopBinary(t, root, bins, scenario == "review-loop-crash")
+				return
+			}
 			if strings.HasPrefix(scenario, "example-") {
 				sig := syscall.SIGINT
 				if scenario == "example-terminate" {

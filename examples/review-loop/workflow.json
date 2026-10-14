@@ -1,0 +1,97 @@
+{
+  "name": "Guide delivery with review and revision",
+  "description": "A Writer and Checker deliver a traceable guide through a bounded revision loop and Human Review.",
+  "agent_instructions": "Read current Task context and its exact input_artifacts before working. Read managed Artifact content through the authenticated content endpoint using only the bound Executor credential. The Daemon owns Claim acquisition, heartbeat and finalization. Return a typed outcome; do not finalize Claims or approve Reviews yourself. Keep all credentials out of artifacts, commands, output and logs. Use only the isolated workload and the reference files explicitly listed in WorkItem context. Do not read .env, auth.json, personal configuration or unrelated files. Do not operate a desktop browser or change a production deployment.",
+  "suggested_tags": [
+    "example",
+    "delivery"
+  ],
+  "graph": {
+    "start_task_ids": [
+      "draft"
+    ],
+    "tasks": [
+      {
+        "id": "draft",
+        "title": "Draft or revise the operational guide",
+        "description": "Write a deployment and backup/restore guide for the repository named in WorkItem context. Ground statements in the supplied reference files and distinguish measured evidence from unverified platforms. If this is a revision, read the direct review Artifact, then use its exact guide_artifact_id to retrieve the previous guide and apply the feedback; never pick a globally newest same-name Artifact. Upload UTF-8 Markdown as the managed Artifact named guide. Choose the legal continuation to Checker.",
+        "acceptance_criteria": "The guide covers startup, authentication, the database and managed Artifact store as one recovery set, orderly shutdown, backup, isolated restore verification, and the limits of the provided evidence.",
+        "executor": "agent",
+        "allowed_roles": [
+          "writer"
+        ],
+        "execution": "required",
+        "review_policy": "none",
+        "default_tags": [],
+        "artifacts": [
+          {
+            "name": "guide",
+            "description": "A UTF-8 Markdown operational guide."
+          }
+        ]
+      },
+      {
+        "id": "check",
+        "title": "Check the guide against source and evidence",
+        "description": "Download the exact guide in input_artifacts and verify it against the supplied source and restore evidence. Upload a UTF-8 JSON review named review with guide_artifact_id, verdict (revise or ready), and a feedback array. Keep that guide ID explicit so later actors can recover this exact version. If changes are needed, select the legal continuation back to Writer; if ready, select the legal exit to publication. If a required business decision or reference is missing, return human_intervention_required with a clear reason and empty retry_prompt instead of inventing evidence.",
+        "acceptance_criteria": "Every finding names the affected section and an actionable correction. Ready means the stated acceptance criteria are met; no unperformed test is reported as passing.",
+        "executor": "agent",
+        "allowed_roles": [
+          "checker"
+        ],
+        "execution": "required",
+        "review_policy": "none",
+        "default_tags": [],
+        "artifacts": [
+          {
+            "name": "review",
+            "description": "JSON verdict, corrections, and the exact guide_artifact_id."
+          }
+        ]
+      },
+      {
+        "id": "publish",
+        "title": "Deliver the checked guide for Human Review",
+        "description": "Read the direct ready review and retrieve its exact guide_artifact_id. Incorporate current Human rejection feedback if present, and publish a fresh managed guide Artifact under the current Claim. Do not submit an upstream Artifact ID: the current Claim must own the deliverable. Explain which checked guide and evidence the final delivery uses. Human Review decides acceptance; do not approve it yourself.",
+        "acceptance_criteria": "A reviewer can inspect the final guide and trace it to the checked version, corrections, and restore evidence.",
+        "executor": "agent",
+        "allowed_roles": [
+          "writer"
+        ],
+        "execution": "required",
+        "review_policy": "required",
+        "default_tags": [],
+        "artifacts": [
+          {
+            "name": "guide",
+            "description": "The final UTF-8 Markdown guide submitted for Human Review."
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "id": "draft-check",
+        "from_task_id": "draft",
+        "to_task_id": "check",
+        "label": "Check the draft",
+        "agent_guidance": "Pass the exact guide submission to Checker."
+      },
+      {
+        "id": "check-draft",
+        "from_task_id": "check",
+        "to_task_id": "draft",
+        "label": "Revise from feedback",
+        "agent_guidance": "Keep the reviewed guide ID in the review Artifact."
+      },
+      {
+        "id": "check-publish",
+        "from_task_id": "check",
+        "to_task_id": "publish",
+        "label": "Deliver checked guide",
+        "agent_guidance": "Exit only after the supplied evidence supports readiness."
+      }
+    ],
+    "max_task_instances_per_node": 10
+  }
+}

@@ -48,3 +48,7 @@ type: home
 </section>
 
 <p class="status-note">目前，Kairos 已支持 Workflow 与 Blackboard 两种协作方式，可使用 SQLite 或 PostgreSQL 保存数据，通过 MCP 连接 Agent，并在操作控制台中查看进度。Agent Daemon 提供连续调度、本地 Codex Adapter 和<a href="https://github.com/ScienJus/kairos/blob/main/examples/daemon/README.zh-CN.md">隔离执行示例</a>。发布配置同时打包 Core 与 Daemon，更多平台与 Provider 验证独立推进，详见 <a href="https://github.com/ScienJus/kairos/blob/main/README.zh-CN.md#当前状态">当前状态</a>。</p>
+
+## 运行示例
+
+- [Writer/Checker 修订循环](../examples/review-loop/README.zh-CN.md)：可复用 Workflow、两个角色的启动入口与无模型回归验证。

@@ -2,7 +2,7 @@ WEB_DIR := web
 BIN_DIR := bin
 GO_PACKAGES := ./cmd/... ./internal/... ./web
 
-.PHONY: build daemon-build daemon-e2e daemon-example test quickstart web-build web-test go-test go-vet release-notices
+.PHONY: build daemon-build daemon-e2e daemon-example review-loop-example test quickstart web-build web-test go-test go-vet release-notices
 
 build: web-build daemon-build
 	mkdir -p $(BIN_DIR)
@@ -17,6 +17,9 @@ daemon-e2e:
 
 daemon-example: build
 	sh examples/daemon/run.sh
+
+review-loop-example: build
+	sh examples/review-loop/run.sh
 
 test: web-test go-test
 

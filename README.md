@@ -90,7 +90,7 @@ make build
 
 The default uses SQLite and Trusted Mode. See the [API Reference](docs/api-reference.md) for PostgreSQL, Authenticated Mode, Admin Token, reverse proxy, Artifacts, and complete routes.
 
-For managed execution, see the [Daemon example](examples/daemon/README.md). `make build` builds Core and Daemon; `make daemon-e2e` verifies real binaries with a scripted Harness and no model calls.
+For managed execution, see the [Daemon example](examples/daemon/README.md). Writer/Checker revision, recovery and Human Review are demonstrated by the [delivery-loop example](examples/review-loop/README.md). `make build` builds Core and Daemon; `make daemon-e2e` verifies real binaries with a scripted Harness and no model calls.
 
 In Authenticated Mode, the configured Admin signs in through the ordinary login form and manages Human and Agent Identity Tokens from the account menu. Exact authorization, Actor ID, one-time Token, and compatibility rules live in the [API Reference](docs/api-reference.md).
 
