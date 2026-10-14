@@ -47,6 +47,7 @@ archives:
       - README.md
       - README.zh-CN.md
       - examples/daemon/**
+      - examples/review-loop/**
       - internal/daemon/README.md
       - internal/daemon/codexadapter/README.md
       - src: .release/THIRD_PARTY_NOTICES.txt

@@ -70,6 +70,13 @@ func helperCLI() {
 		os.Exit(3)
 	}
 	prompt, _ := io.ReadAll(os.Stdin)
+	if mode == "review_loop" {
+		if err := helperReviewLoop(prompt, output); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(6)
+		}
+		return
+	}
 	if mode == "mcp" {
 		if err := helperMCP(prompt, output); err != nil {
 			fmt.Fprintln(os.Stderr, err)

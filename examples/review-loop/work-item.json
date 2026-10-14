@@ -1,0 +1,13 @@
+{
+  "definition_id": "review-loop",
+  "mode": "workflow",
+  "title": "Deliver a deployment and recovery guide",
+  "goal": "Produce a source-grounded operational guide through Writer/Checker revision and Human Review.",
+  "context": "Target repository: Kairos. Approved read-only public references: https://github.com/ScienJus/kairos/blob/main/README.md ; https://github.com/ScienJus/kairos/blob/main/docs/api-reference.md ; https://github.com/ScienJus/kairos/blob/main/internal/daemon/codexadapter/README.md . Read public references without sending the Kairos credential to their hosts. This isolated sample has no supplied restore proof: clearly distinguish source-grounded instructions from tests that have not been run. For real work, replace this context with pinned reference files and measured evidence.",
+  "constraints": "Do not read personal files, credentials, .env, or auth.json; do not change a production service or operate a desktop browser. Work only in the private Harness workspace and upload outputs as managed Artifacts.",
+  "acceptance_criteria": "The final guide is traceable to its reviewed Artifact and distinguishes measured checks from remaining validation. Human Review approves it.",
+  "tags": [
+    "example",
+    "delivery"
+  ]
+}

@@ -31,7 +31,7 @@
    git diff --check
    ```
 
-4. 在干净 Checkout 中运行 quickstart，并通过 MCP 完成至少一个 Task。执行 `make daemon-e2e`，验证隔离的无模型 Workflow/Blackboard 及生命周期二进制测试。
+4. 在干净 Checkout 中运行 quickstart，并通过 MCP 完成至少一个 Task。执行 `make daemon-e2e`，验证隔离的无模型 Workflow/Blackboard、修订循环恢复及生命周期二进制测试。再执行 `python3 examples/review-loop/verify-sqlite-restore.py --server bin/kairos-server`，核对停服 SQLite/托管 store 恢复。
 5. 安装 GoReleaser 2.17.1 后构建本地 Release Snapshot。使用与 Release workflow 相同的禁用 Lifecycle Script 的依赖安装方式，并在打包前生成 Notices：
 
    ```bash
