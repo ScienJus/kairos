@@ -54,11 +54,4 @@ Smoke only creates fixtures. The binary E2E uses scripted Harnesses and real HTT
 
 The deterministic fixture forces these cases; a real model run decides whether revision is needed from its actual findings. No test pretends that Core's reaper stopped a process.
 
-For an independent stopped-Core SQLite/managed-store recovery check:
-
-```sh
-python3 examples/review-loop/verify-sqlite-restore.py \
-  --server /absolute/path/kairos-server --output /private/restore-evidence.json
-```
-
-This creates its own loopback Trusted fixture, stops Core, copies the complete database directory and matching store, restores a working copy, and verifies SQLite `quick_check`, WorkItem state, Artifact ID and downloaded bytes. It does not touch an existing database or establish PostgreSQL, live-backup, authentication, deployment-platform, or cross-version compatibility.
+A live-model run on macOS exercised revision and publication resubmission. Human Review decisions were simulated by an acceptance controller; Continue and crash recovery were tested separately with scripted Harnesses. This validates the example workflow, not production deployment or backup recovery.

@@ -57,6 +57,4 @@ MVP 不包含 Dispatch 持久化、跨进程重连、外部 supervisor、全局�
 - Provider 配额、登录、网络代理和反向代理 Host 的完整故障矩阵。
 - 实际 Release 发布与升级验证。
 
-Writer/Checker 修订循环已完成一次 Darwin 真实模型交付，人工动作由验收控制脚本执行；恢复与崩溃场景由确定性二进制 fixture 单独覆盖。准确边界见[验收记录](review-loop-validation.zh-CN.md)。
-
 这些是加固与部署验证，不改变已实现的 Core/Daemon 契约。

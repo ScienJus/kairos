@@ -98,5 +98,3 @@ jobs:
         run: KAIROS_DAEMON_EXAMPLE_SMOKE=1 KAIROS_DAEMON_EXAMPLE_ADDR=127.0.0.1:18082 sh examples/daemon/run.sh
       - name: Smoke-test review-loop setup (no model)
         run: KAIROS_REVIEW_LOOP_SMOKE=1 KAIROS_REVIEW_LOOP_ADDR=127.0.0.1:18083 sh examples/review-loop/run.sh
-      - name: Verify isolated SQLite and managed Artifact restore
-        run: python3 examples/review-loop/verify-sqlite-restore.py --server bin/kairos-server

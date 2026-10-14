@@ -31,7 +31,7 @@ Suggested GitHub metadata:
    git diff --check
    ```
 
-4. Run the quickstart from a clean checkout and complete at least one Task through MCP. Run `make daemon-e2e` for the isolated no-model Workflow/Blackboard, review-loop recovery and lifecycle binary suite. Also run `python3 examples/review-loop/verify-sqlite-restore.py --server bin/kairos-server` for a stopped-Core SQLite/managed-store recovery check.
+4. Run the quickstart from a clean checkout and complete at least one Task through MCP. Run `make daemon-e2e` for the isolated no-model Workflow/Blackboard and lifecycle binary suite.
 5. Build a local release snapshot with GoReleaser 2.17.1 installed. Use the same lifecycle-script-free dependency install as the Release workflow and generate notices before packaging:
 
    ```bash

@@ -54,11 +54,4 @@ Smoke 只创建 fixture。二进制 E2E 使用脚本 Harness、真实 HTTP/MCP�
 
 确定性 fixture 故意触发这些分支；真实模型依据实际发现决定是否修订。测试不会把 reaper 回收 Claim 描述为停止了进程。
 
-可另外运行停服 SQLite/托管 store 恢复演练：
-
-```sh
-python3 examples/review-loop/verify-sqlite-restore.py \
-  --server /absolute/path/kairos-server --output /private/restore-evidence.json
-```
-
-脚本创建自己的 loopback Trusted fixture，停服后复制整个数据库目录与匹配 store，恢复新副本，并核对 `quick_check`、WorkItem 状态、Artifact ID 和下载字节。不会操作现有数据库，也不证明 PostgreSQL、在线备份、认证恢复、部署平台或跨版本兼容性。
+一次 macOS 真实模型运行验证了修订和发布重提；Human Review 决定由验收控制器模拟，Continue 和崩溃恢复由脚本 Harness 单独验证。这些验证针对示例工作流，不代表生产部署或备份恢复已经验证。
