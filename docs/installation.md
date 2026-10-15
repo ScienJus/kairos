@@ -2,21 +2,16 @@
 
 [简体中文](installation.zh-CN.md)
 
-The first release target is `v0.1.0-alpha.1`, for early evaluation. Until it appears on [GitHub Releases](https://github.com/ScienJus/kairos/releases), use a locally built snapshot as described in the [release checklist](https://github.com/ScienJus/kairos/blob/main/docs/releasing.md). Snapshot builds are candidates, not published releases.
+Download the archive for your OS (`darwin`/`linux`) and CPU (`arm64`/`amd64`) from [GitHub Releases](https://github.com/ScienJus/kairos/releases), together with `checksums.txt`. Until the first release is published, build a snapshot using the [release checklist](https://github.com/ScienJus/kairos/blob/main/docs/releasing.md).
 
-## Download and verify
+Each package contains Core, Daemon, the console and examples; running it needs no Go or Node.js. Compare `shasum -a 256 archive.tar.gz` (macOS) or `sha256sum archive.tar.gz` (Linux) with the exact filename in `checksums.txt`. Published workflow assets also support `gh attestation verify archive.tar.gz --repo ScienJus/kairos`; local snapshots have no GitHub attestation.
 
-Select the archive matching your OS and CPU: `darwin` for macOS or `linux`, and `arm64` or `amd64` (`uname -m` reports `arm64`/`aarch64` or `x86_64`). Each archive contains Core, Daemon, the console, examples and third-party notices. Go and Node.js are not needed to run it. Running the examples also needs `curl`, `jq`, `openssl` and Perl/POSIX; model execution separately needs the configured CLI and login.
-
-Download the archive and `checksums.txt` from the same release. Compare its SHA-256 digest with the exact filename in `checksums.txt` using `shasum -a 256 archive.tar.gz` on macOS or `sha256sum archive.tar.gz` on Linux. Release-workflow archives also have [GitHub provenance attestations](https://github.com/ScienJus/kairos/attestations); verify them with `gh attestation verify archive.tar.gz --repo ScienJus/kairos`. A local snapshot has no GitHub attestation.
-
-Extract into a new directory and run `./kairos-server --version` and `./kairos-daemon --version`; both must match the selected version. macOS packages do not currently have Developer ID signing or notarization.
-
-## First local start
-
-From the extracted directory, use a new private data directory:
+Extract into a new directory, check both versions match the download, and start a local trial:
 
 ```sh
+tar -xzf archive.tar.gz
+./kairos-server --version
+./kairos-daemon --version
 mkdir -m 700 data
 KAIROS_AUTH_MODE=trusted KAIROS_POSTGRES_DSN='' \
 KAIROS_LISTEN_ADDR=127.0.0.1:8080 \
@@ -25,21 +20,15 @@ KAIROS_ARTIFACT_DIR="$PWD/data/artifacts" \
   ./kairos-server
 ```
 
-Open `http://127.0.0.1:8080` for the console; health is at `/healthz` and MCP at `/mcp`. This local trial explicitly uses Trusted Mode. For shared use, configure Authenticated Mode and follow the [API configuration and authentication reference](https://github.com/ScienJus/kairos/blob/main/docs/api-reference.md); the alpha does not provide tenant isolation.
+Open `http://127.0.0.1:8080` for the console; `/healthz` checks health. Ctrl-C stops Core. Reuse the same data paths on restart without repeating `mkdir`. This local trial uses Trusted Mode; shared use requires [Authenticated Mode configuration](https://github.com/ScienJus/kairos/blob/main/docs/api-reference.md).
 
-Ctrl-C stops Core. Repeat the same command with the same data paths to reopen its persisted state; do not repeat `mkdir` or delete the data. A restart is not a backup or an upgrade test. Keep the database and matching managed Artifact store together when planning recovery.
-
-## Isolated examples
-
-From the extracted directory:
+From the extracted directory, verify example setup without calling a model:
 
 ```sh
 KAIROS_DAEMON_EXAMPLE_SMOKE=1 sh examples/daemon/run.sh
 KAIROS_REVIEW_LOOP_SMOKE=1 sh examples/review-loop/run.sh
 ```
 
-These commands create separate temporary data and verify fixture setup without calling a model; they do not execute Tasks. For actual execution, see the packaged [Daemon example](../examples/daemon/README.md) or [Writer/Checker example](../examples/review-loop/README.md). The Daemon requires explicit model/CLI configuration; starting Core alone does not run agents.
+Examples need `curl`, `jq`, `openssl` and Perl/POSIX. Setup does not execute Tasks; model execution additionally needs an explicitly configured CLI/model and login. See the packaged [Daemon](../examples/daemon/README.md) and [Writer/Checker](../examples/review-loop/README.md) examples.
 
-## Alpha boundaries
-
-API/schema compatibility is not guaranteed before 1.0; check release notes before changing binaries and retain a recoverable copy of existing data. Real-model validation is currently limited; no production readiness, cross-version upgrade or production backup/restore guarantee is made. After a Daemon crash, lease expiry does not prove the old Harness or external work has stopped; confirm cleanup before starting a replacement. See the [Daemon guide](https://github.com/ScienJus/kairos/blob/main/internal/daemon/README.md) for execution boundaries.
+The first target is `v0.1.0-alpha.1` for early evaluation. Compatibility and validation limits, including unsigned/unnotarized macOS packages, are documented in the [release notes](https://github.com/ScienJus/kairos/blob/main/docs/release-notes.md).

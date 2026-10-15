@@ -1,5 +1,4 @@
 .DS_Store
-__pycache__/
 web/node_modules/
 web/*.tsbuildinfo
 web/vite.config.js

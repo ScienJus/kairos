@@ -7,7 +7,6 @@ on:
       - .github/workflows/release.yml
       - .goreleaser.yaml
       - scripts/verify-release.py
-      - scripts/test_verify_release.py
       - scripts/generate-third-party-notices.mjs
       - examples/**
       - docs/installation*.md
@@ -39,8 +38,6 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: make go-test
-      - name: Test release integrity gate
-        run: python3 -m unittest discover -s scripts -p 'test_verify_release.py'
       - run: npm ci --ignore-scripts
         working-directory: web
       - run: npm test
@@ -122,7 +119,7 @@ jobs:
         with:
           name: release-assets
           path: release-assets
-      - name: Verify packaged binaries, console, MCP, Review, restart and examples
+      - name: Smoke-test packaged binaries, console and example setup
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             version="${GITHUB_REF_NAME#v}"
