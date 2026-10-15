@@ -46,6 +46,7 @@ archives:
       - LICENSE
       - README.md
       - README.zh-CN.md
+      - docs/installation*.md
       - examples/daemon/**
       - examples/review-loop/**
       - internal/daemon/README.md

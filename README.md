@@ -81,6 +81,8 @@ Current work focuses on more Provider/platform validation, hardened deployment, 
 
 ## Run
 
+For the alpha release target, see [installing a release package](docs/installation.md). Published packages include both binaries and the console and do not require Go or Node.js. Local snapshots are candidates until a version appears on GitHub Releases.
+
 Development requires Go 1.26.9+. Building the console also requires Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, plus npm.
 
 ```bash
