@@ -31,7 +31,7 @@
    git diff --check
    ```
 
-4. 在干净 Checkout 中运行 quickstart，并通过 MCP 完成至少一个 Task。执行 `make daemon-e2e`，验证隔离的无模型 Workflow/Blackboard 及生命周期二进制测试。
+4. 在干净 Checkout 中运行 quickstart，并通过 MCP 完成至少一个 Task。执行 `make daemon-e2e`，验证隔离的无模型 Workflow/Blackboard 及生命周期二进制测试。首个公开目标为 `v0.1.0-alpha.1`，在[发布说明](release-notes.zh-CN.md)中明确试用范围，不把 Snapshot 当作已发布版本。
 5. 安装 GoReleaser 2.17.1 后构建本地 Release Snapshot。使用与 Release workflow 相同的禁用 Lifecycle Script 的依赖安装方式，并在打包前生成 Notices：
 
    ```bash
@@ -43,8 +43,10 @@
    goreleaser release --snapshot --clean --skip=publish
    ```
 
-6. 解压一个 Archive，确认 `kairos-server --version` 和 `kairos-daemon --version` 均输出预期版本、控制台可以加载、包含 `THIRD_PARTY_NOTICES.txt` 与 `examples/daemon`，并且 `checksums.txt` 与 Archive 匹配。在解压目录执行 `KAIROS_DAEMON_EXAMPLE_SMOKE=1 sh examples/daemon/run.sh`，不会调用模型。对于 Release workflow 产物，还需确认经过校验的合并 SBOM 覆盖两个程序并已列入 `checksums.txt`。
+6. 执行 `python3 scripts/verify-release.py --assets dist --version VERSION`，版本使用 `dist/metadata.json` 中不含 `v` 前缀的准确值。脚本核对四个 Archive 和 checksum，再使用隔离临时数据验证本机双二进制版本、Core 启动、控制台资源类型（拒绝首页 HTML 回退）和两个包内示例的 setup 模式，不调用模型。业务生命周期继续由 `make daemon-e2e` 覆盖。手动启动见包内[安装指南](installation.zh-CN.md)。对于 Release workflow 产物，还需确认经过校验的合并 SBOM 覆盖两个程序并已列入 `checksums.txt`。
 7. 检查完整 Git 历史中的凭据，并确认作者姓名和邮箱适合公开。
+
+Release workflow 在相关 PR 和手动触发时构建 Snapshot，分别在 Linux 与 macOS 验证本机发布包；另外两种架构只检查打包内容，不冒充本机执行。仅版本 Tag 推送会在两个本机验收通过后继续证明与发布；手动触发始终构建 Snapshot，即使选择版本 Tag 也不会发布。各平台真实模型、生产恢复和跨版本升级仍需独立验证。
 
 ## 公开发布
 
@@ -54,8 +56,8 @@
 2. 创建并推送带说明的语义化版本 Tag：
 
    ```bash
-   git tag -a v0.1.0 -m "Release v0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.1.0-alpha.1 -m "Release v0.1.0-alpha.1"
+   git push origin v0.1.0-alpha.1
    ```
 
 3. Release workflow 会在不持有 Write Token 的情况下构建 macOS 与 Linux 的 amd64、arm64 Archive。每个包包含 Core 和 Daemon，Notices 覆盖两个程序在四个平台的 Go Module 并集及 npm 生产依赖，八份 Go 二进制清单与控制台清单合并为一个经过校验的 CycloneDX SBOM。独立的构建后 Job 随后为最终 Archive、SBOM 和 Checksum 创建 Attestation，再将产物交给最小 `contents: write` Publish Job。使用 Release 时应通过 GitHub Attestation 工具验证 Archive 来源。Codex 和模型凭据不打包。

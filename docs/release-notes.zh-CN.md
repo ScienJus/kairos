@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 首个 Alpha 候选版本
+
+目标为面向早期试用的 `v0.1.0-alpha.1`，不承诺生产可用。范围包括 Workflow/Blackboard 协调、认证 HTTP/MCP、操作控制台、托管 Artifact、Core/Daemon 双二进制和隔离示例，使用方式见[安装指南](installation.zh-CN.md)。这不是发布公告，Snapshot 仍是未发布的候选包。
+
+发布流水线验证 Linux/macOS 发布包的无模型本机执行；实际 Provider/CLI 组合的验证范围更窄。不保证 API/Schema 兼容、跨版本升级或生产备份恢复；Daemon 崩溃后的执行清理可能需要操作员介入。macOS 包没有 Developer ID 签名或公证。
+
 ### 执行上下文的破坏性变更
 
 HTTP Task Context 与 MCP `get_task_context` 的扁平 `artifacts` 字段替换为 `staged_artifacts`、`input_artifacts` 和 `shared_artifacts`。升级服务时需同步更新客户端与 Agent 指令；仓库控制台和 Skill 已使用新字段。输入/共享分组携带准确的 Task/Submission 来源与审核状态，详见 [API 参考](api-reference.zh-CN.md#artifact)。

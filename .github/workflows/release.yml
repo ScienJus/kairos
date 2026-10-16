@@ -1,6 +1,16 @@
 name: Release
 
 on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .goreleaser.yaml
+      - scripts/verify-release.py
+      - scripts/test_verify_release.py
+      - scripts/generate-third-party-notices.mjs
+      - examples/**
+      - docs/installation*.md
   push:
     tags:
       - "v*"
@@ -29,6 +39,8 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: make go-test
+      - name: Test console asset verification
+        run: python3 -B -m unittest discover -s scripts -p 'test_verify_release.py'
       - run: npm ci --ignore-scripts
         working-directory: web
       - run: npm test
@@ -45,7 +57,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.17.1
-          args: release --clean --skip=publish
+          args: release --clean --skip=publish --snapshot=${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
       - name: Generate backend SBOM
         run: |
           mapfile -t backend_binaries < <(find dist -type f \( -name kairos-server -o -name kairos-daemon \) -print | sort)
@@ -77,7 +89,7 @@ jobs:
             --hierarchical \
             --group github.com/ScienJus \
             --name kairos \
-            --version "${GITHUB_REF_NAME#v}"
+            --version "$(jq -r '.version' dist/metadata.json)"
           "${RUNNER_TEMP}/cyclonedx" validate --input-file dist/kairos.sbom.cdx.json
           rm "${backend_sboms[@]}" dist/kairos-console.sbom.cdx.json
           cd dist
@@ -92,9 +104,39 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  verify:
+    name: Verify archive (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Smoke-test packaged binaries, console and example setup
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF}" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            archive=$(basename release-assets/kairos_*_linux_amd64.tar.gz)
+            version=${archive#kairos_}
+            version=${version%_linux_amd64.tar.gz}
+          fi
+          python3 scripts/verify-release.py --assets release-assets --version "${version}"
+
   attest:
     name: Attest release assets
-    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build, verify]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -115,6 +157,7 @@ jobs:
 
   publish:
     name: Publish release assets
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: attest
     runs-on: ubuntu-latest
     permissions:

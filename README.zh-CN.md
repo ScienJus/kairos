@@ -81,6 +81,8 @@ Agent 通过无状态 Streamable HTTP MCP 和 `.agents/skills/kairos-agent` 完�
 
 ## 运行
 
+Alpha 发布目标的使用方式见[安装发布包](docs/installation.zh-CN.md)。发布包包含双二进制和控制台，运行无需 Go 或 Node.js；版本出现在 GitHub Releases 前，本地 Snapshot 仍是候选包。
+
 开发环境需要 Go 1.26.9+；构建控制台还需 Node.js 22.22.2+ (22.x)、24.15.0+ (24.x) 或 26+ 以及 npm。
 
 ```bash
