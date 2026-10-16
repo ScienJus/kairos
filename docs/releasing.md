@@ -43,10 +43,10 @@ Suggested GitHub metadata:
    goreleaser release --snapshot --clean --skip=publish
    ```
 
-6. Run `python3 scripts/verify-release.py --assets dist --version VERSION`, using the exact version from `dist/metadata.json` (without a leading `v`). It checks the four archives and checksums, then verifies native binary versions, Core startup, console assets and both packaged example setup modes using isolated temporary data, without model calls. Business lifecycle coverage remains in `make daemon-e2e`. See the packaged [installation guide](installation.md) for manual startup. In the Release workflow output, also verify that the validated combined SBOM includes both binaries and is listed in `checksums.txt`.
+6. Run `python3 scripts/verify-release.py --assets dist --version VERSION`, using the exact version from `dist/metadata.json` (without a leading `v`). It checks the four archives and checksums, then verifies native binary versions, Core startup, console asset content types (rejecting HTML fallbacks) and both packaged example setup modes using isolated temporary data, without model calls. Business lifecycle coverage remains in `make daemon-e2e`. See the packaged [installation guide](installation.md) for manual startup. In the Release workflow output, also verify that the validated combined SBOM includes both binaries and is listed in `checksums.txt`.
 7. Review the full Git history for credentials and confirm that author names and email addresses are suitable for publication.
 
-The Release workflow runs snapshot builds on relevant pull requests and manual dispatches. It verifies native packages on Linux and macOS; the other two architectures receive archive/content checks, not native execution. Only version-tag pushes can proceed to attestation and publication, after both native checks pass. A manual dispatch never publishes. Platform-specific real-model execution, production recovery and cross-version upgrades remain separate validation work.
+The Release workflow runs snapshot builds on relevant pull requests and manual dispatches. It verifies native packages on Linux and macOS; the other two architectures receive archive/content checks, not native execution. Only version-tag pushes can proceed to attestation and publication, after both native checks pass. A manual dispatch always builds a snapshot and never publishes, even when its ref is a version tag. Platform-specific real-model execution, production recovery and cross-version upgrades remain separate validation work.
 
 ## Publish
 

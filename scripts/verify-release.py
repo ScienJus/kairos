@@ -88,6 +88,21 @@ def stop(process):
             raise RuntimeError("Packaged process did not stop gracefully")
 
 
+def verify_console(get):
+    content_type, html = get("/")
+    require(content_type == "text/html" and b'<div id="root">' in html, "Embedded console missing")
+    assets = re.findall(r'(?:src|href)="(/assets/[^"?]+)', html.decode())
+    require(assets, "Embedded console assets missing")
+    for asset in assets:
+        content_type, body = get(asset)
+        require(body and body != html and content_type != "text/html", "Console asset is empty or HTML: " + asset)
+        if asset.endswith(".js"):
+            require(content_type in ("text/javascript", "application/javascript"),
+                    "Unexpected JavaScript Content-Type: " + asset)
+        elif asset.endswith(".css"):
+            require(content_type == "text/css", "Unexpected CSS Content-Type: " + asset)
+
+
 def verify_runtime(package, version, data, environment):
     for binary in ("kairos-server", "kairos-daemon"):
         output = subprocess.check_output([str(package / binary), "--version"], env=environment,
@@ -97,7 +112,7 @@ def verify_runtime(package, version, data, environment):
     http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     def get(path):
         with http.open("http://" + address + path, timeout=3) as response:
-            return response.read()
+            return response.headers.get_content_type(), response.read()
     environment = dict(environment, KAIROS_AUTH_MODE="trusted", KAIROS_LISTEN_ADDR=address,
                        KAIROS_SQLITE_PATH=str(data / "core.db"), KAIROS_ARTIFACT_DIR=str(data / "artifacts"))
     with (data / "core.log").open("ab") as log:
@@ -113,11 +128,7 @@ def verify_runtime(package, version, data, environment):
                 except (OSError, urllib.error.URLError):
                     require(time.monotonic() < deadline, "Packaged Core startup timed out")
                     time.sleep(0.1)
-            html = get("/").decode()
-            assets = re.findall(r'(?:src|href)="(/assets/[^"?]+)', html)
-            require(assets and '<div id="root">' in html, "Embedded console missing")
-            for asset in assets:
-                require(get(asset), "Embedded console asset is empty")
+            verify_console(get)
         finally:
             stop(process)
         require(process.returncode == 0, "Packaged Core shutdown failed")

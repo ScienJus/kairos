@@ -43,10 +43,10 @@
    goreleaser release --snapshot --clean --skip=publish
    ```
 
-6. 执行 `python3 scripts/verify-release.py --assets dist --version VERSION`，版本使用 `dist/metadata.json` 中不含 `v` 前缀的准确值。脚本核对四个 Archive 和 checksum，再使用隔离临时数据验证本机双二进制版本、Core 启动、控制台资源和两个包内示例的 setup 模式，不调用模型。业务生命周期继续由 `make daemon-e2e` 覆盖。手动启动见包内[安装指南](installation.zh-CN.md)。对于 Release workflow 产物，还需确认经过校验的合并 SBOM 覆盖两个程序并已列入 `checksums.txt`。
+6. 执行 `python3 scripts/verify-release.py --assets dist --version VERSION`，版本使用 `dist/metadata.json` 中不含 `v` 前缀的准确值。脚本核对四个 Archive 和 checksum，再使用隔离临时数据验证本机双二进制版本、Core 启动、控制台资源类型（拒绝首页 HTML 回退）和两个包内示例的 setup 模式，不调用模型。业务生命周期继续由 `make daemon-e2e` 覆盖。手动启动见包内[安装指南](installation.zh-CN.md)。对于 Release workflow 产物，还需确认经过校验的合并 SBOM 覆盖两个程序并已列入 `checksums.txt`。
 7. 检查完整 Git 历史中的凭据，并确认作者姓名和邮箱适合公开。
 
-Release workflow 在相关 PR 和手动触发时构建 Snapshot，分别在 Linux 与 macOS 验证本机发布包；另外两种架构只检查打包内容，不冒充本机执行。仅版本 Tag 推送会在两个本机验收通过后继续证明与发布；手动触发不会发布。各平台真实模型、生产恢复和跨版本升级仍需独立验证。
+Release workflow 在相关 PR 和手动触发时构建 Snapshot，分别在 Linux 与 macOS 验证本机发布包；另外两种架构只检查打包内容，不冒充本机执行。仅版本 Tag 推送会在两个本机验收通过后继续证明与发布；手动触发始终构建 Snapshot，即使选择版本 Tag 也不会发布。各平台真实模型、生产恢复和跨版本升级仍需独立验证。
 
 ## 公开发布
 

@@ -7,6 +7,7 @@ on:
       - .github/workflows/release.yml
       - .goreleaser.yaml
       - scripts/verify-release.py
+      - scripts/test_verify_release.py
       - scripts/generate-third-party-notices.mjs
       - examples/**
       - docs/installation*.md
@@ -38,6 +39,8 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: make go-test
+      - name: Test console asset verification
+        run: python3 -B -m unittest discover -s scripts -p 'test_verify_release.py'
       - run: npm ci --ignore-scripts
         working-directory: web
       - run: npm test
@@ -54,7 +57,7 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.17.1
-          args: release --clean --skip=publish --snapshot=${{ !startsWith(github.ref, 'refs/tags/') }}
+          args: release --clean --skip=publish --snapshot=${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
       - name: Generate backend SBOM
         run: |
           mapfile -t backend_binaries < <(find dist -type f \( -name kairos-server -o -name kairos-daemon \) -print | sort)
@@ -121,7 +124,7 @@ jobs:
           path: release-assets
       - name: Smoke-test packaged binaries, console and example setup
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == push && "${GITHUB_REF}" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
             archive=$(basename release-assets/kairos_*_linux_amd64.tar.gz)
@@ -132,7 +135,7 @@ jobs:
 
   attest:
     name: Attest release assets
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: [build, verify]
     runs-on: ubuntu-latest
     permissions:
@@ -154,6 +157,7 @@ jobs:
 
   publish:
     name: Publish release assets
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: attest
     runs-on: ubuntu-latest
     permissions:
