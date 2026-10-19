@@ -42,6 +42,8 @@ Kairos 只有少量页面，不按大型管理后台建立全局数据层。
 
 ## 4. 统一操作容器
 
+共享 Modal 与遮罩的层级必须高于 Task 侧栏及其背景；验证预览等嵌套入口时，检查桌面与移动端的实际堆叠，关闭弹窗应保留原 Task 侧栏。
+
 Task 的 Claim、Submit、Release、Fail、Review、Decompose、Append Child 和 Skip 共用一个 `OperationPanel` 模式：
 
 - 一次最多展开一项，也可全部收起；
@@ -95,6 +97,8 @@ Human Attention 使用后端聚合结果，不在前端重新计算 owner、Revi
 `workflow_recovery` 条目进入 WorkItem 恢复入口，不打开其代表性失败 Task 的执行面板；筛选、去重和移出规则见 [API 参考](api-reference.zh-CN.md#人工关注)。
 
 ## 9. 特殊流程
+
+- 产物预览按需加载渲染器，使用认证内容接口和有界流式读取；关闭、切换产物或身份时取消旧请求并清除旧内容。Markdown 不执行 HTML、不加载图片，只启用绝对 HTTP(S) 链接；展示边界见 [API 参考](api-reference.zh-CN.md#artifact)。
 
 - Workflow 单节点实例上限显示有效值；未加载 Definition 时不假定默认值。
 - `fail_task` 使用 `retry`、`await_human` 和 `fail_work_item`；`retry_prompt` 只随 `retry` 提交。

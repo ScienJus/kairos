@@ -1,4 +1,5 @@
 import type { Artifact, AuthenticationConfig, BlackboardTaskDecomposition, Claim, CreateDefinitionInput, CreateWorkflowDefinitionInput, CreateWorkItemInput, DaemonEvent, DaemonInstance, DecomposeTaskInput, Definition, FailTaskInput, HumanAttentionItem, Identity, ReviewDecisionInput, Submission, SubmitTaskInput, Task, TaskDetailView, TaskDraftInput, TaskExecutionContext, WorkflowDefinition, WorkItem, WorkItemContext } from './types'
+import { readArtifactPreview } from './artifactText'
 
 const identityKey = 'kairos-console-identity'
 const bearerTokenKey = 'kairos-console-token'
@@ -88,6 +89,16 @@ function handleUnauthorized(status: number, requestToken: string) {
   try {
     if (loadBearerToken() === requestToken) window.dispatchEvent(new Event(authenticationRequiredEvent))
   } catch { /* the authentication gate reports storage failures on its next operation */ }
+}
+
+async function artifactContent(identity: Identity, artifactID: string, signal?: AbortSignal) {
+  const authentication = authenticationHeaders(identity)
+  const response = await fetch(`/api/v1/artifacts/${encodeURIComponent(artifactID)}/content`, { headers: authentication.headers, signal })
+  if (!response.ok) {
+    handleUnauthorized(response.status, authentication.token)
+    throw new APIError(response.status, `Request failed (${response.status})`)
+  }
+  return response
 }
 
 async function requestJSON<T>(path: string, identity?: Identity, init?: RequestInit): Promise<T> {
@@ -202,14 +213,9 @@ export const api = {
     })
   },
   downloadArtifact: async (identity: Identity, artifactID: string) => {
-    const authentication = authenticationHeaders(identity)
-    const response = await fetch(`/api/v1/artifacts/${artifactID}/content`, { headers: authentication.headers })
-    if (!response.ok) {
-      handleUnauthorized(response.status, authentication.token)
-      throw new APIError(response.status, `Request failed (${response.status})`)
-    }
-    return response.blob()
+    return (await artifactContent(identity, artifactID)).blob()
   },
+  previewArtifact: async (identity: Identity, artifactID: string, signal: AbortSignal) => readArtifactPreview(await artifactContent(identity, artifactID, signal)),
   submitTask: (identity: Identity, taskID: string, input: SubmitTaskInput) => request<Submission>(`/api/v1/tasks/${taskID}/submissions`, identity, { method: 'POST', body: JSON.stringify(input) }),
   failTask: (identity: Identity, taskID: string, input: FailTaskInput) => request(`/api/v1/tasks/${taskID}/failures`, identity, { method: 'POST', body: JSON.stringify(input) }),
   skipBlackboardTask: (identity: Identity, taskID: string, reason: string) => request<Task>(`/api/v1/tasks/${taskID}/skip`, identity, {

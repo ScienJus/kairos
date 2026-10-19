@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Artifact preview
+
+Task and WorkItem artifact history can preview small managed text deliverables as Markdown or source while retaining download access. Preview uses the existing content authorization and needs no API or database migration. See the [Artifact preview boundaries](api-reference.md#artifacts).
+
 ### Workflow recovery in Human attention
 
 Human attention now exposes `workflow_recovery` entries with failure reasons and links to WorkItem recovery controls. Existing clients must recognize the new kind; Failed Tasks previously returned as `human_task` are grouped by WorkItem. Recovery selection and removal rules are documented in the [API reference](api-reference.md#human-attention). This follows `v0.1.0-alpha.1` and requires no database migration or change to recovery commands.

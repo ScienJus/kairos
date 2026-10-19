@@ -29,7 +29,7 @@ The WorkItem artifact list is complete submission history, not a set of current 
 
 Execution context separates the active Claim's staged artifacts, the Workflow's direct input artifacts, and Blackboard shared submission history. Workflow inputs resolve the exact Submission referenced by each applied decision in the current activation's input receipts. They never select the newest artifact by name or time or fall back to ancestors. Skipped sources and inputs without artifacts contribute no group; replacement attempts retain their input receipts. Blackboard shared history includes pending and rejected submissions with provenance and Review status; advisory Task Relations do not restrict this shared scope.
 
-Context responses expose Artifact metadata, not file bytes. Managed content is downloaded through its dedicated authenticated endpoint. Exact fields are defined in the [API reference](../api-reference.md#artifacts).
+Context responses expose Artifact metadata, not file bytes. Managed content is downloaded or previewed through its dedicated authenticated endpoint. The console can preview small text deliverables alongside their Submission and Review history. Exact fields and preview boundaries are defined in the [API reference](../api-reference.md#artifacts).
 
 Retries never overwrite submitted Artifacts. A later attempt creates new Artifacts and a new Submission, preserving the earlier evidence.
 

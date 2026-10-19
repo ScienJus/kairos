@@ -144,6 +144,7 @@
 .task-artifact-list a span, .task-artifact-list > div > span { min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
 .task-artifact-list a svg { flex: 0 0 auto; }
 .task-artifact-list .quiet-button { width: fit-content; min-height: 30px; padding: 5px 8px; }
+.artifact-file-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 760px) {
   .task-artifact-list > div { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .task-artifact-list a span, .task-artifact-list > div > span { word-break: break-all; }
