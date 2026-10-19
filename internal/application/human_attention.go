@@ -7,13 +7,14 @@ import (
 	"github.com/ScienJus/kairos/internal/domain"
 )
 
-// HumanAttentionKind explains why a Task appears in the human attention view.
+// HumanAttentionKind explains why work appears in the human attention view.
 type HumanAttentionKind string
 
 const (
 	HumanAttentionReview     HumanAttentionKind = "review"
 	HumanAttentionTask       HumanAttentionKind = "human_task"
 	HumanAttentionAcceptance HumanAttentionKind = "work_item_acceptance"
+	HumanAttentionRecovery   HumanAttentionKind = "workflow_recovery"
 )
 
 // HumanAttentionItem is one lightweight homepage entry that needs a person.
@@ -39,7 +40,9 @@ func (i HumanAttentionItem) Cursor() HumanAttentionCursor {
 }
 
 // ListHumanAttention includes pending Reviews, unclaimed human Tasks, the
-// requesting Human's actively claimed Tasks, and human acceptances.
+// requesting Human's actively claimed Tasks, human acceptances, and one entry
+// per Workflow needing recovery. Recovery entries may carry a representative
+// current failed Task; their action belongs to the WorkItem.
 func (s *Service) ListHumanAttention(ctx context.Context, identity Identity, page PageRequest[HumanAttentionCursor]) (Page[HumanAttentionItem], error) {
 	if err := identity.Validate(); err != nil {
 		return Page[HumanAttentionItem]{}, err

@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Workflow recovery in Human attention
+
+Human attention now exposes `workflow_recovery` entries with failure reasons and links to WorkItem recovery controls. Existing clients must recognize the new kind; Failed Tasks previously returned as `human_task` are grouped by WorkItem. Recovery selection and removal rules are documented in the [API reference](api-reference.md#human-attention). This follows `v0.1.0-alpha.1` and requires no database migration or change to recovery commands.
+
 ### First alpha candidate
 
 The target is `v0.1.0-alpha.1` for early evaluation, not production use. It includes Workflow/Blackboard coordination, authenticated HTTP/MCP, the operations console, managed Artifacts, Core/Daemon binaries and isolated examples. See [installation](installation.md). This is not a release announcement; snapshots remain unpublished candidates.

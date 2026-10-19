@@ -22,9 +22,9 @@ Workspace 中的主要分类是：
 
 - 尚未结束的 WorkItem；
 - 已完成、取消或失败的历史 WorkItem；
-- 当前 Human 需要处理的 Task、Review 和 WorkItem 验收。
+- 当前 Human 需要处理的 Task、Review、WorkItem 验收和 Workflow 恢复。
 
-“需要人处理”是服务端基于领域状态计算的行动投影，不是独立队列或新生命周期。它只包含当前 Human 可领取或已负责的工作，以及待审核和待验收项。
+“需要人处理”是服务端基于领域状态计算的行动投影，不是独立队列或新生命周期。它包含当前 Human 可领取或已负责的工作，以及待审核、待验收和需要恢复的 Workflow。即使多个 Task 失败，恢复仍是 WorkItem 级别的一次操作。筛选和替代规则见 [API 参考](../api-reference.zh-CN.md#人工关注)。
 
 ## WorkItem 投影：读懂当前局面
 

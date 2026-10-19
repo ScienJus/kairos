@@ -22,9 +22,9 @@ The Workspace separates:
 
 - unfinished WorkItems;
 - completed, cancelled, and failed history;
-- Tasks, Reviews, and WorkItem acceptances requiring the current Human.
+- Tasks, Reviews, WorkItem acceptances, and Workflow recoveries requiring the current Human.
 
-Human attention is a server-computed action projection over domain state, not an independent queue or lifecycle. It contains work the current Human may Claim or already owns, plus pending Reviews and acceptances.
+Human attention is a server-computed action projection over domain state, not an independent queue or lifecycle. It contains work the current Human may Claim or already owns, plus pending Reviews, acceptances, and one recovery action per affected Workflow. Recovery belongs to the WorkItem even when several Tasks failed. See the [API reference](../api-reference.md#human-attention) for selection and replacement rules.
 
 ## WorkItem Projection: Reading the Current Situation
 

@@ -166,6 +166,43 @@ func TestHTTPResponsesUseSnakeCaseAndPreserveEmptyValues(t *testing.T) {
 		cancelledData["cancellation_reason"] != "No longer required" {
 		t.Fatalf("cancelled WorkItem metadata = %#v", cancelledData)
 	}
+
+	definition := domain.WorkflowDefinition{
+		DefinitionMetadata: domain.DefinitionMetadata{ID: "recovery-contract", Version: 1, Name: "Recovery", CreatedAt: endToEndClock{}.Now(), UpdatedAt: endToEndClock{}.Now()},
+		Graph: domain.WorkflowGraph{StartTaskIDs: []domain.WorkflowTaskID{"work"}, Tasks: []domain.WorkflowTaskDefinition{
+			{ID: "work", Title: "Work", Executor: domain.ExecutorHuman, Execution: domain.ExecutionRequired, ReviewPolicy: domain.ReviewNone},
+		}},
+	}
+	if err := repo.CreateWorkflowDefinition(ctx, definition); err != nil {
+		t.Fatal(err)
+	}
+	workflow, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{Definition: definition.Binding(), Identity: application.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "contract-reviewer"}}, Title: "Recovery", Goal: "Preserve nullable Task and empty collections"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A whole-workflow guard can fail without a failed Task attempt.
+	workflow.Status = domain.WorkItemStatusFailed
+	workflow.Failure = &domain.WorkItemFailure{Kind: domain.FailureExecution, Message: "Capacity reached"}
+	workflow.Version++
+	if err := workflow.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Update(ctx, func(store application.WriteStore) error { return store.SaveWorkItem(workflow) }); err != nil {
+		t.Fatal(err)
+	}
+	recoveryBody := rawTrustedResponse(t, server.Client(), http.MethodGet, server.URL+"/api/v1/human-attention", http.StatusOK)
+	var recoveryEnvelope struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(recoveryBody, &recoveryEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(recoveryEnvelope.Data) != 1 || recoveryEnvelope.Data[0]["kind"] != "workflow_recovery" || recoveryEnvelope.Data[0]["task"] != nil {
+		t.Fatalf("recovery contract = %s", recoveryBody)
+	}
+	if tags, ok := recoveryEnvelope.Data[0]["work_item"].(map[string]any)["tags"].([]any); !ok || len(tags) != 0 {
+		t.Fatalf("recovery tags must be []: %s", recoveryBody)
+	}
 }
 
 func rawTrustedResponse(t *testing.T, client *http.Client, method, url string, wantStatus int) []byte {

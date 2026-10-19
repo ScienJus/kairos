@@ -152,3 +152,118 @@ func TestHumanAttentionIncludesOwnActiveClaims(t *testing.T) {
 		})
 	}
 }
+
+func TestHumanAttentionWorkflowRecovery(t *testing.T) {
+	forEachSQLRepository(t, func(t *testing.T, repo *SQLRepository, _ func(*testing.T) *SQLRepository) {
+		ctx := context.Background()
+		service := repositoryTestService(t, repo)
+		human := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorHuman, ID: "operator"}}
+		def := attemptDefinition()
+		for i := range def.Graph.Tasks {
+			def.Graph.Tasks[i].Executor = domain.ExecutorEither
+		}
+		if err := def.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.CreateWorkflowDefinition(ctx, def); err != nil {
+			t.Fatal(err)
+		}
+		read := func(id domain.WorkItemID) application.WorkItemExecutionContext {
+			t.Helper()
+			value, err := service.GetWorkItemExecutionContext(ctx, application.GetWorkItemExecutionContextQuery{WorkItemID: id, Identity: human})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return value
+		}
+		create := func(title string, action domain.TaskFailureAction, count int) domain.WorkItem {
+			t.Helper()
+			work, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{Definition: def.Binding(), Identity: human, Title: title, Goal: "Show one recovery action per Workflow"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, task := range read(work.ID).Tasks[:count] {
+				claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: task.ID, Identity: human})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: human, Action: action, Reason: "缺少权限"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return read(work.ID).WorkItem
+		}
+		open := create("two failed branches", domain.TaskFailureAwaitHuman, 2)
+		failed := create("whole Workflow failed", domain.TaskFailureFailWorkItem, 1)
+		startOver := create("start over", domain.TaskFailureAwaitHuman, 1)
+		cancelled := create("cancelled", domain.TaskFailureAwaitHuman, 1)
+		if _, err := service.CancelWorkItem(ctx, application.CancelWorkItemCommand{WorkItemID: cancelled.ID, Identity: human, Reason: "No longer needed"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.CreateBlackboardDefinition(ctx, repositoryBlackboardDefinition()); err != nil {
+			t.Fatal(err)
+		}
+		board, err := service.CreateWorkItem(ctx, application.CreateWorkItemCommand{Definition: repositoryBlackboardDefinition().Binding(), Identity: human, Title: "Blackboard", Goal: "Not recoverable as a Workflow"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		task, err := service.CreateBlackboardTask(ctx, application.CreateBlackboardTaskCommand{WorkItemID: board.ID, Identity: human, Title: "Fail", Executor: domain.ExecutorHuman})
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim, err := service.ClaimTask(ctx, application.ClaimTaskCommand{TaskID: task.ID, Identity: human})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.FailTask(ctx, application.FailTaskCommand{TaskID: task.ID, ClaimID: claim.ID, Identity: human, Action: domain.TaskFailureFailWorkItem, Reason: "Stop"}); err != nil {
+			t.Fatal(err)
+		}
+
+		// Every timestamp ties. Deduplication and eligibility must happen before
+		// LIMIT so each page advances without duplicates or empty middle pages.
+		var cursor *application.HumanAttentionCursor
+		ids := []domain.WorkItemID{}
+		for i := 0; i < 4; i++ {
+			page, err := service.ListHumanAttention(ctx, human, application.PageRequest[application.HumanAttentionCursor]{Limit: 1, After: cursor})
+			if err != nil || len(page.Items) != 1 {
+				t.Fatalf("recovery page: %+v, %v", page, err)
+			}
+			item := page.Items[0]
+			if item.Kind != application.HumanAttentionRecovery || item.Task == nil || item.Task.Failures[0].Reason != "缺少权限" || slices.Contains(ids, item.WorkItem.ID) {
+				t.Fatalf("wrong or duplicate recovery entry: %+v", item)
+			}
+			ids = append(ids, item.WorkItem.ID)
+			if !page.HasMore {
+				break
+			}
+			next := item.Cursor()
+			cursor = &next
+		}
+		want := []domain.WorkItemID{open.ID, failed.ID, startOver.ID}
+		slices.Sort(ids)
+		slices.Sort(want)
+		if !slices.Equal(ids, want) {
+			t.Fatalf("recovery WorkItems = %v, want %v", ids, want)
+		}
+		agent := application.Identity{Actor: domain.ActorRef{Kind: domain.ActorAgent, ID: "agent"}, Role: "developer"}
+		page, err := service.ListHumanAttention(ctx, agent, application.PageRequest[application.HumanAttentionCursor]{Limit: 100})
+		if err != nil || len(page.Items) != 0 {
+			t.Fatalf("Agent must not receive recovery actions: %+v, %v", page, err)
+		}
+		for _, work := range []domain.WorkItem{open, failed} {
+			if _, err := service.ContinueWorkflow(ctx, application.ContinueWorkflowCommand{WorkItemID: work.ID, Identity: human, Version: work.Version}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := service.StartOverWorkflow(ctx, application.StartOverWorkflowCommand{WorkItemID: startOver.ID, Identity: human, Version: startOver.Version, OperationID: "replace-attention-workflow"}); err != nil {
+			t.Fatal(err)
+		}
+		page, err = service.ListHumanAttention(ctx, human, application.PageRequest[application.HumanAttentionCursor]{Limit: 100})
+		if err != nil || len(page.Items) != 0 {
+			t.Fatalf("continued, retried or replaced failures remain in attention: %+v, %v", page, err)
+		}
+		if read(startOver.ID).WorkItem.Status != domain.WorkItemStatusFailed {
+			t.Fatal("removing a start-over source must preserve its failed history")
+		}
+	})
+}

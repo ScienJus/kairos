@@ -92,6 +92,8 @@ Admin 使用同一登录会话进入 Token 管理页。新签发 Token 只保存
 
 Human Attention 使用后端聚合结果，不在前端重新计算 owner、Review、验收或 Workflow 恢复资格。
 
+`workflow_recovery` 条目进入 WorkItem 恢复入口，不打开其代表性失败 Task 的执行面板；筛选、去重和移出规则见 [API 参考](api-reference.zh-CN.md#人工关注)。
+
 ## 9. 特殊流程
 
 - Workflow 单节点实例上限显示有效值；未加载 Definition 时不假定默认值。

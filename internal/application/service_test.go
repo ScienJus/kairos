@@ -3443,6 +3443,25 @@ func (r *testRepository) ListTasks(workItemID domain.WorkItemID) ([]domain.Task,
 func (r *testRepository) ListHumanAttention(actor domain.ActorRef, page PageRequest[HumanAttentionCursor]) ([]HumanAttentionItem, error) {
 	result := make([]HumanAttentionItem, 0)
 	for _, workItem := range r.workItems {
+		tasks := currentWorkflowAttempts(r.tasksFor(workItem.ID))
+		if actor.Kind == domain.ActorHuman && workItem.CoordinationMode() == domain.CoordinationModeWorkflow {
+			var failed *domain.Task
+			for _, task := range tasks {
+				if task.Status == domain.TaskStatusFailed && (failed == nil || task.UpdatedAt.After(failed.UpdatedAt) || (task.UpdatedAt.Equal(failed.UpdatedAt) && task.ID < failed.ID)) {
+					taskCopy := task
+					failed = &taskCopy
+				}
+			}
+			replaced := false
+			for _, candidate := range r.workItems {
+				if candidate.StartedOverFromWorkItemID != nil && *candidate.StartedOverFromWorkItemID == workItem.ID {
+					replaced = true
+				}
+			}
+			if !replaced && (workItem.Status == domain.WorkItemStatusFailed || (workItem.Status == domain.WorkItemStatusOpen && failed != nil)) {
+				result = append(result, HumanAttentionItem{Kind: HumanAttentionRecovery, WorkItem: workItem, Task: failed})
+			}
+		}
 		if workItem.Status == domain.WorkItemStatusAwaitingHumanAcceptance {
 			result = append(result, HumanAttentionItem{Kind: HumanAttentionAcceptance, WorkItem: workItem})
 			continue
@@ -3450,12 +3469,10 @@ func (r *testRepository) ListHumanAttention(actor domain.ActorRef, page PageRequ
 		if workItem.Status != domain.WorkItemStatusOpen {
 			continue
 		}
-		for _, task := range currentWorkflowAttempts(r.tasksFor(workItem.ID)) {
+		for _, task := range tasks {
 			kind := HumanAttentionKind("")
 			if task.Status == domain.TaskStatusInReview {
 				kind = HumanAttentionReview
-			} else if task.Status == domain.TaskStatusFailed && workItem.CoordinationMode() == domain.CoordinationModeWorkflow && actor.Kind == domain.ActorHuman {
-				kind = HumanAttentionTask
 			} else if task.Status == domain.TaskStatusPending && task.ActiveClaimID == nil && task.Executor == domain.ExecutorHuman {
 				kind = HumanAttentionTask
 			} else if task.Status == domain.TaskStatusWorking && task.ActiveClaimID != nil && actor.Kind == domain.ActorHuman {

@@ -340,7 +340,7 @@ paths:
     get:
       operationId: listHumanAttention
       summary: List Human Attention
-      description: Returns pending Reviews, unclaimed Pending Human Tasks, Working Tasks actively claimed by the requesting Human (including executor=either), and WorkItems awaiting human acceptance. For Human callers, also returns Failed Tasks in Open Workflows that have no replacement attempt; creating a retry replacement removes the old failed Task from this list. Other actors' Working Tasks and unclaimed either Tasks are excluded. Ownership and replacement filtering precede pagination; human_task entries may have task.status pending, working or failed. Non-open WorkItems do not contribute Task entries; a WorkItem awaiting Human acceptance can still contribute an acceptance entry.
+      description: Returns pending Reviews, unclaimed Pending Human Tasks, Working Tasks actively claimed by the requesting Human (including executor=either), and WorkItems awaiting human acceptance. Human callers also receive one workflow_recovery entry per Failed Workflow or Open Workflow with a current unreplaced Failed Task. Recovery entries exclude WorkItems already used as a start-over source; their optional Task is the most recently updated unreplaced Failed Task (ties use ascending Task ID), not a Task execution action. Open the WorkItem to recover it. Recovery ends when no current failures remain or a start-over replacement exists. Other actors' Working Tasks and unclaimed either Tasks are excluded. Eligibility and recovery grouping precede pagination. Reviews retain priority; remaining items sort by the attached Task's updated_at, or the WorkItem's updated_at when task is null, descending, then WorkItem ID and Task ID ascending. human_task entries have task.status pending or working. Non-open WorkItems contribute only acceptance or recovery entries.
       parameters:
         - $ref: '#/components/parameters/PageLimitQuery'
         - $ref: '#/components/parameters/PageCursorQuery'
@@ -2070,7 +2070,7 @@ components:
       type: object
       required: [kind, work_item, task]
       properties:
-        kind: { type: string, enum: [review, human_task, work_item_acceptance] }
+        kind: { type: string, enum: [review, human_task, work_item_acceptance, workflow_recovery] }
         work_item: { $ref: '#/components/schemas/WorkItem' }
         task:
           oneOf: [{ $ref: '#/components/schemas/Task' }, { type: 'null' }]

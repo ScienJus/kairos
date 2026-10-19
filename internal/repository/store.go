@@ -137,7 +137,6 @@ func (s *sqlStore) ListHumanAttention(actor domain.ActorRef, page application.Pa
 			FROM tasks t
 			JOIN work_items w ON w.id = t.work_item_id
 			WHERE w.status = ? AND NOT EXISTS (SELECT 1 FROM tasks retry WHERE retry.retry_of_task_id = t.id) AND (
-                (t.status = 'failed' AND w.mode = 'workflow' AND ? = 'human') OR
 				(t.status = ? AND t.executor = ? AND t.active_claim_id IS NULL)
 				OR (t.status = ? AND ? = 'human' AND EXISTS (
 					SELECT 1 FROM claims c
@@ -150,12 +149,26 @@ func (s *sqlStore) ListHumanAttention(actor domain.ActorRef, page application.Pa
 				w.id AS work_item_id, '' AS task_id, w.payload AS work_item_payload, NULL AS task_payload
 			FROM work_items w
 			WHERE w.status = ?
+			UNION ALL
+			SELECT 'workflow_recovery' AS kind, 1 AS priority, COALESCE(t.updated_at, w.updated_at) AS item_updated,
+				w.id AS work_item_id, COALESCE(t.id, '') AS task_id, w.payload AS work_item_payload, t.payload AS task_payload
+			FROM work_items w
+			LEFT JOIN tasks t ON t.id = (
+				SELECT failed.id FROM tasks failed
+				WHERE failed.work_item_id = w.id AND failed.status = 'failed'
+					AND NOT EXISTS (SELECT 1 FROM tasks retry WHERE retry.retry_of_task_id = failed.id)
+				ORDER BY failed.updated_at DESC, failed.id LIMIT 1
+			)
+			WHERE ? = 'human' AND w.mode = 'workflow'
+				AND (w.status = 'failed' OR (w.status = 'open' AND t.id IS NOT NULL))
+				AND NOT EXISTS (SELECT 1 FROM work_items replacement WHERE replacement.started_over_from_work_item_id = w.id)
 		) attention`
 	args := []any{
 		domain.WorkItemStatusOpen, domain.TaskStatusInReview,
-		domain.WorkItemStatusOpen, actor.Kind, domain.TaskStatusPending, domain.ExecutorHuman,
+		domain.WorkItemStatusOpen, domain.TaskStatusPending, domain.ExecutorHuman,
 		domain.TaskStatusWorking, actor.Kind, true, actor.Kind, actor.ID,
 		domain.WorkItemStatusAwaitingHumanAcceptance,
+		actor.Kind,
 	}
 	if page.After != nil {
 		query += ` WHERE priority > ? OR (priority = ? AND (
