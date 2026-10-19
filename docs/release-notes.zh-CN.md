@@ -4,6 +4,10 @@
 
 ## 未发布
 
+### 产物预览
+
+Task 与 WorkItem 产物历史支持直接预览小型托管文本成果，可切换 Markdown 和原文并保留下载。预览沿用现有内容读取权限，无需 API 或数据库迁移。边界见 [产物预览说明](api-reference.zh-CN.md#artifact)。
+
 ### 人工关注中的 Workflow 恢复
 
 人工关注新增 `workflow_recovery` 条目，显示失败原因并进入 WorkItem 恢复入口。客户端需识别新类型；此前作为 `human_task` 返回的失败 Task 改为按 WorkItem 聚合。筛选和移出规则见 [API 参考](api-reference.zh-CN.md#人工关注)。本变更基于 `v0.1.0-alpha.1`，不需要数据库迁移，也不改变恢复命令。

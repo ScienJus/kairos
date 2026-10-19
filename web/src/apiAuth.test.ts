@@ -15,6 +15,41 @@ afterEach(() => {
 })
 
 describe('API authentication transport', () => {
+  it.each(['preview', 'download'])('authenticates Artifact %s through the existing content endpoint', async action => {
+    saveBearerToken('identity-secret')
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Artifact text'))
+    const controller = new AbortController()
+    const result = action === 'preview'
+      ? await api.previewArtifact(trustedIdentity, 'draft/id', controller.signal)
+      : await api.downloadArtifact(trustedIdentity, 'draft/id')
+    expect(typeof result === 'string' ? result : await result.text()).toBe('Artifact text')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/artifacts/draft%2Fid/content')
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers)
+    expect(headers.get('Authorization')).toBe('Bearer identity-secret')
+    expect(headers.has('X-Kairos-Actor-Id')).toBe(false)
+    if (action === 'preview') expect(fetchMock.mock.calls[0][1]?.signal).toBe(controller.signal)
+  })
+
+  it('does not interpret rejected preview responses as artifact text', async () => {
+    const response = new Response('Access denied', { status: 403 })
+    const read = vi.spyOn(response.body!, 'getReader')
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response)
+    await expect(api.previewArtifact(trustedIdentity, 'artifact', new AbortController().signal)).rejects.toMatchObject({ status: 403 })
+    expect(read).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the ordinary expired-session handling for previews', async () => {
+    saveBearerToken('expired-token')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Unauthenticated', { status: 401 }))
+    const required = vi.fn()
+    window.addEventListener(authenticationRequiredEvent, required)
+    try {
+      await expect(api.previewArtifact(trustedIdentity, 'artifact', new AbortController().signal)).rejects.toMatchObject({ status: 401 })
+      expect(required).toHaveBeenCalledTimes(1)
+    } finally { window.removeEventListener(authenticationRequiredEvent, required) }
+  })
+
   it('releases a Claim successfully when the server returns 204 without a JSON body', async () => {
     saveBearerToken('identity-secret')
     const response = new Response(null, { status: 204 })

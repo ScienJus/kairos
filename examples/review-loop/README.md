@@ -35,6 +35,8 @@ An installed release package can run `sh examples/review-loop/run.sh` with the s
 - A Human Review rejection reopens the same publication Task. Its next Claim sees feedback and submits a fresh Artifact; the rejected submission remains inspectable.
 - Approving publication completes the Workflow. Inspect Task submissions/artifacts: Workflow `work_item.result` remains empty.
 
+Use **Preview** beside a managed Artifact in the console to read the draft, checker feedback, or final guide as Markdown; switch to **Source** for exact text.
+
 Workflow choice groups, recovery, credential scope, and staged/input/history semantics are owned by the [API reference](../../docs/api-reference.md). The [Adapter guide](../../internal/daemon/codexadapter/README.md) owns cleanup limits: after a Daemon crash Core reaps its lease but does not kill orphan Harnesses. Confirm termination/cleanup before replacing an uncertain execution.
 
 ## Reproducible verification without a model

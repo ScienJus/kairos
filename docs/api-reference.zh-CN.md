@@ -169,6 +169,8 @@ Workflow Task Definition 可以声明必交 Artifact 名称与说明。执行者
 
 托管上传使用稳定 `kairos://` URI、SHA-256 digest 和先登记后写文件的恢复流程。未提交 Artifact、pending 上传和已完成的幂等重放记录按 retention 回收；已提交 Artifact 不由该生命周期删除。大文件应使用外部持久存储并登记 URI。
 
+控制台可在 Task 和 WorkItem 产物历史中按需预览不超过 256 KiB 的托管 UTF-8 文本，支持 Markdown 渲染（含表格、任务列表）与原文切换。预览复用现有认证内容接口，关闭或读取超限时取消请求。这是浏览器预览上限，不改变上传或下载限制。过大或非文本文件仍可下载，外部 URI Artifact 保留为链接。预览忽略原始 HTML 和图片，只启用绝对 HTTP(S) 链接。
+
 ## 关键上限
 
 下表便于运营评估；服务端精确校验以 OpenAPI 与实现为准。

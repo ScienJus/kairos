@@ -169,6 +169,8 @@ Workflow Task Definitions may require named Artifacts. An executor registers an 
 
 Managed uploads use stable `kairos://` URIs, SHA-256 digests, and a recoverable register-before-write flow. GC removes old unsubmitted Artifacts, pending uploads, and expired idempotency records; submitted Artifacts remain. Large files should use durable external storage and URI registration.
 
+The console previews managed UTF-8 text up to 256 KiB on demand in Task and WorkItem artifact history, with rendered Markdown (including tables and task lists) and exact source views. It uses the existing authenticated content endpoint and cancels the read when the preview closes or exceeds the byte limit. This is a browser preview limit, not a new upload or download limit. Oversized or non-text files remain downloadable; external URI Artifacts remain links. Preview rendering omits raw HTML and images and enables only absolute HTTP(S) links.
+
 ## Key Limits
 
 The table helps operational planning. OpenAPI and server validation remain authoritative.

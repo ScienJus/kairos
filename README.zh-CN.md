@@ -61,7 +61,7 @@ WorkItem 目标
 
 ## 人与 Agent 共用一套模型
 
-控制台提供 WorkItem 总览、人工关注、Workflow 图、Blackboard Task 层级、Task Detail、Definition 编辑和 Daemon 观测。Human 可以执行 Task、审核成果、继续/从头执行失败 Workflow，以及取消 WorkItem。人工关注按 Workflow 展示一条恢复项，提供失败原因和恢复入口。Workflow 产物历史按节点、执行实例和 Submission 分组；Workflow 执行上下文只提供实际直接输入的产物，详见 [Artifact 模型](docs/whitepapers/09-artifacts.zh-CN.md)。
+控制台提供 WorkItem 总览、人工关注、Workflow 图、Blackboard Task 层级、Task Detail、Definition 编辑和 Daemon 观测。Human 可以执行 Task、审核成果、继续/从头执行失败 Workflow，以及取消 WorkItem。人工关注按 Workflow 展示一条恢复项，提供失败原因和恢复入口。小型托管文本产物可切换 Markdown 和原文预览。Workflow 产物历史按节点、执行实例和 Submission 分组；Workflow 执行上下文只提供实际直接输入的产物，详见 [Artifact 模型](docs/whitepapers/09-artifacts.zh-CN.md)。
 
 Agent 通过无状态 Streamable HTTP MCP 和 `.agents/skills/kairos-agent` 完成“发现 → Claim → heartbeat → 提交”循环。Agent Daemon 可以自动运行同一协议，并为具体 Harness 提供 Claim-bound Executor Credential。
 

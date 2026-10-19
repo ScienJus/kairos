@@ -1,9 +1,11 @@
-import { useState } from "react";
-import { Download, ExternalLink } from "lucide-react";
+import { lazy, Suspense, useState } from "react";
+import { Download, ExternalLink, Eye } from "lucide-react";
 import { api } from "./api";
 import { useI18n } from "./i18n";
 import type { Identity, TaskDetailView } from "./types";
 import { FormError } from "./ui";
+
+const ArtifactPreview = lazy(() => import('./ArtifactPreview'));
 
 export function ArtifactLinks({
   artifacts,
@@ -13,7 +15,9 @@ export function ArtifactLinks({
   identity: Identity;
 }) {
   const { t } = useI18n();
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState<{ artifactID: string; cause: Error } | null>(null);
+  const [previewID, setPreviewID] = useState<string | null>(null);
+  const preview = artifacts.find(artifact => artifact.id === previewID);
 
   async function download(artifact: TaskDetailView["artifacts"][number]) {
     try {
@@ -26,7 +30,7 @@ export function ArtifactLinks({
       link.click();
       URL.revokeObjectURL(url);
     } catch (cause) {
-      setError(cause instanceof Error ? cause : new Error(t("unreachable")));
+      setError({ artifactID: artifact.id, cause: cause instanceof Error ? cause : new Error(t("unreachable")) });
     }
   }
 
@@ -37,14 +41,15 @@ export function ArtifactLinks({
           <div key={artifact.id}>
             <strong>{artifact.name}</strong>
             {artifact.uri.startsWith("kairos://") ? (
-              <button
-                type="button"
-                className="quiet-button"
-                onClick={() => void download(artifact)}
-              >
-                <Download size={14} />
-                {t("downloadArtifact")}
-              </button>
+              <div className="artifact-file-actions">
+                <button type="button" className="quiet-button" aria-label={`${t('artifactPreview')}: ${artifact.name}`} onClick={() => { setError(null); setPreviewID(artifact.id); }}>
+                  <Eye size={14} />{t('artifactPreview')}
+                </button>
+                <button type="button" className="quiet-button" onClick={() => void download(artifact)}>
+                  <Download size={14} />
+                  {t("downloadArtifact")}
+                </button>
+              </div>
             ) : /^https?:\/\//.test(artifact.uri) ? (
               <a href={artifact.uri} target="_blank" rel="noreferrer">
                 <span>{artifact.uri}</span>
@@ -56,7 +61,10 @@ export function ArtifactLinks({
           </div>
         ))}
       </div>
-      {error && <FormError error={error} />}
+      {error && !preview && <FormError error={error.cause} />}
+      {preview && <Suspense fallback={<p role="status">{t('artifactPreviewLoading')}</p>}>
+        <ArtifactPreview key={JSON.stringify([identity.kind, identity.id, identity.role, preview.id])} artifact={preview} identity={identity} onClose={() => setPreviewID(null)} onDownload={() => void download(preview)} downloadError={error?.artifactID === preview.id ? error.cause : null} />
+      </Suspense>}
     </div>
   );
 }

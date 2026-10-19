@@ -96,6 +96,8 @@ Human Attention 使用后端聚合结果，不在前端重新计算 owner、Revi
 
 ## 9. 特殊流程
 
+- 产物预览按需加载渲染器，使用认证内容接口和有界流式读取；关闭、切换产物或身份时取消旧请求并清除旧内容。Markdown 不执行 HTML、不加载图片，只启用绝对 HTTP(S) 链接；展示边界见 [API 参考](api-reference.zh-CN.md#artifact)。
+
 - Workflow 单节点实例上限显示有效值；未加载 Definition 时不假定默认值。
 - `fail_task` 使用 `retry`、`await_human` 和 `fail_work_item`；`retry_prompt` 只随 `retry` 提交。
 - Workflow 恢复提供“继续执行”和“从头执行”，失败时保留输入。继续执行的建议上限使用后端 `recovery_task_ids` 计算，不复制 Claim 终止原因逻辑。

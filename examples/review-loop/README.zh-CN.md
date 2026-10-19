@@ -35,6 +35,8 @@ KAIROS_DAEMON_MODEL=your-model make review-loop-example
 - Human Review 驳回后，同一个发布 Task 重新开放。新 Claim 带着反馈执行并提交新 Artifact，旧提交仍可检查。
 - 批准发布后 Workflow 完成。成果以 Task Submission/Artifact 为准，Workflow 的 `work_item.result` 仍为空。
 
+在控制台托管产物旁点击**预览**，可直接阅读草稿、Checker 反馈或最终指南的 Markdown；切换**原文**可查看完整文本。
+
 选择组、恢复、凭据授权及暂存/输入/历史语义见 [API 参考](../../docs/api-reference.zh-CN.md)。进程清理边界由 [Adapter 指南](../../internal/daemon/codexadapter/README.md)定义：Daemon 崩溃后 Core 只回收 lease，不清理孤儿 Harness；替代不确定执行前须确认停止或完成清理。
 
 ## 不调用模型的可复现验证
