@@ -42,6 +42,8 @@ Kairos 只有少量页面，不按大型管理后台建立全局数据层。
 
 ## 4. 统一操作容器
 
+共享 Modal 与遮罩的层级必须高于 Task 侧栏及其背景；验证预览等嵌套入口时，检查桌面与移动端的实际堆叠，关闭弹窗应保留原 Task 侧栏。
+
 Task 的 Claim、Submit、Release、Fail、Review、Decompose、Append Child 和 Skip 共用一个 `OperationPanel` 模式：
 
 - 一次最多展开一项，也可全部收起；
