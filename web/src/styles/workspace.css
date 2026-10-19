@@ -41,6 +41,7 @@ body { background: #f6f7f4; }
 .attention-entry > svg { color: #91a09d; }
 .attention-kind { padding: 5px 8px; color: #55747a; background: #e7f0ef; border-radius: 6px; font-size: 10px; white-space: nowrap; }
 .attention-kind.review { color: #806421; background: #f7efd6; }
+.attention-kind.recovery { color: #924b3e; background: #f8e8e2; }
 .attention-empty { min-height: 250px; display: grid; place-items: center; align-content: center; color: #78908d; text-align: center; }
 .attention-empty strong { margin-top: 13px; color: #526867; font-size: 14px; font-weight: 570; }
 .attention-empty p { max-width: 360px; margin: 8px 0 0; color: #929d9a; font-size: 12px; line-height: 1.6; }

@@ -125,6 +125,12 @@ Actor ID 必须包含非空白字符，且不能等于 `.` 或 `..`。允许 Uni
 
 ## 关键资源语义
 
+### 人工关注
+
+`GET /human-attention` 包含待审核项、可领取的 Human Task、当前 Human 已领取的执行中 Task，以及人工验收。Human 调用者还会收到 `workflow_recovery`：失败的 Workflow，或包含未被替代的失败 Task 的 Open Workflow，每个 WorkItem 一条。已取消/完成的 WorkItem、Blackboard、已被替代的失败 Task，以及已作为 `start-over` 来源的 WorkItem，不产生恢复项。分组和资格筛选先于分页，Review 保持优先。
+
+恢复项可附带最近更新且未被替代的失败 Task（时间相同按 Task ID 升序选择），没有时为 `task: null`。操作对象是 WorkItem，而不是这个代表性 Task。控制台优先显示 WorkItem 失败说明，其次显示所附 Task 的最新失败原因，并进入现有 WorkItem 恢复入口。`continue` 成功后已解决的失败移出列表；`start-over` 后原 WorkItem 移出列表并保留历史。其他人工任务和 Review 仍独立展示。`human_task` 现在只表示 Pending 或 Working Task，客户端需识别新增的恢复类型。
+
 ### Definition 与 WorkItem
 
 Definition ID 只允许小写 ASCII 字母、数字和连字符。创建 ID 时省略 `base_version`；追加版本必须提供当前基线，过期基线返回冲突。Definition 版本不可变。

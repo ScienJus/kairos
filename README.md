@@ -61,7 +61,7 @@ Both modes share discovery, Claim, submission, Review, failure, and Artifact pro
 
 ## One Model for People and Agents
 
-The console provides WorkItem overview, Human attention, Workflow graph, Blackboard hierarchy, Task Detail, Definition editing, and Daemon observation. Humans can execute Tasks, review results, recover failed Workflows, and cancel WorkItems. Workflow artifact history is grouped by node, execution instance, and Submission; Workflow context supplies exact direct input artifacts. See the [Artifact model](docs/whitepapers/09-artifacts.md).
+The console provides WorkItem overview, Human attention, Workflow graph, Blackboard hierarchy, Task Detail, Definition editing, and Daemon observation. Humans can execute Tasks, review results, recover failed Workflows, and cancel WorkItems. Human attention includes one recovery entry per Workflow with a failure reason and a link to its recovery controls. Workflow artifact history is grouped by node, execution instance, and Submission; Workflow context supplies exact direct input artifacts. See the [Artifact model](docs/whitepapers/09-artifacts.md).
 
 Agents use stateless Streamable HTTP MCP and `.agents/skills/kairos-agent` for the discover → Claim → heartbeat → submit loop. Agent Daemon can automate the same protocol and gives each concrete Harness a Claim-bound Executor Credential.
 

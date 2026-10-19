@@ -77,6 +77,13 @@ func TestWorkflowLongNodeLimitCommitsFailure(t *testing.T) {
 				if len(after.Tasks) != 2 || len(after.ActiveClaims) != 0 {
 					t.Fatal("limit created an extra Task or retained active Claims")
 				}
+				attention, err := peer.ListHumanAttention(ctx, actor, application.PageRequest[application.HumanAttentionCursor]{Limit: 100})
+				if err != nil || len(attention.Items) != 1 || attention.Items[0].Kind != application.HumanAttentionRecovery || attention.Items[0].WorkItem.ID != work.ID {
+					t.Fatalf("guard failure missing from recovery attention: %+v, %v", attention, err)
+				}
+				if action == "submit" && attention.Items[0].Task != nil {
+					t.Fatal("guard recovery without a failed Task must use task=null")
+				}
 				execution, err := peer.GetTaskExecutionContext(ctx, application.GetTaskExecutionContextQuery{TaskID: source.ID, Identity: actor})
 				if err != nil {
 					t.Fatal(err)

@@ -122,7 +122,7 @@ export interface Identity { id: string; kind: 'human' | 'agent'; role: string; d
 // Deployment-managed Humans have no issued Identity Token (token_active is false).
 export interface IdentityRecord { id: string; kind: 'human' | 'agent'; role: string; credential_source: 'identity' | 'admin'; token_active: boolean; version: number; created_at: string; updated_at: string }
 // human_task includes unclaimed Human Tasks and the current Human’s actively claimed Tasks (including either).
-export interface HumanAttentionItem { kind: 'review' | 'human_task' | 'work_item_acceptance'; work_item: WorkItem; task: Task | null }
+export interface HumanAttentionItem { kind: 'review' | 'human_task' | 'work_item_acceptance' | 'workflow_recovery'; work_item: WorkItem; task: Task | null }
 
 export interface TaskDraftInput {
   title: string; description: string; acceptance_criteria: string

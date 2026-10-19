@@ -34,7 +34,14 @@ export function HomePage({ identity, homeView, navigate, onCreate }: {
     {homeView === 'human' && <div className="attention-list">
       {attention.isLoading && humanAttention.length === 0 && <LoadingRows />}
       {!attention.isLoading && humanAttention.length === 0 && <div className="attention-empty"><Check size={22} /><strong>{t('nothingNeedsYou')}</strong><p>{t('nothingNeedsYouBody')}</p></div>}
-      {humanAttention.map(item => <button className="attention-entry" key={`${item.kind}-${item.work_item.id}-${item.task?.id ?? ''}`} onClick={() => navigate({ workItemID: item.work_item.id, taskID: item.task?.id ?? null, homeView: 'human' })}><div><span>{item.work_item.title}</span><strong>{item.task?.title ?? item.work_item.goal}</strong></div><span className={`attention-kind ${item.kind === 'review' ? 'review' : 'human'}`}>{t(item.kind === 'review' ? 'reviewNeeded' : item.kind === 'work_item_acceptance' ? 'workAcceptanceNeeded' : 'humanTask')}</span><ArrowRight size={17} /></button>)}
+      {humanAttention.map(item => {
+        const recovery = item.kind === 'workflow_recovery'
+        const label = recovery ? 'workflowRecoveryNeeded' : item.kind === 'review' ? 'reviewNeeded' : item.kind === 'work_item_acceptance' ? 'workAcceptanceNeeded' : 'humanTask'
+        const summary = recovery
+          ? item.work_item.failure?.message || item.task?.failures.at(-1)?.reason || t('failureReasonUnavailable')
+          : item.task?.title ?? item.work_item.goal
+        return <button className="attention-entry" key={`${item.kind}-${item.work_item.id}-${item.task?.id ?? ''}`} onClick={() => navigate({ workItemID: item.work_item.id, taskID: recovery ? null : item.task?.id ?? null, homeView: 'human' })}><div><span>{item.work_item.title}</span><strong>{summary}</strong></div><span className={`attention-kind ${recovery ? 'recovery' : item.kind === 'review' ? 'review' : 'human'}`}>{t(label)}</span><ArrowRight size={17} /></button>
+      })}
       {attention.hasNextPage && <button className="load-more-button" disabled={attention.isFetchingNextPage} onClick={() => attention.fetchNextPage()}><ArrowDown size={15} />{t(attention.isFetchingNextPage ? 'loadingMore' : 'loadMore')}</button>}
     </div>}
   </section>

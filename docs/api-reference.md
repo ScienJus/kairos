@@ -125,6 +125,12 @@ Paths are relative to `/api/v1`. See OpenAPI for exact methods and schemas.
 
 ## Key Resource Semantics
 
+### Human Attention
+
+`GET /human-attention` includes pending Reviews, available Human Tasks, the requesting Human's actively claimed Tasks, and Human acceptances. Human callers also receive `workflow_recovery`: one entry per Failed Workflow or Open Workflow with unreplaced Failed Tasks. Cancelled/completed WorkItems, Blackboards, replaced Task attempts, and WorkItems already used as a `start-over` source do not contribute recovery entries. Grouping and eligibility filtering happen before pagination; Reviews retain priority.
+
+A recovery entry carries the most recently updated unreplaced Failed Task when available (ties use ascending Task ID), otherwise `task: null`. Its action belongs to the WorkItem, not that representative Task. The console shows the WorkItem failure message, falling back to the attached Task's latest failure reason, and opens existing WorkItem recovery controls. Successful `continue` removes resolved failures; `start-over` removes the original WorkItem from attention while preserving its history. Other Human Tasks and Reviews remain independently actionable. `human_task` entries now represent only Pending or Working Tasks; clients must recognize the new recovery kind.
+
 ### Definition and WorkItem
 
 Definition IDs use lowercase ASCII letters, digits, and hyphens. Omit `base_version` to create an ID; appending requires the current base and conflicts on stale input. Versions are immutable.
