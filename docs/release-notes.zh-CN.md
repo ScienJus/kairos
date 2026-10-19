@@ -8,6 +8,8 @@
 
 人工关注新增 `workflow_recovery` 条目，显示失败原因并进入 WorkItem 恢复入口。客户端需识别新类型；此前作为 `human_task` 返回的失败 Task 改为按 WorkItem 聚合。筛选和移出规则见 [API 参考](api-reference.zh-CN.md#人工关注)。本变更基于 `v0.1.0-alpha.1`，不需要数据库迁移，也不改变恢复命令。
 
+恢复项查询只扫描一次 Start Over 来源，避免 WorkItem 积累后按候选反复扫描全部历史。
+
 ### 首个 Alpha 候选版本
 
 目标为面向早期试用的 `v0.1.0-alpha.1`，不承诺生产可用。范围包括 Workflow/Blackboard 协调、认证 HTTP/MCP、操作控制台、托管 Artifact、Core/Daemon 双二进制和隔离示例，使用方式见[安装指南](installation.zh-CN.md)。这不是发布公告，Snapshot 仍是未发布的候选包。

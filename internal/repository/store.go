@@ -122,7 +122,9 @@ func (s *sqlStore) ListWorkItems(filter application.WorkItemFilter) ([]domain.Wo
 	return result, normalizeError(rows.Err())
 }
 
-func (s *sqlStore) ListHumanAttention(actor domain.ActorRef, page application.PageRequest[application.HumanAttentionCursor]) ([]application.HumanAttentionItem, error) {
+// Keep the start-over source set uncorrelated so history is scanned once, rather
+// than once per candidate. Exclude NULL sources so NOT IN retains ordinary work.
+func humanAttentionQuery(actor domain.ActorRef, page application.PageRequest[application.HumanAttentionCursor]) (string, []any) {
 	query := `
 		SELECT kind, work_item_payload, task_payload
 		FROM (
@@ -161,7 +163,10 @@ func (s *sqlStore) ListHumanAttention(actor domain.ActorRef, page application.Pa
 			)
 			WHERE ? = 'human' AND w.mode = 'workflow'
 				AND (w.status = 'failed' OR (w.status = 'open' AND t.id IS NOT NULL))
-				AND NOT EXISTS (SELECT 1 FROM work_items replacement WHERE replacement.started_over_from_work_item_id = w.id)
+				AND w.id NOT IN (
+					SELECT replacement.started_over_from_work_item_id FROM work_items replacement
+					WHERE replacement.started_over_from_work_item_id IS NOT NULL
+				)
 		) attention`
 	args := []any{
 		domain.WorkItemStatusOpen, domain.TaskStatusInReview,
@@ -188,6 +193,11 @@ func (s *sqlStore) ListHumanAttention(actor domain.ActorRef, page application.Pa
 		query += " LIMIT ?"
 		args = append(args, page.Limit+1)
 	}
+	return query, args
+}
+
+func (s *sqlStore) ListHumanAttention(actor domain.ActorRef, page application.PageRequest[application.HumanAttentionCursor]) ([]application.HumanAttentionItem, error) {
+	query, args := humanAttentionQuery(actor, page)
 	rows, err := s.query(query, args...)
 	if err != nil {
 		return nil, err
