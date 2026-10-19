@@ -102,6 +102,8 @@ Human Attention 使用后端聚合结果，不在前端重新计算 owner、Revi
 
 ## 10. 验证
 
+TypeScript 6 默认检查副作用导入。`web/src/vite-env.d.ts` 引入 `vite/client`，为 CSS 等由 Vite 处理的资源提供类型声明；升级编译器时保留这项声明，并通过完整构建验证资源导入。
+
 交互变更至少覆盖：
 
 1. 正常路径：操作可见、请求正确、成功后状态更新；
