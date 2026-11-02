@@ -3,15 +3,17 @@ import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-q
 import { ArrowDown, ShieldCheck } from 'lucide-react'
 import { api } from './api'
 import { useI18n } from './i18n'
+import type { RouteState } from './route'
 import { refreshHomeState } from './taskOperations'
 import type { CreateWorkItemInput, Identity, Mode, WorkItem } from './types'
 import { FormError, Modal, formValue, splitValues } from './ui'
 
 export type WorkDefinitionTarget = { id: string; mode: Mode; name: string; version: number }
 
-export function CreateWorkModal({ open, onOpenChange, identity, definition, onCreated }: {
+export function CreateWorkModal({ open, onOpenChange, identity, definition, onCreated, navigate }: {
   open: boolean; onOpenChange: (open: boolean) => void; identity: Identity
   definition?: WorkDefinitionTarget | null; onCreated?: (workItem: WorkItem) => void
+  navigate: (route: RouteState) => void
 }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
@@ -45,6 +47,13 @@ export function CreateWorkModal({ open, onOpenChange, identity, definition, onCr
   const definitionsError = blackboards.error ?? workflows.error
   const hasMoreDefinitions = blackboards.hasNextPage || workflows.hasNextPage
   const loadingMoreDefinitions = blackboards.isFetchingNextPage || workflows.isFetchingNextPage
+  const loadingDefinitions = blackboards.isPending || workflows.isPending || blackboards.isFetching || workflows.isFetching
+  const noDefinitions = !definition && !loadingDefinitions && blackboards.isSuccess && workflows.isSuccess && availableDefinitions.length === 0 && !hasMoreDefinitions
+
+  function openDefinitions(mode: Mode) {
+    onOpenChange(false)
+    navigate({ workItemID: null, taskID: null, homeView: 'all', ...(mode === 'workflow' ? { workflowID: null, workflowEditing: true } : { blackboardID: null }) })
+  }
 
   async function loadMoreDefinitions() {
     await Promise.all([
@@ -54,7 +63,13 @@ export function CreateWorkModal({ open, onOpenChange, identity, definition, onCr
   }
 
   return <Modal open={open} onOpenChange={onOpenChange} title={t('openNewWork')} eyebrow={t('newWork')}>
-    <form className="form-grid" onSubmit={submit}>
+    {noDefinitions ? <div className="definition-onboarding">
+      <h3>{t('firstDefinitionTitle')}</h3>
+      <p>{t('firstDefinitionBody')}</p>
+      <div><button className="primary-button" onClick={() => openDefinitions('workflow')}>{t('newWorkflow')}</button><p>{t('firstWorkflowHint')}</p></div>
+      <div><button className="quiet-button" onClick={() => openDefinitions('blackboard')}>{t('openBlackboardLibrary')}</button><p>{t('firstBlackboardHint')}</p></div>
+    </div> : <form className="form-grid" onSubmit={submit}>
+      {!definition && loadingDefinitions && <p className="wide" role="status">{t('loadingDefinitions')}</p>}
       {definition ? <div className="selected-definition wide"><span>{t('coordinationDefinition')}</span><strong>{definition.name}</strong><small>v{definition.version} · {t(definition.mode === 'workflow' ? 'workflow' : 'blackboard')}</small></div> : <label className="wide">{t('coordinationDefinition')}<select name="definition" required defaultValue=""><option value="" disabled>{t('selectDefinition')}</option>{availableDefinitions.map(item => <option key={`${item.mode}-${item.id}-${item.version}`} value={`${item.id}|${item.mode}`}>{item.name} · v{item.version} · {t(item.mode === 'workflow' ? 'workflow' : 'blackboard')}</option>)}</select></label>}
       {!definition && hasMoreDefinitions && <button type="button" className="load-more-button wide" disabled={loadingMoreDefinitions} onClick={loadMoreDefinitions}><ArrowDown size={15} />{t(loadingMoreDefinitions ? 'loadingMore' : 'loadMore')}</button>}
       <label className="wide">{t('title')}<input name="title" required /></label>
@@ -67,7 +82,7 @@ export function CreateWorkModal({ open, onOpenChange, identity, definition, onCr
       {definitionsError && <FormError error={definitionsError} />}
       {mutation.error && <FormError error={mutation.error} />}
       <div className="form-actions"><button type="button" onClick={() => onOpenChange(false)}>{t('cancel')}</button><button className="primary-button" disabled={mutation.isPending || (!definition && availableDefinitions.length === 0)}>{t('openWork')}</button></div>
-    </form>
+    </form>}
   </Modal>
 }
 

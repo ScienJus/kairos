@@ -10,7 +10,13 @@ on:
       - scripts/test_verify_release.py
       - scripts/generate-third-party-notices.mjs
       - examples/**
-      - docs/installation*.md
+      - docs/**
+      - README*.md
+      - ROADMAP*.md
+      - CONTRIBUTING*.md
+      - SECURITY*.md
+      - .agents/skills/kairos-agent/**
+      - .codex/config.toml
   push:
     tags:
       - "v*"

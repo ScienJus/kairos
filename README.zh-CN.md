@@ -26,15 +26,29 @@ Kairos 是面向人类与 AI Agent 团队的开源协作协调服务器。它让
 
 ## 用两个 Codex 会话实际跑一遍
 
-启动一个包含两份并行工作和一次最终汇合的本地示例：
+从**源码仓库**运行本地示例（需要 Go、Node.js、npm 和 curl）：
 
 ```bash
+git clone https://github.com/ScienJus/kairos.git
+cd kairos
 make quickstart
 ```
 
-然后按[快速体验指南](examples/quickstart/README.zh-CN.md)连接两个 Codex 会话。它们会领取不同的工作，最终任务开放时已经带上两份上游结果。
+使用**发布包**时，按[安装指南](docs/installation.zh-CN.md)免编译启动，并使用对应版本的示例入口。运行发布包无需 Go 或 Node.js。
+
+按[快速体验指南](examples/quickstart/README.zh-CN.md)连接两个 Codex 会话。它们会领取不同的工作，最终任务开放时已经带上两份上游结果。
 
 Kairos 只协调 Agent 周围的工作，不选择模型、不提供沙箱，也不取代 Agent 运行环境。Agent 可以直接通过 MCP 和 Skill 接入；Agent Daemon 则可以为配置好的运行环境自动发现并执行工作。
+
+## 安装 Agent Skill
+
+在 Agent 实际工作的项目目录中运行：
+
+```bash
+npx skills add ScienJus/kairos --skill kairos-agent
+```
+
+在安装器中选择目标 Agent。这条命令只安装协作指令；仍需运行 Kairos 服务并配置 MCP 连接，前提见[接入 Agent](docs/installation.zh-CN.md#接入-agent)。Kairos 仓库已包含上方快速体验所用的 Skill。
 
 ## 工作如何推进
 

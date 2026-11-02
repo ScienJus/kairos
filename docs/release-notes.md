@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### First-use setup
+
+An empty Create work dialog now explains the collaboration-plan prerequisite and links to Workflow creation or the Blackboard library. The [installation guide](installation.md#connect-your-agent) includes standalone Skill and MCP setup. New packages bundle quickstart, Skill, local Codex configuration and documentation; run `sh examples/quickstart/run.sh` without a build toolchain. The script prints the actual MCP URL, including an alternate port. Existing `v0.1.0-alpha.1` assets are unchanged. No API or schema migration is required.
+
 ### Artifact preview
 
 Task and WorkItem artifact history can preview small managed text deliverables as Markdown or source while retaining download access. Preview uses the existing content authorization and needs no API or database migration. See the [Artifact preview boundaries](api-reference.md#artifacts).
