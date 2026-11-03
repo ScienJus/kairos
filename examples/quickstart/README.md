@@ -14,7 +14,7 @@ sh examples/quickstart/run.sh
 
 The older `v0.1.0-alpha.1` archive does not include quickstart. Follow its [manual installation path](../../docs/installation.md) instead.
 
-From source, prerequisites are Go 1.26.9 or later, Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, npm, and curl.
+From source, prerequisites are Go 1.26.10 or later, Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, npm, and curl.
 
 From the repository root:
 

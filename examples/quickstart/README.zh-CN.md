@@ -14,7 +14,7 @@ sh examples/quickstart/run.sh
 
 较早的 `v0.1.0-alpha.1` Archive 不包含 quickstart，请按[手动安装流程](../../docs/installation.zh-CN.md)使用。
 
-源码构建要求 Go 1.26.9 或更高版本、Node.js 22.22.2+（22.x）、24.15.0+（24.x）或 26+、npm 和 curl。
+源码构建要求 Go 1.26.10 或更高版本、Node.js 22.22.2+（22.x）、24.15.0+（24.x）或 26+、npm 和 curl。
 
 在仓库根目录执行：
 
