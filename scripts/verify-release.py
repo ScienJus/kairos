@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import platform
+import posixpath
 import re
 import socket
 import subprocess
@@ -17,7 +18,33 @@ import tarfile
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+
+
+REQUIRED_FILES = {"kairos-server", "kairos-daemon", "LICENSE", "THIRD_PARTY_NOTICES.txt",
+                  "README.md", "README.zh-CN.md", "docs/installation.md", "docs/installation.zh-CN.md",
+                  ".codex/config.toml", ".agents/skills/kairos-agent/SKILL.md",
+                  "examples/quickstart/run.sh", "examples/quickstart/workflow.json",
+                  "examples/quickstart/work-item.json", "examples/quickstart/README.md",
+                  "examples/quickstart/README.zh-CN.md",
+                  "examples/daemon/run.sh", "examples/daemon/workflow.json",
+                  "examples/daemon/blackboard.json", "examples/review-loop/run.sh",
+                  "examples/review-loop/workflow.json", "examples/review-loop/work-item.json"}
+
+
+def verify_entry_links(archive, names):
+    for source in ("README.md", "README.zh-CN.md", "docs/installation.md", "docs/installation.zh-CN.md",
+                   "examples/quickstart/README.md", "examples/quickstart/README.zh-CN.md"):
+        text = archive.extractfile(source).read().decode("utf-8")
+        links = re.findall(r'\]\(([^\s)]+)\)|<img[^>]+src="([^"]+)"', text)
+        for markdown, image in links:
+            target = markdown or image
+            if target.startswith("#") or urllib.parse.urlsplit(target).scheme:
+                continue
+            path = urllib.parse.unquote(urllib.parse.urlsplit(target).path)
+            resolved = posixpath.normpath(posixpath.join(posixpath.dirname(source), path))
+            require(resolved in names, "Broken packaged link: " + source + " -> " + target)
 
 
 def require(condition, message):
@@ -48,11 +75,6 @@ def verify_archives(assets, version, destination):
     host = platform.system().lower()
     arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "amd64"}.get(platform.machine())
     require(host in ("darwin", "linux") and arch, "Unsupported verification host")
-    required = {"kairos-server", "kairos-daemon", "LICENSE", "THIRD_PARTY_NOTICES.txt",
-                "docs/installation.md", "docs/installation.zh-CN.md",
-                "examples/daemon/run.sh", "examples/daemon/workflow.json",
-                "examples/daemon/blackboard.json", "examples/review-loop/run.sh",
-                "examples/review-loop/workflow.json", "examples/review-loop/work-item.json"}
     for target_os in ("darwin", "linux"):
         for target_arch in ("amd64", "arm64"):
             name = "kairos_{}_{}_{}.tar.gz".format(version, target_os, target_arch)
@@ -60,7 +82,7 @@ def verify_archives(assets, version, destination):
             with tarfile.open(assets / name) as archive:
                 members = archive.getmembers()
                 names = {member.name for member in members}
-                require(required <= names, "Required packaged files missing: " + name)
+                require(REQUIRED_FILES <= names, "Required packaged files missing: " + name + ": " + ", ".join(sorted(REQUIRED_FILES - names)))
                 require(len(names) == len(members), "Duplicate archive paths: " + name)
                 for member in members:
                     path = PurePosixPath(member.name)
@@ -71,6 +93,7 @@ def verify_archives(assets, version, destination):
                             "Private runtime files in archive")
                 for binary in ("kairos-server", "kairos-daemon"):
                     require(archive.getmember(binary).mode & 0o111, "Binary is not executable")
+                verify_entry_links(archive, names)
                 if (target_os, target_arch) == (host, arch):
                     # All member paths and file types were checked above.
                     archive.extractall(destination)
@@ -134,6 +157,47 @@ def verify_runtime(package, version, data, environment):
         require(process.returncode == 0, "Packaged Core shutdown failed")
 
 
+def verify_quickstart(package, data, environment):
+    address = unused_address()
+    base = "http://" + address
+    http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    # The demo must isolate itself even when launched from a configured deployment.
+    environment = dict(environment, TMPDIR=str(data), KAIROS_QUICKSTART_ADDR=address,
+                       KAIROS_AUTH_MODE="authenticated", KAIROS_POSTGRES_DSN="postgres://invalid.invalid/unavailable")
+    log_path = data / "quickstart.log"
+    with log_path.open("wb") as log:
+        process = subprocess.Popen(["sh", str(package / "examples/quickstart/run.sh")], cwd=data,
+                                   env=environment, stdout=log, stderr=log)
+        try:
+            deadline = time.monotonic() + 15
+            while "Ask each session:" not in log_path.read_text():
+                require(process.poll() is None, "Packaged quickstart exited: " + log_path.read_text())
+                require(time.monotonic() < deadline, "Packaged quickstart startup timed out")
+                time.sleep(0.1)
+            require('mcp_servers.kairos.url="' + base + '/mcp"' in log_path.read_text(),
+                    "Quickstart command does not use its listening address")
+            headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+                       "X-Kairos-Actor-Id": "package-verifier", "X-Kairos-Actor-Kind": "agent",
+                       "X-Kairos-Actor-Role": "contributor"}
+            def rpc(method, params, notification=False):
+                payload = {"jsonrpc": "2.0", "method": method, "params": params}
+                if not notification:
+                    payload["id"] = 1
+                request = urllib.request.Request(base + "/mcp", headers=headers,
+                    data=json.dumps(payload).encode())
+                with http.open(request, timeout=3) as response:
+                    body = response.read()
+                    return json.loads(body)["result"] if body else None
+            rpc("initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
+                               "clientInfo": {"name": "package-verifier", "version": "1"}})
+            rpc("notifications/initialized", {}, notification=True)
+            result = rpc("tools/call", {"name": "find_work", "arguments": {}})
+            require(not result.get("isError") and len(result["structuredContent"]["candidates"]) == 2,
+                    "Packaged quickstart did not expose its two Agent Tasks through MCP")
+        finally:
+            stop(process)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--assets", type=Path, required=True, help="Directory containing all four archives and checksums.txt")
@@ -148,6 +212,7 @@ def main():
         data = root / "data"
         data.mkdir(mode=0o700)
         verify_runtime(package, args.version, data, environment)
+        verify_quickstart(package, data, environment)
         for example, variable in (("daemon", "KAIROS_DAEMON_EXAMPLE"), ("review-loop", "KAIROS_REVIEW_LOOP")):
             process = subprocess.Popen(["sh", str(package / "examples" / example / "run.sh")], cwd=package,
                                        env=dict(environment, TMPDIR=str(root), **{variable + "_SMOKE": "1", variable + "_ADDR": unused_address()}),
@@ -158,7 +223,7 @@ def main():
             finally:
                 stop(process)
         print(json.dumps({"target": target, "version": args.version, "checksums": "ok", "archives": 4,
-                          "console_assets": "ok", "example_setup": "ok", "model_calls": 0}))
+                          "console_assets": "ok", "quickstart_mcp": "ok", "example_setup": "ok", "model_calls": 0}))
 
 
 if __name__ == "__main__":

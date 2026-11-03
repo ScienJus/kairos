@@ -46,7 +46,13 @@ archives:
       - LICENSE
       - README.md
       - README.zh-CN.md
-      - docs/installation*.md
+      - ROADMAP*.md
+      - CONTRIBUTING*.md
+      - SECURITY*.md
+      - docs/**
+      - .agents/skills/kairos-agent/**
+      - .codex/config.toml
+      - examples/quickstart/**
       - examples/daemon/**
       - examples/review-loop/**
       - internal/daemon/README.md

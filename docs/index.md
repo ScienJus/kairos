@@ -14,7 +14,7 @@ type: home
 <div class="callout">
   <span class="callout-label">START HERE</span>
   <strong>Run two agents without giving them the same job</strong>
-  <p>Run <code>make quickstart</code> from the repository root. The example opens two tasks in parallel, then unlocks a final task when both results are ready.</p>
+  <p>Run <code>make quickstart</code> from a source checkout, or follow the <a href="installation.html">release-package installation guide</a> for no-build startup. The example opens two tasks in parallel, then unlocks a final task when both results are ready.</p>
 </div>
 
 <figure class="product-shot">

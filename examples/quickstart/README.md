@@ -6,7 +6,15 @@ This example demonstrates two Tasks that are immediately available in parallel a
 
 ## Run the example
 
-Prerequisites: Go 1.26.9 or later, Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, npm, and curl.
+With a release package that includes this example, only curl and the packaged server are needed to start it. From the extracted directory:
+
+```sh
+sh examples/quickstart/run.sh
+```
+
+The older `v0.1.0-alpha.1` archive does not include quickstart. Follow its [manual installation path](../../docs/installation.md) instead.
+
+From source, prerequisites are Go 1.26.10 or later, Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, npm, and curl.
 
 From the repository root:
 
@@ -14,24 +22,28 @@ From the repository root:
 make quickstart
 ```
 
-The command builds Kairos, starts it at `http://127.0.0.1:8080`, and seeds an isolated example Workflow and WorkItem. Open the URL to follow execution in the operations console. The temporary database and Artifact directory are removed when you press Ctrl-C.
+`make quickstart` builds Kairos first; the packaged command uses its prebuilt binary. Both start at `http://127.0.0.1:8080` in Trusted Mode and seed an isolated example Workflow and WorkItem, ignoring an inherited PostgreSQL DSN. Open the URL to follow execution in the operations console. The temporary database and Artifact directory are removed when you press Ctrl-C.
 
 If port 8080 is occupied, choose another address:
 
 ```bash
 KAIROS_QUICKSTART_ADDR=127.0.0.1:8081 make quickstart
+# In an extracted package:
+KAIROS_QUICKSTART_ADDR=127.0.0.1:8081 sh examples/quickstart/run.sh
 ```
 
 ## Connect agents
 
-The repository already contains the local Codex MCP configuration and Kairos Skill. From separate terminals in the repository, start one or more sessions with unique actor IDs and the `contributor` role:
+The checkout and new packages contain `.codex/config.toml` and `.agents/skills/kairos-agent`. Use the Codex command printed by the script, which includes the actual MCP URL. For the default port, from separate terminals in that directory:
 
 ```bash
 KAIROS_ACTOR_ID=quickstart-agent-1 \
 KAIROS_ACTOR_KIND=agent \
 KAIROS_ACTOR_ROLE=contributor \
-codex
+codex -c 'mcp_servers.kairos.url="http://127.0.0.1:8080/mcp"'
 ```
+
+Trust the directory in Codex so it loads the project MCP configuration. If you changed the listening port, use the printed URL instead of 8080. To run Agents in a different project, follow [standalone Agent setup](../../docs/installation.md#connect-your-agent); installing the Skill alone does not configure MCP. Codex CLI login is required for actual Agent execution.
 
 Use `quickstart-agent-2` for the second session. Ask each session:
 

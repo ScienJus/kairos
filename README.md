@@ -26,15 +26,29 @@ With Kairos:
 
 ## See It with Two Codex Sessions
 
-Run a real local example with two parallel jobs and one final handoff:
+From a **source checkout**, run the local example (requires Go, Node.js, npm and curl):
 
 ```bash
+git clone https://github.com/ScienJus/kairos.git
+cd kairos
 make quickstart
 ```
 
-Follow the [quickstart guide](examples/quickstart/README.md) to connect two Codex sessions. Each receives different work, and the final job opens with both upstream results already attached.
+Using a **release package**? Follow the [installation guide](docs/installation.md) for its no-build startup and bundled demo instructions. Packages run without Go or Node.js.
+
+The [quickstart guide](examples/quickstart/README.md) connects two Codex sessions: each receives different work, and the final job opens with both upstream results attached.
 
 Kairos coordinates the work around your agents. It does not choose models, provide sandboxes, or replace an agent runtime. Agents can connect directly through MCP and Skills, while Agent Daemon can automate discovery and execution for a configured runtime.
+
+## Install the Agent Skill
+
+From the project where your agents will work:
+
+```bash
+npx skills add ScienJus/kairos --skill kairos-agent
+```
+
+Choose your target agents in the installer. This installs the coordination instructions; you still need a running Kairos server and an MCP connection. See [agent setup](docs/installation.md#connect-your-agent) for the prerequisites. A Kairos checkout already includes the Skill used by the quickstart above.
 
 ## How Work Moves
 
@@ -83,7 +97,7 @@ Current work focuses on more Provider/platform validation, hardened deployment, 
 
 For the alpha release target, see [installing a release package](docs/installation.md). Published packages include both binaries and the console and do not require Go or Node.js. Local snapshots are candidates until a version appears on GitHub Releases.
 
-Development requires Go 1.26.9+. Building the console also requires Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, plus npm.
+Development requires Go 1.26.10+. Building the console also requires Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, plus npm.
 
 ```bash
 make build

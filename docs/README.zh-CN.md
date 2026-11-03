@@ -15,7 +15,7 @@ type: home
 <div class="callout">
   <span class="callout-label">从这里开始</span>
   <strong>让两个 Agent 并行工作，而不是重复劳动</strong>
-  <p>在仓库根目录运行 <code>make quickstart</code>。示例会开放两个并行 Task，并在两份结果都准备好后解锁最后的汇总 Task。</p>
+  <p>源码仓库中运行 <code>make quickstart</code>；发布包按<a href="installation.zh-CN.html">安装指南</a>免编译启动。示例会开放两个并行 Task，并在两份结果都准备好后解锁最后的汇总 Task。</p>
 </div>
 
 <figure class="product-shot">

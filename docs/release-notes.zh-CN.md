@@ -4,6 +4,10 @@
 
 ## 未发布
 
+### 首次使用接入
+
+空的创建工作弹层现在说明协作方案前置条件，并提供 Workflow 编辑器或 Blackboard 资料架入口。[安装指南](installation.zh-CN.md#接入-agent)补充独立安装 Skill 与 MCP 配置步骤。新包包含 quickstart、Skill、本地 Codex 配置及配套文档，可用 `sh examples/quickstart/run.sh` 免编译运行；脚本会打印包含实际端口的 MCP URL。已有 `v0.1.0-alpha.1` 附件保持原样，无需 API 或数据库迁移。
+
 ### 产物预览
 
 Task 与 WorkItem 产物历史支持直接预览小型托管文本成果，可切换 Markdown 和原文并保留下载。预览沿用现有内容读取权限，无需 API 或数据库迁移。边界见 [产物预览说明](api-reference.zh-CN.md#artifact)。

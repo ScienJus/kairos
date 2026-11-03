@@ -3,7 +3,7 @@
   "mode": "workflow",
   "title": "Prepare Kairos for its first public release",
   "goal": "Produce an evidence-backed open source release plan for this repository.",
-  "context": "Kairos coordinates work shared by people and agents. This example demonstrates parallel discovery, exclusive Claims, durable results, and a join.",
+  "context": "Kairos coordinates work shared by people and agents. This example demonstrates parallel discovery, exclusive Claims, durable results, and a join. The workspace may be a source checkout or an extracted release package; assess the files actually supplied and state any missing source evidence.",
   "constraints": "Inspect the repository only. Do not modify files while completing this demonstration.",
   "acceptance_criteria": "The final result identifies release blockers, prioritizes follow-up work, and incorporates both parallel reviews.",
   "tags": ["quickstart", "release"]

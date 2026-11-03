@@ -9,7 +9,7 @@
       {
         "id": "review-code",
         "title": "Review implementation readiness",
-        "description": "Inspect the code, tests, configuration, and operational defaults for release risks.",
+        "description": "Inspect the available code, tests, configuration, and operational defaults for release risks. In an extracted release package, assess the bundled configuration and startup behavior; explicitly mark source and test verification as unavailable rather than inventing evidence.",
         "acceptance_criteria": "Report the highest-impact risks with concrete repository evidence.",
         "executor": "agent",
         "allowed_roles": ["contributor"],

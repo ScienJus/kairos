@@ -10,7 +10,13 @@ on:
       - scripts/test_verify_release.py
       - scripts/generate-third-party-notices.mjs
       - examples/**
-      - docs/installation*.md
+      - docs/**
+      - README*.md
+      - ROADMAP*.md
+      - CONTRIBUTING*.md
+      - SECURITY*.md
+      - .agents/skills/kairos-agent/**
+      - .codex/config.toml
   push:
     tags:
       - "v*"
@@ -31,7 +37,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.26.9
+          go-version: 1.26.10
           cache: true
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

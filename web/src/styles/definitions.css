@@ -51,6 +51,10 @@
 .selected-definition > span { grid-column: 1 / -1; color: #728682; font-size: 9px; }
 .selected-definition strong { color: #385353; font-size: 13px; font-weight: 600; }
 .selected-definition small { align-self: center; color: #768985; font-size: 10px; }
+.definition-onboarding { display: grid; gap: 16px; padding: 24px; }
+.definition-onboarding h3 { margin: 0; color: var(--text); font-size: 17px; }
+.definition-onboarding p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.definition-onboarding > div { display: grid; justify-items: start; gap: 8px; padding-top: 4px; }
 .workflow-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 24px; background: #f0f4f1; border-radius: 8px; }
 .workflow-summary > div { min-height: 68px; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 0 18px; border-right: 1px solid #dfe6e1; }
 .workflow-summary > div:last-child { border-right: 0; }

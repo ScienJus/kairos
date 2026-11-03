@@ -1,9 +1,17 @@
 #!/bin/sh
 set -eu
+umask 077
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+bin_dir=${KAIROS_BIN_DIR:-$repository_root/bin}
+if [ -x "$repository_root/kairos-server" ]; then bin_dir=${KAIROS_BIN_DIR:-$repository_root}; fi
+if [ ! -x "$bin_dir/kairos-server" ]; then
+	printf 'Kairos binary not found. Use a release package or run make build in a source checkout.\n' >&2
+	exit 1
+fi
 listen_addr=${KAIROS_QUICKSTART_ADDR:-127.0.0.1:8080}
+case "$listen_addr" in 127.0.0.1:*) ;; *) printf 'Quickstart must bind to 127.0.0.1.\n' >&2; exit 1;; esac
 base_url="http://$listen_addr"
 demo_dir=$(mktemp -d "${TMPDIR:-/tmp}/kairos-quickstart.XXXXXX")
 server_pid=""
@@ -30,19 +38,20 @@ server_is_running() {
 	esac
 }
 
-if curl --fail --silent --show-error "$base_url/healthz" >/dev/null 2>&1; then
+if curl --noproxy 127.0.0.1 --max-time 10 --fail --silent --show-error "$base_url/healthz" >/dev/null 2>&1; then
 	printf 'Kairos is already responding at %s; choose another KAIROS_QUICKSTART_ADDR.\n' "$base_url" >&2
 	exit 1
 fi
 
+KAIROS_AUTH_MODE=trusted KAIROS_POSTGRES_DSN='' \
 KAIROS_LISTEN_ADDR="$listen_addr" \
 KAIROS_SQLITE_PATH="$demo_dir/kairos.db" \
 KAIROS_ARTIFACT_DIR="$demo_dir/artifacts" \
-	"$repository_root/bin/kairos-server" >"$demo_dir/server.log" 2>&1 &
+	"$bin_dir/kairos-server" >"$demo_dir/server.log" 2>&1 &
 server_pid=$!
 
 attempt=0
-until curl --fail --silent --show-error "$base_url/healthz" >/dev/null 2>&1; do
+until curl --noproxy 127.0.0.1 --max-time 10 --fail --silent --show-error "$base_url/healthz" >/dev/null 2>&1; do
 	attempt=$((attempt + 1))
 	if ! server_is_running; then
 		printf 'Kairos failed to start:\n' >&2
@@ -67,7 +76,7 @@ fi
 request() {
 	endpoint=$1
 	payload=$2
-	curl --fail-with-body --silent --show-error \
+	curl --noproxy 127.0.0.1 --max-time 10 --fail-with-body --silent --show-error \
 		-X POST "$base_url$endpoint" \
 		-H 'Content-Type: application/json' \
 		-H 'X-Kairos-Actor-Id: quickstart-operator' \
@@ -79,7 +88,7 @@ create_resource() {
 	operation_id=$1
 	endpoint=$2
 	payload=$3
-	curl --fail-with-body --silent --show-error \
+	curl --noproxy 127.0.0.1 --max-time 10 --fail-with-body --silent --show-error \
 		-X POST "$base_url$endpoint" \
 		-H 'Content-Type: application/json' \
 		-H 'X-Kairos-Actor-Id: quickstart-operator' \
@@ -92,7 +101,7 @@ request /api/v1/definitions/workflows/open-source-readiness/versions "$script_di
 create_resource quickstart-create-work-item /api/v1/work-items "$script_dir/work-item.json"
 
 if [ "${KAIROS_QUICKSTART_SMOKE_TEST:-}" = "1" ]; then
-	curl --fail --silent --show-error "$base_url/api/v1/work" \
+	curl --noproxy 127.0.0.1 --max-time 10 --fail --silent --show-error "$base_url/api/v1/work" \
 		-H 'X-Kairos-Actor-Id: quickstart-verifier' \
 		-H 'X-Kairos-Actor-Kind: agent' \
 		-H 'X-Kairos-Actor-Role: contributor' >/dev/null
@@ -101,8 +110,9 @@ fi
 
 printf '\nKairos quickstart is ready at %s\n\n' "$base_url"
 printf 'The example has two parallel Tasks followed by one join Task.\n'
-printf 'Open the console, then start one or more Codex sessions from this repository with:\n\n'
-printf '  KAIROS_ACTOR_ID=quickstart-agent-1 KAIROS_ACTOR_KIND=agent KAIROS_ACTOR_ROLE=contributor codex\n\n'
+printf 'Open the console, then start one or more Codex sessions from this checkout or extracted package:\n\n'
+printf '  KAIROS_ACTOR_ID=quickstart-agent-1 KAIROS_ACTOR_KIND=agent KAIROS_ACTOR_ROLE=contributor codex -c '\''mcp_servers.kairos.url="%s/mcp"'\''\n\n' "$base_url"
+printf 'Trust this directory in Codex to load its .codex/config.toml. For another project, follow docs/installation.md.\n'
 printf 'Ask each session: Use $kairos-agent to find and complete one available Task.\n'
 printf 'Press Ctrl-C here to stop Kairos and remove the temporary demo data.\n\n'
 
